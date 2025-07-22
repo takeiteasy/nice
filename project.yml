@@ -1,0 +1,41 @@
+name: rpg
+
+options:
+  bundleIdPrefix: io.github.takeiteasy
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "15.0"
+
+settings:
+  GCC_C_LANGUAGE_STANDARD: c11
+  CLANG_WARN_DOCUMENTATION_COMMENTS: false
+
+targets:
+  rpg:
+    type: tool
+    platform: macOS
+    sources:
+        - path: src/
+        - path: scenes/
+        - path: deps/
+          type: folder
+        - path: assets/
+          type: folder
+        - path: build/
+          type: folder
+        - path: project.yml
+          type: folder
+        - path: Makefile
+          type: folder
+    dependencies:
+        - sdk: Cocoa.framework
+        - sdk: IOKit.framework
+        - sdk: Metal.framework
+        - sdk: MetalKit.framework
+        - sdk: Quartz.framework
+        - sdk: AudioToolbox.framework
+    settings:
+        HEADER_SEARCH_PATHS: [$(PROJECT_DIR)/deps,
+                              $(PROJECT_DIR)/src,
+                              $(PROJECT_DIR)/scenes]
+        OTHER_CFLAGS: [-x objective-c, -DSOKOL_METAL, -fenable-matrix]
