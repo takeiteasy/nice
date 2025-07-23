@@ -13,7 +13,7 @@
 #include <assert.h>
 
 const uint64_t ecs_nil = 0xFFFFFFFFull;
-const entity ecs_nil_entity = {.id=ecs_nil};
+const union entity ecs_nil_entity = {.id=ecs_nil};
 
 static struct sparse* sparse(void) {
     struct sparse *result = malloc(sizeof(struct sparse));
@@ -31,11 +31,11 @@ static void sparse_destroy(struct sparse **sparse) {
     *sparse = NULL;
 }
 
-static int sparse_has(struct sparse *sparse, entity e) {
+static int sparse_has(struct sparse *sparse, union entity e) {
     return e.id < sparse->sizeOfSparse && !entity_isnil(sparse->sparse[e.id]);
 }
 
-static void sparse_emplace(struct sparse *sparse, entity e) {
+static void sparse_emplace(struct sparse *sparse, union entity e) {
     if (e.id > sparse->sizeOfSparse) {
         size_t size = e.id + 1;
         sparse->sparse = realloc(sparse->sparse, size * sizeof * sparse->sparse);
@@ -43,27 +43,27 @@ static void sparse_emplace(struct sparse *sparse, entity e) {
             sparse->sparse[i] = ecs_nil_entity;
         sparse->sizeOfSparse = size;
     }
-    sparse->sparse[e.id] = (entity){.id=(uint32_t)sparse->sizeOfDense};
+    sparse->sparse[e.id] = (union entity){.id=(uint32_t)sparse->sizeOfDense};
     sparse->dense = realloc(sparse->dense, (sparse->sizeOfDense + 1) * sizeof * sparse->dense);
     sparse->dense[sparse->sizeOfDense++] = e;
 }
 
-static size_t sparse_at(struct sparse *sparse, entity e) {
+static size_t sparse_at(struct sparse *sparse, union entity e) {
     return sparse->sparse[e.id].id;
 }
 
-static size_t sparse_remove(struct sparse *sparse, entity e) {
+static size_t sparse_remove(struct sparse *sparse, union entity e) {
     assert(sparse_has(sparse, e));
     uint32_t pos = sparse_at(sparse, e);
-    entity other = sparse->dense[sparse->sizeOfDense-1];
-    sparse->sparse[other.id] = (entity){.id=pos};
+    union entity other = sparse->dense[sparse->sizeOfDense-1];
+    sparse->sparse[other.id] = (union entity){.id=pos};
     sparse->dense[pos] = other;
     sparse->sparse[e.id] = ecs_nil_entity;
     sparse->dense = realloc(sparse->dense, --sparse->sizeOfDense * sizeof * sparse->dense);
     return pos;
 }
 
-static struct storage* storage(entity e, size_t sz) {
+static struct storage* storage(union entity e, size_t sz) {
     struct storage *storage = malloc(sizeof(struct storage));
     *storage = (struct storage) {
         .componentId = e,
@@ -85,18 +85,18 @@ static void storage_destroy(struct storage **strg) {
     *strg = NULL;
 }
 
-static int storage_has(struct storage *strg, entity e) {
+static int storage_has(struct storage *strg, union entity e) {
     return sparse_has(strg->sparse, e);
 }
 
-static void* storage_emplace(struct storage *strg, entity e) {
+static void* storage_emplace(struct storage *strg, union entity e) {
     strg->data = realloc(strg->data, ++strg->sizeOfData * sizeof(char) * strg->sizeOfComponent);
     void *result = &((char*)strg->data)[(strg->sizeOfData - 1) * sizeof(char) * strg->sizeOfComponent];
     sparse_emplace(strg->sparse, e);
     return result;
 }
 
-static void storage_remove(struct storage *strg, entity e) {
+static void storage_remove(struct storage *strg, union entity e) {
     size_t pos = sparse_remove(strg->sparse, e);
     memmove(&((char*)strg->data)[pos * sizeof(char) * strg->sizeOfComponent],
             &((char*)strg->data)[(strg->sizeOfData - 1) * sizeof(char) * strg->sizeOfComponent],
@@ -104,7 +104,7 @@ static void storage_remove(struct storage *strg, entity e) {
     strg->data = realloc(strg->data, --strg->sizeOfData * sizeof(char) * strg->sizeOfComponent);
 }
 
-static void* storage_get(struct storage *strg, entity e) {
+static void* storage_get(struct storage *strg, union entity e) {
     uint32_t pos = sparse_at(strg->sparse, e);
     return &((char*)strg->data)[pos * sizeof(char) * strg->sizeOfComponent];
 }
@@ -112,15 +112,15 @@ static void* storage_get(struct storage *strg, entity e) {
 struct system {
     uint32_t id;
     uint32_t component_count;
-    entity *components;
+    union entity *components;
     system_t callback;
 };
 
-static entity make_entity(world_t *world, uint8_t type) {
+static union entity make_entity(struct world *world, uint8_t type) {
     if (world->sizeOfRecyclable) {
         uint32_t id = world->recyclable[world->sizeOfRecyclable-1];
-        entity old = world->entities[id];
-        entity new = (entity) {
+        union entity old = world->entities[id];
+        union entity new = (union entity) {
             .id = old.id,
             .version = old.version,
             .alive = 1,
@@ -130,8 +130,8 @@ static entity make_entity(world_t *world, uint8_t type) {
         world->recyclable = realloc(world->recyclable, --world->sizeOfRecyclable * sizeof(uint32_t));
         return new;
     } else {
-        world->entities = realloc(world->entities, ++world->sizeOfEntities * sizeof(entity));
-        entity e = (entity) {
+        world->entities = realloc(world->entities, ++world->sizeOfEntities * sizeof(union entity));
+        union entity e = (union entity) {
             .id = (uint32_t)world->sizeOfEntities - 1,
             .version = 0,
             .alive = 1,
@@ -142,16 +142,16 @@ static entity make_entity(world_t *world, uint8_t type) {
     }
 }
 
-world_t* ecs_world(void) {
-    world_t *result = malloc(sizeof(world_t));
-    memset(result, 0, sizeof(world_t));
-    entity e = make_entity(result, ECS_COMPONENT); // doesn't matter will always be first entity
+struct world* ecs_world(void) {
+    struct world *result = malloc(sizeof(struct world));
+    memset(result, 0, sizeof(struct world));
+    union entity e = make_entity(result, ECS_COMPONENT); // doesn't matter will always be first entity
     result->systems = storage(e, sizeof(struct system));
     return result;
 }
 
-void ecs_world_destroy(world_t **_world) {
-    world_t *world = *_world;
+void ecs_world_destroy(struct world **_world) {
+    struct world *world = *_world;
     if (world->storages) {
         for (int i = 0; i < world->sizeOfStorages; i++)
             storage_destroy(&world->storages[i]);
@@ -167,19 +167,19 @@ void ecs_world_destroy(world_t **_world) {
     *_world = NULL;
 }
 
-static struct storage* find_storage(world_t *world, entity e) {
+static struct storage* find_storage(struct world *world, union entity e) {
     for (int i = 0; i < world->sizeOfStorages; i++)
         if (entity_cmp(e, world->storages[i]->componentId))
             return world->storages[i];
     return NULL;
 }
 
-entity ecs_spawn(world_t *world) {
+union entity ecs_spawn(struct world *world) {
     return make_entity(world, ECS_ENTITY);
 }
 
-entity ecs_component(world_t *world, size_t sizeOfComponent) {
-    entity e = make_entity(world, ECS_COMPONENT);
+union entity ecs_component(struct world *world, size_t sizeOfComponent) {
+    union entity e = make_entity(world, ECS_COMPONENT);
     struct storage *strg = find_storage(world, e);
     if (strg)
         return e;
@@ -189,10 +189,10 @@ entity ecs_component(world_t *world, size_t sizeOfComponent) {
     return e;
 }
 
-static entity* vargs_components(world_t *world, int n, va_list args) {
-    entity *result = malloc(n * sizeof(entity));
+static union entity* vargs_components(struct world *world, int n, va_list args) {
+    union entity *result = malloc(n * sizeof(union entity));
     for (int i = 0; i < n; i++) {
-        entity component = va_arg(args, entity);
+        union entity component = va_arg(args, union entity);
         if (!entity_isa(world, component, ECS_COMPONENT)) {
             free(result);
             result = NULL;
@@ -205,8 +205,8 @@ BAIL:
     return result;
 }
 
-entity ecs_system(world_t *world, system_t system, int n, ...) {
-    entity e = make_entity(world, ECS_SYSTEM);
+union entity ecs_system(struct world *world, system_t system, int n, ...) {
+    union entity e = make_entity(world, ECS_SYSTEM);
     va_list args;
     va_start(args, n);
     struct system *system_data = malloc(sizeof(struct system));
@@ -219,13 +219,13 @@ entity ecs_system(world_t *world, system_t system, int n, ...) {
     return e;
 }
 
-void ecs_delete(world_t *world, entity e) {
+void ecs_delete(struct world *world, union entity e) {
     switch (e.type) {
         case ECS_ENTITY:
             for (size_t i = world->sizeOfStorages; i; --i)
                 if (world->storages[i - 1] && sparse_has(world->storages[i - 1]->sparse, e))
                     storage_remove(world->storages[i - 1], e);
-            world->entities[e.id] = (entity) {
+            world->entities[e.id] = (union entity) {
                 .id = e.id,
                 .version = e.version + 1,
                 .alive = 0,
@@ -243,23 +243,23 @@ void ecs_delete(world_t *world, entity e) {
     }
 }
 
-int entity_isvalid(world_t *world, entity e) {
+int entity_isvalid(struct world *world, union entity e) {
     return world->sizeOfEntities > e.id && entity_cmp(world->entities[e.id], e);
 }
 
-int entity_isa(world_t *world, entity e, int type) {
+int entity_isa(struct world *world, union entity e, int type) {
     return entity_isvalid(world, e) && e.type == type;
 }
 
-int entity_cmp(entity a, entity b) {
+int entity_cmp(union entity a, union entity b) {
     return a.value == b.value;
 }
 
-int entity_isnil(entity e) {
+int entity_isnil(union entity e) {
     return e.id == ecs_nil;
 }
 
-static struct storage* find_entity_storage(world_t *world, entity e, entity c) {
+static struct storage* find_entity_storage(struct world *world, union entity e, union entity c) {
     assert(entity_isa(world, e, ECS_ENTITY));
     assert(entity_isa(world, c, ECS_COMPONENT));
     struct storage *strg = find_storage(world, c);
@@ -267,40 +267,40 @@ static struct storage* find_entity_storage(world_t *world, entity e, entity c) {
     return strg;
 }
 
-void* entity_give(world_t *world, entity e, entity c) {
+void* entity_give(struct world *world, union entity e, union entity c) {
     return storage_emplace(find_entity_storage(world, e, c), e);
 }
 
-void entity_remove(world_t *world, entity e, entity c) {
+void entity_remove(struct world *world, union entity e, union entity c) {
     struct storage *strg = find_entity_storage(world, e, c);
     assert(storage_has(strg, e));
     storage_remove(strg, e);
 }
 
-void* entity_get(world_t *world, entity e, entity c) {
+void* entity_get(struct world *world, union entity e, union entity c) {
     struct storage *strg = find_entity_storage(world, e, c);
     return storage_has(strg, e) ? storage_get(strg, e) : NULL;
 }
 
-void entity_set(world_t *world, entity e, entity c, void *data) {
+void entity_set(struct world *world, union entity e, union entity c, void *data) {
     struct storage *strg = find_entity_storage(world, e, c);
     memcpy(storage_has(strg, e) ? storage_get(strg, e) : storage_emplace(strg, e),
            data,
            strg->sizeOfComponent);
 }
 
-int entity_has(world_t *world, entity e, entity c) {
+int entity_has(struct world *world, union entity e, union entity c) {
     struct storage *strg = find_storage(world, c);
     if (!strg)
         return 0;
     return storage_has(strg, e);
 }
 
-entity* ecs_find(world_t *world, filter_system_t filter, int *result_count, int n, ...) {
+union entity* ecs_find(struct world *world, filter_system_t filter, int *result_count, int n, ...) {
     va_list args;
     va_start(args, n);
-    entity *components = vargs_components(world, n, args);
-    entity *result = NULL;
+    union entity *components = vargs_components(world, n, args);
+    union entity *result = NULL;
     int count = 0;
     for (int i = 0; i < world->sizeOfEntities; i++) {
         int match = 1;
@@ -313,7 +313,7 @@ entity* ecs_find(world_t *world, filter_system_t filter, int *result_count, int 
             }
         }
         if (match && !(filter && !filter(world->entities[i]))) {
-            result = realloc(result, count + 1 * sizeof(entity));
+            result = realloc(result, count + 1 * sizeof(union entity));
             result[count++] = world->entities[i];
         }
     }
@@ -322,10 +322,10 @@ entity* ecs_find(world_t *world, filter_system_t filter, int *result_count, int 
     return result;
 }
 
-void ecs_query(world_t *world, system_t fn, filter_system_t filter, int n, ...) {
+void ecs_query(struct world *world, system_t fn, filter_system_t filter, int n, ...) {
     va_list args;
     va_start(args, n);
-    entity *components = vargs_components(world, n, args);
+    union entity *components = vargs_components(world, n, args);
 
     for (int i = 0; i < world->sizeOfEntities; i++) {
         int match = 1;
@@ -342,10 +342,10 @@ void ecs_query(world_t *world, system_t fn, filter_system_t filter, int n, ...) 
     }
 }
 
-void ecs_step(world_t *world) {
+void ecs_step(struct world *world) {
     for (int i = 0; i < world->systems->sparse->sizeOfDense; i++) {
         struct system *system_data = storage_get(world->systems, world->systems->sparse->dense[i]);
-        entity system_entity = world->entities[system_data->id];
+        union entity system_entity = world->entities[system_data->id];
         assert(entity_isa(world, system_entity, ECS_SYSTEM));
         if (!system_entity.alive)
             continue;
