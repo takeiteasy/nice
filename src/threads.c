@@ -5,6 +5,7 @@
 //  Created by George Watson on 23/07/2025.
 //
 
+#define PTHREAD_SHIM_IMPLEMENTATION
 #include "threads.h"
 
 static void* thrd_pool_worker(void *arg) {
