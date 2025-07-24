@@ -123,7 +123,7 @@ void thrd_pool_join(struct thrd_pool *pool) {
     pthread_mutex_unlock(&pool->work_lock);
 }
 
-bool thrd_queue(struct thrd_queue *queue) {
+bool thrd_queue_create(struct thrd_queue *queue) {
     if (!queue)
         return false;
     queue->head = NULL;

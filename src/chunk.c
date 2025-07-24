@@ -16,10 +16,10 @@ bool chunk_create(struct chunk *c, int x, int y, enum chunk_state state) {
 }
 
 void chunk_destroy(struct chunk *c) {
-    if (c) {
-        pthread_mutex_destroy(&c->lock);
-        memset(c, 0, sizeof(struct chunk));
-    }
+    if (!c)
+        return;
+    pthread_mutex_destroy(&c->lock);
+    memset(c, 0, sizeof(struct chunk));
 }
 
 void chunk_fill(struct chunk *c) {

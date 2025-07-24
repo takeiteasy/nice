@@ -17,6 +17,11 @@
 
 struct map {
     table_t chunks;
-    struct thrd_pool *pool;
+    struct thrd_pool pool;
     uint64_t *delete_queue;
 };
+
+void map_create(struct map *map);
+void map_destroy(struct map *map);
+
+struct chunk* map_chunk(struct map *map, int x, int y);

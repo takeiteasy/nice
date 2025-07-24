@@ -16,6 +16,7 @@ targets:
     platform: macOS
     sources:
         - path: src/
+        - path: include/
         - path: scenes/
         - path: deps/
           type: folder
@@ -36,6 +37,6 @@ targets:
         - sdk: AudioToolbox.framework
     settings:
         HEADER_SEARCH_PATHS: [$(PROJECT_DIR)/deps,
-                              $(PROJECT_DIR)/src,
+                              $(PROJECT_DIR)/include,
                               $(PROJECT_DIR)/scenes]
         OTHER_CFLAGS: [-x objective-c, -DSOKOL_METAL, -fenable-matrix]

@@ -45,7 +45,7 @@ struct thrd_queue {
     size_t count;
 };
 
-bool thrd_queue(struct thrd_queue* dst);
+bool thrd_queue_create(struct thrd_queue* dst);
 void thrd_queue_push(struct thrd_queue *queue, void *data);
 void* thrd_queue_pop(struct thrd_queue *queue);
 void thrd_queue_destroy(struct thrd_queue *queue);

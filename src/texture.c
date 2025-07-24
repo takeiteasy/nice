@@ -9,6 +9,7 @@
 #include "texture.h"
 
 struct texture texture_create(unsigned int width, unsigned int height) {
+    assert(width > 0 && height > 0);
     return (struct texture) {
         .width = width,
         .height = height,
@@ -37,31 +38,50 @@ void texture_destroy(struct texture *texture) {
     *texture = (struct texture){0};
 }
 
-struct texture texture_load_path(const char *path) {
+bool texture_load_path(struct texture *texture, const char *path) {
+    assert(texture != NULL && path != NULL);
     image_t tmp = image_load_from_path(path);
+    bool result = false;
     if (!tmp)
-        return (struct texture){0};
-    struct texture result = texture_create(image_width(tmp), image_height(tmp));
-    if (!result.image.id || !result.sampler.id)
-        return (struct texture){0};
-    texture_update(&result, tmp);
+        goto BAIL;
+    *texture = texture_create(image_width(tmp), image_height(tmp));
+    if (sg_query_image_state((*texture).image) != SG_RESOURCESTATE_VALID)
+        goto BAIL;
+    if (sg_query_sampler_state((*texture).sampler) != SG_RESOURCESTATE_VALID) {
+        sg_destroy_image((*texture).image);
+        goto BAIL;
+    }
+    texture_update(texture, tmp);
+    result = true;
+BAIL:
+    if (tmp)
+        image_destroy(tmp);
     return result;
 }
 
-struct texture texture_load_memory(unsigned char *data, size_t data_size) {
+bool texture_load_memory(struct texture *texture, unsigned char *data, size_t data_size) {
+    assert(texture && data && data_size > 0);
     image_t tmp = image_load_from_memory(data, data_size);
+    bool result = false;
     if (!tmp)
-        return (struct texture){0};
-    struct texture result = texture_create(image_width(tmp), image_height(tmp));
-    if (!result.image.id || !result.sampler.id)
-        return (struct texture){0};
-    texture_update(&result, tmp);
+        goto BAIL;
+    *texture = texture_create(image_width(tmp), image_height(tmp));
+    if (sg_query_image_state((*texture).image) != SG_RESOURCESTATE_VALID)
+        goto BAIL;
+    if (sg_query_sampler_state((*texture).sampler) != SG_RESOURCESTATE_VALID) {
+        sg_destroy_image((*texture).image);
+        goto BAIL;
+    }
+    texture_update(texture, tmp);
+    result = true;
+BAIL:
+    if (tmp)
+        image_destroy(tmp);
     return result;
 }
 
 void texture_update(struct texture *texture, image_t img) {
-    if (texture->image.id == SG_INVALID_ID)
-        return;
+    assert(texture && img && sg_query_image_state(texture->image) == SG_RESOURCESTATE_VALID);
     sg_update_image(texture->image, &(sg_image_data) {
         .subimage[0][0] = (sg_range) {
             .ptr = img,
@@ -71,7 +91,8 @@ void texture_update(struct texture *texture, image_t img) {
 }
 
 void texture_set_sampler(struct texture *texture, sg_filter min_filter, sg_filter mag_filter, sg_wrap wrap_u, sg_wrap wrap_v) {
-    if (texture->sampler.id != SG_INVALID_ID)
+    assert(texture);
+    if (sg_query_sampler_state(texture->sampler) == SG_RESOURCESTATE_VALID)
         sg_destroy_sampler(texture->sampler);
     texture->sampler = sg_make_sampler(&(sg_sampler_desc) {
         .min_filter = min_filter,

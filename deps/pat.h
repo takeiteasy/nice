@@ -1702,10 +1702,9 @@ static const char* __get_path(NSSearchPathDirectory directory) {
     id file_manager = ObjC(id)(class(NSFileManager), sel(defaultManager));
     id urls = ObjC(id, NSUInteger, NSUInteger)(file_manager, sel(URLForDirectory:inDomains:), directory, 1);
     id url = ObjC(id)(urls, sel(firstObject));
-    const char *path = (const char*)ObjC(id)(ObjC(id)(url, sel(absoluteString)), sel(UTF8String));
-    long path_length = strlen(path);
+    NSUInteger path_length = ObjC(NSUInteger)(ObjC(id)(url, sel(absoluteString)), sel(length));
     static char _path[MAX_PATH];
-    memcpy(_path, path, path_length * sizeof(char));
+    memcpy(_path, (__bridge const void*)(ObjC(id)(ObjC(id)(url, sel(absoluteString)), sel(UTF8String))), path_length * sizeof(char));
     if (path_length < MAX_PATH)
         _path[path_length] = '\0';
     return _path;
@@ -1790,26 +1789,25 @@ const char* path_get_home_dir(void) {
 #else
     static char home[MAX_PATH] = {'\0'};
     if (home[0] == '\0') {
-        const char *_home = NULL;
-        size_t _size = 0;
 #ifdef PLATFORM_WINDOWS
-        _home = __get_path(&FOLDERID_Profile);
-        _size = strlen(_home);
-#elif defined(PLATFORM_MACOS)
-        id file_manager = ObjC(id)(class(NSFileManager), sel(defaultManager));
-        id url = ObjC(id)(file_manager, sel(homeDirectory));
-        _home = (const char*)ObjC(id)(ObjC(id)(url, sel(absoluteString)), sel(UTF8String));
-        _size = strlen(_home);
-#elif defined(PLATFORM_NIX)
-        if (!(_home = enviroment_variable("HOME")))
-            return NULL;
-        _size = strlen(_home);
-#endif
+        const char *_home = __get_path(&FOLDERID_Profile);
+        size_t _size = strlen(_home);
         if (_size > MAX_PATH)
             _size = MAX_PATH;
         memcpy(home, _home, _size * sizeof(char));
-        memset(home + _size, 0, MAX_PATH - _size * sizeof(char));
-#ifdef PLATFORM_NIX
+#elif defined(PLATFORM_MACOS)
+        id file_manager = ObjC(id)(class(NSFileManager), sel(defaultManager));
+        id url = ObjC(id)(file_manager, sel(homeDirectory));
+        NSUInteger length = ObjC(NSUInteger)(ObjC(id)(url, sel(absoluteString)), sel(length));
+        memcpy(home, (__bridge const void*)(ObjC(id)(ObjC(id)(url, sel(absoluteString)), sel(UTF8String))), length * sizeof(char));
+#elif defined(PLATFORM_NIX)
+        const char *_home = enviroment_variable("HOME");
+        if (!_home)
+            return NULL;
+        size_t _size = strlen(_home);
+        if (_size > MAX_PATH)
+            _size = MAX_PATH;
+        memcpy(home, _home, _size * sizeof(char));
         free((void*)_home);
 #endif
     }

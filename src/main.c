@@ -1,4 +1,4 @@
-/* main.c -- https://github.com/takeiteasy/rpg 
+/* https://github.com/takeiteasy/rpg 
 
  rpg Copyright (C) 2025 George Watson
 

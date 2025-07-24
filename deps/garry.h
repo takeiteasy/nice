@@ -43,10 +43,6 @@ extern "C" {
 #define GARRY_FREE(...) free(__VA_ARGS__)
 #endif
 
-#ifndef list
-#define list garry
-#endif
-
 #define __garry_raw(a)              ((int *) (a) - 2)
 #define __garry_m(a)                __garry_raw(a)[0]
 #define __garry_n(a)                __garry_raw(a)[1]

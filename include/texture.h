@@ -18,7 +18,7 @@ struct texture {
 
 struct texture texture_create(unsigned int width, unsigned int height);
 void texture_destroy(struct texture *texture);
-struct texture texture_load_path(const char *path);
-struct texture texture_load_memory(unsigned char *data, size_t data_size);
+bool texture_load_path(struct texture *texture, const char *path);
+bool texture_load_memory(struct texture *texture, unsigned char *data, size_t data_size);
 void texture_update(struct texture *texture, image_t img);
 void texture_set_sampler(struct texture *texture, sg_filter min_filter, sg_filter mag_filter, sg_wrap wrap_u, sg_wrap wrap_v);
