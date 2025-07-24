@@ -22,6 +22,8 @@ targets:
           type: folder
         - path: assets/
           type: folder
+        - path: shaders/
+          type: folder
         - path: build/
           type: folder
         - path: project.yml

@@ -913,7 +913,11 @@ bool image_draw_triangle(image_t img, int x0, int y0, int x1, int y1, int x2, in
 #define _MIN(A, B) ((A) < (B) ? (A) : (B))
 #define _MAX(A, B) ((A) > (B) ? (A) : (B))
 #define _CLAMP(x, low, high) _MIN(_MAX(x, low), high)
-#define _SWAP(A, B) ((A)^=(B)^=(A)^=(B))
+#define _SWAP(A, B) do { \
+    int _tmp = (A); \
+    (A) = (B); \
+    (B) = _tmp; \
+} while(0)
 #define _CLAMP_UINT8(V) ((uint8_t)_CLAMP((V), 0, 255))
 #define _CLAMP_FLOAT(V) ((float)_CLAMP((V), 0.0f, 1.0f))
 #define _CLAMP_FLOAT_RANGE(V, _MINV, _MAXV) (fminf(fmaxf(V, _MINV), _MAXV))

@@ -5,6 +5,7 @@
 //  Created by George Watson on 22/07/2025.
 //
 
-#define SCENES
+#define SCENES \
+    X(test) \
 
-#define FIRST_SCENE
+#define FIRST_SCENE test

@@ -142,7 +142,7 @@ static union entity make_entity(struct world *world, uint8_t type) {
     }
 }
 
-struct world* ecs_world(void) {
+struct world* ecs_world_create(void) {
     struct world *result = malloc(sizeof(struct world));
     memset(result, 0, sizeof(struct world));
     union entity e = make_entity(result, ECS_COMPONENT); // doesn't matter will always be first entity

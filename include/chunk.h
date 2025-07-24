@@ -7,10 +7,10 @@
 
 #pragma once
 
-#include "pthread_shim.h"
-#include "rng.h"
 #include <stdbool.h>
 #include <assert.h>
+#include "threads.h"
+#include "texture.h"
 
 #ifndef CHUNK_WIDTH
 #define CHUNK_WIDTH  64
@@ -68,4 +68,5 @@ struct chunk {
 
 bool chunk_create(struct chunk *c, int x, int y, enum chunk_state state);
 void chunk_destroy(struct chunk *c);
-void chunk_fill(struct chunk *c);
+union tile* chunk_tile(struct chunk *c, int x, int y);
+void chunk_each(struct chunk *c, void *userdata, void(^fn)(int x, int y, union tile *tile, void *userdata));

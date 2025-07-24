@@ -22,18 +22,19 @@ void chunk_destroy(struct chunk *c) {
     memset(c, 0, sizeof(struct chunk));
 }
 
-void chunk_fill(struct chunk *c) {
-    assert(c != NULL);
-    uint8_t grid[CHUNK_SIZE];
-    cellular_automata(CHUNK_WIDTH, CHUNK_HEIGHT,
-                      CHUNK_FILL_CHANCE, CHUNK_SMOOTH_ITERATIONS,
-                      CHUNK_SURVIVE, CHUNK_STARVE,
-                      grid);
+union tile* chunk_tile(struct chunk *c, int x, int y) {
+    return x < 0 || x >= CHUNK_WIDTH ||
+           y < 0 || y >= CHUNK_HEIGHT ? NULL :
+           &c->grid[y * CHUNK_WIDTH + x];
+}
+
+void chunk_each(struct chunk *c, void *userdata, void(^fn)(int x, int y, union tile *tile, void *userdata)) {
+    assert(c != NULL && fn != NULL);
     pthread_mutex_lock(&c->lock);
-    for (int x = 0; x < CHUNK_WIDTH; x++)
-        for (int y = 0; y < CHUNK_HEIGHT; y++)
-            c->grid[y * CHUNK_WIDTH + x].solid = x == 0 || x == CHUNK_WIDTH  - 1 ||
-                                                 y == 0 || y == CHUNK_HEIGHT - 1 ?
-                                                 1 : grid[y * CHUNK_WIDTH + x];
+    for (int y = 0; y < CHUNK_HEIGHT; y++)
+        for (int x = 0; x < CHUNK_WIDTH; x++) {
+            union tile *tile = &c->grid[y * CHUNK_WIDTH + x];
+            fn(x, y, tile, userdata);
+        }
     pthread_mutex_unlock(&c->lock);
 }
