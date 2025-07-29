@@ -25,7 +25,7 @@ struct camera camera_create(float x, float y, float zoom, float rotation) {
 void camera_move(struct camera *cam, float dx, float dy) {
     if (dx != 0.f || dy != 0.f)
         cam->dirty = true;
-    cam->position = HMM_AddV2(cam->position, HMM_V2(dx, dy));
+    cam->position = HMM_AddV2(cam->position, HMM_V2(-dx, -dy));
 }
 
 void camera_set_position(struct camera *cam, float x, float y) {
@@ -61,8 +61,22 @@ void camera_set_rotation(struct camera *cam, float angle) {
 HMM_Mat4 camera_mvp(struct camera *cam, int width, int height) {
     HMM_Mat4 projection = HMM_Orthographic_LH_NO(0, (float)width, (float)height, 0, -1, 1);
     HMM_Mat4 view = HMM_M4D(1.f);
-    view = HMM_MulM4(view, HMM_Translate(HMM_V3(-cam->position.X, -cam->position.Y, 0)));
-    view = HMM_MulM4(view, HMM_Rotate_LH(-cam->rotation, HMM_V3(0, 0, 1)));
+    float hw = (float)width / 2.f;
+    float hh = (float)height / 2.f;
+    view = HMM_Translate(HMM_V3(hw, hh, 0));
     view = HMM_MulM4(view, HMM_Scale(HMM_V3(cam->zoom, cam->zoom, 1)));
+    view = HMM_MulM4(view, HMM_Rotate_LH(-cam->rotation, HMM_V3(0, 0, 1)));
+    view = HMM_MulM4(view, HMM_Translate(HMM_V3(-cam->position.X, -cam->position.Y, 0)));
+    view = HMM_MulM4(view, HMM_Translate(HMM_V3(-hw, -hh, 0)));
     return HMM_MulM4(projection, view);
+}
+
+HMM_Vec2 camera_world_to_screen(struct camera *cam, HMM_Vec2 world_pos, int width, int height) {
+    return HMM_V2((world_pos.X - cam->position.X) * cam->zoom + width * 0.5f,
+                  (world_pos.Y - cam->position.Y) * cam->zoom + height * 0.5f);
+}
+
+HMM_Vec2 camera_screen_to_world(struct camera *cam, HMM_Vec2 screen_pos, int width, int height) {
+    return HMM_V2((screen_pos.X - width * 0.5f) / cam->zoom + cam->position.X,
+                  (screen_pos.Y - height * 0.5f) / cam->zoom + cam->position.Y);
 }

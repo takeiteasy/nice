@@ -160,35 +160,35 @@ bool sapp_modifier_equals(int mods);
  */
 bool sapp_modifier_down(int mod);
 /*!
- @function sapp_cursor_x
+ @function sapp_mouse_x
  @return The current x position of the mouse cursor.
  @abstract Get the current x position of the mouse cursor.
  */
-int sapp_cursor_x(void);
+int sapp_mouse_x(void);
 /*!
- @function sapp_cursor_y
+ @function sapp_mouse_y
  @return The current y position of the mouse cursor.
  @abstract Get the current y position of the mouse cursor.
  */
-int sapp_cursor_y(void);
+int sapp_mouse_y(void);
 /*!
- @function sapp_cursor_delta_x
+ @function sapp_mouse_delta_x
  @return The change in x position of the mouse cursor since the last frame.
  @abstract Get the change in x position of the mouse cursor since the last frame.
  */
-int sapp_cursor_delta_x(void);
+int sapp_mouse_delta_x(void);
 /*!
- @function sapp_cursor_delta_y
+ @function sapp_mouse_delta_y
  @return The change in y position of the mouse cursor since the last frame.
  @abstract Get the change in y position of the mouse cursor since the last frame.
  */
-int sapp_cursor_delta_y(void);
+int sapp_mouse_delta_y(void);
 /*!
  @function sapp_scrolled
  @return True if the mouse wheel has been scrolled since the last frame.
  @abstract Check if the mouse wheel has been scrolled since the last frame.
  */
-bool sapp_scrolled(void);
+bool sapp_was_scrolled(void);
 /*!
  @function sapp_scroll_x
  @return The amount the mouse wheel has been scrolled in the x direction since the last frame.
@@ -780,23 +780,23 @@ bool sapp_has_mouse_move(void) {
     return _input_state.input_current.cursor.x != _input_state.input_prev.cursor.x || _input_state.input_current.cursor.y != _input_state.input_prev.cursor.y;
 }
 
-int sapp_cursor_x(void) {
+int sapp_mouse_x(void) {
     return _input_state.input_current.cursor.x;
 }
 
-int sapp_cursor_y(void) {
+int sapp_mouse_y(void) {
     return _input_state.input_current.cursor.y;
 }
 
-int sapp_cursor_delta_x(void) {
+int sapp_mouse_delta_x(void) {
     return _input_state.input_current.cursor.x - _input_state.input_prev.cursor.x;
 }
 
-int sapp_cursor_delta_y(void) {
+int sapp_mouse_delta_y(void) {
     return _input_state.input_current.cursor.y - _input_state.input_prev.cursor.y;
 }
 
-bool sapp_scrolled(void) {
+bool sapp_was_scrolled(void) {
     return _input_state.input_current.scroll.x != 0 || _input_state.input_current.scroll.y != 0;
 }
 

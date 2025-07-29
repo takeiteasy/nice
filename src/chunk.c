@@ -87,6 +87,24 @@ void chunk_each(struct chunk *c, void *userdata, void(^fn)(int x, int y, union t
     pthread_mutex_unlock(&c->lock);
 }
 
+HMM_Vec2 camera_screen_to_world_chunk(struct camera *cam, HMM_Vec2 screen_pos, int width, int height) {
+    HMM_Vec2 world = camera_screen_to_world(cam, screen_pos, width, height);
+    return HMM_V2(floor(world.X / (CHUNK_WIDTH * TILE_WIDTH)),
+                  floor(world.Y / (CHUNK_HEIGHT * TILE_HEIGHT)));
+}
+
+HMM_Vec2 camera_screen_to_world_tile(struct camera *cam, HMM_Vec2 screen_pos, int width, int height) {
+    HMM_Vec2 world = camera_screen_to_world(cam, screen_pos, width, height);
+    HMM_Vec2 chunk = HMM_V2(world.X / (CHUNK_WIDTH * TILE_WIDTH),
+                            world.Y / (CHUNK_HEIGHT * TILE_HEIGHT));
+    HMM_Vec2 tile = HMM_V2(fmod(world.X, CHUNK_WIDTH * TILE_WIDTH) / TILE_WIDTH,
+                           fmod(world.Y, CHUNK_HEIGHT * TILE_HEIGHT) / TILE_HEIGHT);
+    HMM_Vec2 final = HMM_V2((int)(chunk.X * CHUNK_WIDTH + tile.X) % CHUNK_WIDTH,
+                            (int)(chunk.Y * CHUNK_HEIGHT + tile.Y) % CHUNK_HEIGHT);
+    return HMM_V2(final.X < 0 ? CHUNK_WIDTH + final.X : final.X,
+                  final.Y < 0 ? CHUNK_HEIGHT + final.Y : final.Y);
+}
+
 static const HMM_Vec2 Autotile3x3Simplified[256] = {
     [0] = {0, 3},
     [1] = {-1,-1},

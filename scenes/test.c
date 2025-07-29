@@ -16,6 +16,8 @@
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
+#define SOKOL_DEBUGTEXT_IMPL
+#include "sokol/util/sokol_debugtext.h"
 
 static struct {
     struct world world;
@@ -36,6 +38,17 @@ void test_enter(void) {
     chunk_create(&state.test, 0, 0, 0);
     chunk_fill(&state.test);
 
+    sdtx_setup(&(sdtx_desc_t){
+        .fonts = {
+            sdtx_font_kc853(),
+//            sdtx_font_kc854(),
+//            sdtx_font_z1013(),
+//            sdtx_font_cpc(),
+//            sdtx_font_c64(),
+//            sdtx_font_oric()
+        }
+    });
+
     assert(texture_load_path(&state.tilemap, "assets/tilemap.exploded.png"));
 
     sg_shader shd = sg_make_shader(default_program_shader_desc(sg_query_backend()));
@@ -55,7 +68,7 @@ void test_enter(void) {
     state.pass_action = (sg_pass_action) {
         .colors[0] = {
             .load_action=SG_LOADACTION_CLEAR,
-            .clear_value={1.0f, 0.0f, 0.0f, 1.0f}
+            .clear_value={.0f, .0f, .0f, 1.f}
         }
     };
 }
@@ -73,9 +86,35 @@ void test_step(void) {
     if (sapp_was_button_released(SAPP_MOUSEBUTTON_LEFT) && state.dragging)
         state.dragging = false;
     if (state.dragging) {
-        HMM_Vec2 mouse_delta = HMM_V2(sapp_cursor_delta_x(), sapp_cursor_delta_y());
+        HMM_Vec2 mouse_delta = HMM_V2(sapp_mouse_delta_x(), sapp_mouse_delta_y());
+        float drag_scale = 1.0f / state.camera.zoom;
+        mouse_delta = HMM_MulV2F(mouse_delta, drag_scale);
         camera_move(&state.camera, mouse_delta.X, mouse_delta.Y);
     }
+
+    if (sapp_was_scrolled())
+        camera_zoom(&state.camera, sapp_scroll_y() * 0.1f);
+
+    sdtx_canvas(sapp_width()/2.0f, sapp_height()/2.0f);
+    sdtx_home();
+    sdtx_printf("fps: %.2f", 1.0f / sapp_frame_duration());
+    sdtx_crlf();
+    sdtx_printf("pos(%.2f, %.2f)", state.camera.position.X, state.camera.position.Y);
+    sdtx_crlf();
+    sdtx_printf("zoom(%.2f)", state.camera.zoom);
+    sdtx_crlf();
+    sdtx_printf("dragging: %s", state.dragging ? "true" : "false");
+    sdtx_crlf();
+    sdtx_printf("mouse: (%.2d, %.2d)", sapp_mouse_x(), sapp_mouse_y());
+    sdtx_crlf();
+    HMM_Vec2 mouse_world = camera_screen_to_world(&state.camera, HMM_V2(sapp_mouse_x(), sapp_mouse_y()), sapp_width(), sapp_height());
+    sdtx_printf("world: (%.2f, %.2f)", mouse_world.X, mouse_world.Y);
+    sdtx_crlf();
+    HMM_Vec2 mouse_chunk = camera_screen_to_world_chunk(&state.camera, HMM_V2(sapp_mouse_x(), sapp_mouse_y()), sapp_width(), sapp_height());
+    sdtx_printf("chunk: (%d, %d)", (int)mouse_chunk.X, (int)mouse_chunk.Y);
+    sdtx_crlf();
+    HMM_Vec2 mouse_tile = camera_screen_to_world_tile(&state.camera, HMM_V2(sapp_mouse_x(), sapp_mouse_y()), sapp_width(), sapp_height());
+    sdtx_printf("tile: (%d, %d)", (int)mouse_tile.X, (int)mouse_tile.Y);
 
     sg_begin_pass(&(sg_pass) {
         .action = state.pass_action,
@@ -83,6 +122,7 @@ void test_step(void) {
     });
     sg_apply_pipeline(state.pip);
     chunk_draw(&state.test, &state.tilemap, &state.camera);
+    sdtx_draw();
     sg_end_pass();
     sg_commit();
     state.camera.dirty = false;
