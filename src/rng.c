@@ -70,11 +70,11 @@ uint64_t rng_rand(void) {
 float rng_randf(void) {
     return (float)rng_rand() / (float)PRNG_RAND_MAX;
 }
+#include <stdio.h>
 
 void cellular_automata(unsigned int width, unsigned int height, unsigned int fill_chance, unsigned int smooth_iterations, unsigned int survive, unsigned int starve, uint8_t* result) {
-    memset(result, 0, width * height * sizeof(int));
+    memset(result, 0, width * height * sizeof(uint8_t));
     // Randomly fill the grid
-    fill_chance = _CLAMP(fill_chance, 1, 99);
     for (int x = 0; x < width; x++)
         for (int y = 0; y < height; y++)
             result[y * width + x] = (rng_randf() * 99) + 1 < fill_chance;

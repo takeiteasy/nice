@@ -57,8 +57,8 @@ enum {
     ECS_SYSTEM
 };
 
-struct world* ecs_world_create(void);
-void ecs_world_destroy(struct world **world);
+void ecs_world_create(struct world *world);
+void ecs_world_destroy(struct world *world);
 
 union entity ecs_spawn(struct world *world);
 union entity ecs_component(struct world *world, size_t size_of_component);

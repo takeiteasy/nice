@@ -2,15 +2,10 @@
 //  chunk.h
 //  rpg
 //
-//  Created by George Watson on 23/07/2025.
+//  Created by George Watson on 29/07/2025.
 //
 
 #pragma once
-
-#include <stdbool.h>
-#include <assert.h>
-#include "threads.h"
-#include "texture.h"
 
 #ifndef CHUNK_WIDTH
 #define CHUNK_WIDTH  64
@@ -43,6 +38,12 @@
 #define TILE_PADDING 4
 #endif
 
+#include "pthread_shim.h"
+#include "camera.h"
+#include "texture.h"
+#include "rng.h"
+#include "sokol/sokol_app.h"
+
 union tile {
     struct {
         uint8_t bitmask;
@@ -59,14 +60,25 @@ enum chunk_state {
     CHUNK_STATE_ACTIVE
 };
 
+struct chunk_vertex {
+    HMM_Vec2 position;
+    HMM_Vec2 texcoord;
+    HMM_Vec4 color;
+};
+
 struct chunk {
     int x, y;
     enum chunk_state state;
     union tile grid[CHUNK_SIZE];
     pthread_mutex_t lock;
+    bool dirty;
+    sg_bindings bind;
+    HMM_Mat4 mvp;
 };
 
 bool chunk_create(struct chunk *c, int x, int y, enum chunk_state state);
 void chunk_destroy(struct chunk *c);
+void chunk_fill(struct chunk *c);
 union tile* chunk_tile(struct chunk *c, int x, int y);
 void chunk_each(struct chunk *c, void *userdata, void(^fn)(int x, int y, union tile *tile, void *userdata));
+void chunk_draw(struct chunk *c, struct texture *texture, struct camera *camera);

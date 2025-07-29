@@ -8,11 +8,9 @@
 #pragma once
 
 #include "config.h"
-#include "ecs.h"
 
 struct scene {
     const char *name;
-    struct world *world;
     void(*enter)(void);
     void(*exit)(void);
     void(*step)(void);

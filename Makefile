@@ -18,7 +18,7 @@ EXE := build/rpg_$(ARCH)$(PROG_EXT)
 LIB := build/librpg_$(ARCH).$(LIB_EXT)
 INC := -Iinclude -Iscenes -Lbuild -Ideps
 
-ARCH_PATH := ./build/bin/$(ARCH)
+ARCH_PATH := ./build/$(ARCH)
 SHDC_PATH := $(ARCH_PATH)/sokol-shdc$(PROG_EXT)
 SHADERS := $(wildcard shaders/*.glsl)
 SHADER_OUTS := $(patsubst shaders/%,include/%.h,$(SHADERS))

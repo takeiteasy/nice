@@ -25,8 +25,6 @@
 #include "sokol/sokol_args.h"
 #define SOKOL_INPUT_NO_GAMEPADS
 #include "sokol_input.h"
-#define BLA_IMPLEMENTATION
-#include "bla.h"
 #define PAT_IMPLEMENTATION
 #include "pat.h"
 #define GARRY_IMPLEMENTATION
@@ -40,6 +38,7 @@
 
 #include "scene.h"
 #include "basic.glsl.h"
+#include "default.glsl.h"
 
 #ifndef DEFAULT_WINDOW_WIDTH
 #define DEFAULT_WINDOW_WIDTH 640
@@ -63,18 +62,8 @@ SCENES
 #undef X
 
 static struct {
-    int framebuffer_width, framebuffer_height;
     struct scene *scene_prev, *scene_current, *next_scene;
-    sg_pipeline pip;
-    sg_pass_action pass_action;
-    sg_bindings bind;
-    sg_pass pass;
-    sg_image color, depth;
-    sg_sampler sampler;
-} state = {
-    .framebuffer_width = DEFAULT_WINDOW_WIDTH,
-    .framebuffer_height = DEFAULT_WINDOW_HEIGHT
-};
+} state;
 
 static struct scene* find_scene(const char *name) {
     size_t name_len = strlen(name);
@@ -105,43 +94,6 @@ void set_scene_named(const char *name) {
     set_scene(find_scene(name));
 }
 
-int framebuffer_width(void) {
-    return state.framebuffer_width;
-}
-
-int framebuffer_height(void) {
-    return state.framebuffer_height;
-}
-
-void framebuffer_resize(int width, int height) {
-    if (sg_query_image_state(state.color) == SG_RESOURCESTATE_VALID)
-        sg_destroy_image(state.color);
-    if (sg_query_image_state(state.depth) == SG_RESOURCESTATE_VALID)
-        sg_destroy_image(state.depth);
-    sg_image_desc img_desc = {
-        .usage.render_attachment = true,
-        .width = 640,
-        .height = 480,
-        .pixel_format = SG_PIXELFORMAT_RGBA8
-    };
-    state.color = sg_make_image(&img_desc);
-    img_desc.pixel_format = SG_PIXELFORMAT_DEPTH;
-    state.depth = sg_make_image(&img_desc);
-    state.pass = (sg_pass) {
-        .attachments = sg_make_attachments(&(sg_attachments_desc) {
-            .colors[0].image = state.color,
-            .depth_stencil.image = state.depth
-        }),
-        .action = state.pass_action
-    };
-    state.bind.images[IMG_tex] = state.color;
-    state.bind.samplers[SMP_smp] = state.sampler;
-}
-
-struct basic_vertex {
-    vec2 position;
-    vec2 texcoord;
-};
 
 static void init(void) {
     sg_setup(&(sg_desc){
@@ -150,56 +102,6 @@ static void init(void) {
     });
 
     sapp_input_init();
-
-    state.pip = sg_make_pipeline(&(sg_pipeline_desc){
-        .primitive_type = SG_PRIMITIVETYPE_TRIANGLES,
-        .shader = sg_make_shader(basic_shader_desc(sg_query_backend())),
-        .index_type = SG_INDEXTYPE_UINT16,
-        .layout = {
-            .buffers[0].stride = sizeof(struct basic_vertex),
-            .attrs = {
-                [ATTR_basic_position].format = SG_VERTEXFORMAT_FLOAT2,
-                [ATTR_basic_texcoord].format = SG_VERTEXFORMAT_FLOAT2
-            }
-        },
-        .cull_mode = SG_CULLMODE_BACK,
-//        .colors[0].pixel_format = SG_PIXELFORMAT_RGBA8,
-        .depth = {
-            .compare = SG_COMPAREFUNC_LESS_EQUAL,
-            .write_enabled = true
-        }
-    });
-
-    state.pass_action = (sg_pass_action) {
-        .colors[0] = {
-            .load_action = SG_LOADACTION_CLEAR,
-            .clear_value = { 0.0f, 0.0f, 0.0f, 1.0f }
-        }
-    };
-
-    state.sampler = sg_make_sampler(&(sg_sampler_desc) {
-        .min_filter = SG_FILTER_LINEAR,
-        .mag_filter = SG_FILTER_LINEAR,
-        .wrap_u = SG_WRAP_REPEAT,
-        .wrap_v = SG_WRAP_REPEAT,
-    });
-
-    framebuffer_resize(state.framebuffer_width, state.framebuffer_height);
-
-    float vertices[] = {
-        -1.0f,  1.0f, 0.0f, 1.0f,
-         1.0f,  1.0f, 1.0f, 1.0f,
-         1.0f, -1.0f, 1.0f, 0.0f,
-        -1.0f, -1.0f, 0.0f, 0.0f,
-    };
-    uint16_t indices[] = { 0, 1, 2, 0, 2, 3 };
-    state.bind.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc) {
-        .data = SG_RANGE(vertices)
-    });
-    state.bind.index_buffer = sg_make_buffer(&(sg_buffer_desc) {
-        .usage.index_buffer = true,
-        .data = SG_RANGE(indices)
-    });
 
 #define _STRINGIFY(s) #s
 #define STRINGIFY(S) _STRINGIFY(S)
@@ -212,20 +114,9 @@ static void frame(void) {
         return;
     }
 
-    sg_begin_pass(&state.pass);
     state.scene_current->step();
-    sg_end_pass();
-    sg_begin_pass(&(sg_pass) {
-        .action = state.pass_action,
-        .swapchain = sglue_swapchain()
-    });
-    sg_apply_pipeline(state.pip);
-    sg_apply_bindings(&state.bind);
-    sg_draw(0, 6, 1);
-    sg_end_pass();
-    sg_commit();
-    sapp_input_flush();
 
+    sapp_input_flush();
     if (state.next_scene) {
         if ((state.scene_prev = state.scene_current))
             state.scene_current->exit();

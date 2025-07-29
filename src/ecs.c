@@ -142,16 +142,16 @@ static union entity make_entity(struct world *world, uint8_t type) {
     }
 }
 
-struct world* ecs_world_create(void) {
-    struct world *result = malloc(sizeof(struct world));
-    memset(result, 0, sizeof(struct world));
-    union entity e = make_entity(result, ECS_COMPONENT); // doesn't matter will always be first entity
-    result->systems = storage(e, sizeof(struct system));
-    return result;
+void ecs_world_create(struct world *world) {
+    assert(world != NULL);
+    memset(world, 0, sizeof(struct world));
+    union entity e = make_entity(world, ECS_COMPONENT); // doesn't matter will always be first entity
+    world->systems = storage(e, sizeof(struct system));
 }
 
-void ecs_world_destroy(struct world **_world) {
-    struct world *world = *_world;
+void ecs_world_destroy(struct world *world) {
+    if (!world)
+        return;
     if (world->storages) {
         for (int i = 0; i < world->sizeOfStorages; i++)
             storage_destroy(&world->storages[i]);
@@ -163,8 +163,7 @@ void ecs_world_destroy(struct world **_world) {
         free(world->recyclable);
     if (world->systems)
         storage_destroy(&world->systems);
-    free(world);
-    *_world = NULL;
+    memset(world, 0, sizeof(struct world));
 }
 
 static struct storage* find_storage(struct world *world, union entity e) {

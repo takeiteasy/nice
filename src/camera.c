@@ -7,26 +7,31 @@
 
 #include "camera.h"
 
+#define clamp(value, minval, maxval)       \
+    ({__typeof__(value) _value  = (value);    \
+      __typeof__(value) _minval = (minval);   \
+      __typeof__(value) _maxval = (maxval);   \
+      _value < _minval ? _minval : (_value > _maxval ? _maxval : _value); })
+
 struct camera camera_create(float x, float y, float zoom, float rotation) {
     return (struct camera) {
-        .position = Vec2(x, y),
+        .position = HMM_V2(x, y),
         .zoom = clamp(zoom, .1f, 10.f),
         .rotation = clamp(rotation, 0.f, 360.f),
-        .dirty = true,
-        .mvp = mat4_identity()
+        .dirty = true
     };
 }
 
 void camera_move(struct camera *cam, float dx, float dy) {
     if (dx != 0.f || dy != 0.f)
         cam->dirty = true;
-    cam->position += Vec2(dx, dy);
+    cam->position = HMM_AddV2(cam->position, HMM_V2(dx, dy));
 }
 
 void camera_set_position(struct camera *cam, float x, float y) {
-    if (cam->position.x != x || cam->position.y != y)
+    if (cam->position.X != x || cam->position.Y != y)
         cam->dirty = true;
-    cam->position = Vec2(x, y);
+    cam->position = HMM_V2(x, y);
 }
 
 void camera_zoom(struct camera *cam, float dz) {
@@ -53,10 +58,11 @@ void camera_set_rotation(struct camera *cam, float angle) {
     cam->rotation = clamp(angle, 0.f, 360.f);
 }
 
-void camera_update_mvp(struct camera *cam, int width, int height) {
-    mat4 view = ortho(0.f, (float)width, (float)height, 0.f, -1.f, 1.f);
-    mat4 world = mat4_translate(-Vec3(cam->position.x, cam->position.y, 0.f)) *
-                 mat4_rotate(Vec3(0.f, 0.f, 1.f), to_radians(cam->rotation)) *
-                 mat4_scale(Vec3(cam->zoom, cam->zoom, 1.f));
-    cam->mvp = view * world;
+HMM_Mat4 camera_mvp(struct camera *cam, int width, int height) {
+    HMM_Mat4 projection = HMM_Orthographic_LH_NO(0, (float)width, (float)height, 0, -1, 1);
+    HMM_Mat4 view = HMM_M4D(1.f);
+    view = HMM_MulM4(view, HMM_Translate(HMM_V3(-cam->position.X, -cam->position.Y, 0)));
+    view = HMM_MulM4(view, HMM_Rotate_LH(-cam->rotation, HMM_V3(0, 0, 1)));
+    view = HMM_MulM4(view, HMM_Scale(HMM_V3(cam->zoom, cam->zoom, 1)));
+    return HMM_MulM4(projection, view);
 }

@@ -8,14 +8,17 @@
 #pragma once
 
 #include <stdbool.h>
-#include "bla.h"
+#include "HandmadeMath.h"
 
 struct camera {
-    vec2 position;
+    HMM_Vec2 position;
     float zoom;
     float rotation;
     bool dirty;
-    mat4 mvp;
+};
+
+struct rect {
+    int x, y, w, h;
 };
 
 struct camera camera_create(float x, float y, float zoom, float rotation);
@@ -25,4 +28,4 @@ void camera_zoom(struct camera *cam, float dz);
 void camera_set_zoom(struct camera *cam, float zoom);
 void camera_rotate(struct camera *cam, float dangle);
 void camera_set_rotation(struct camera *cam, float angle);
-void camera_update_mvp(struct camera *cam, int width, int height);
+HMM_Mat4 camera_mvp(struct camera *cam, int width, int height);
