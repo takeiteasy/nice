@@ -42,6 +42,7 @@
 #include "camera.h"
 #include "texture.h"
 #include "rng.h"
+#include "scene.h"
 #include "sokol/sokol_app.h"
 
 union tile {
@@ -80,8 +81,11 @@ void chunk_destroy(struct chunk *c);
 void chunk_fill(struct chunk *c);
 union tile* chunk_tile(struct chunk *c, int x, int y);
 void chunk_each(struct chunk *c, void *userdata, void(^fn)(int x, int y, union tile *tile, void *userdata));
+void chunk_build(struct chunk *c, struct texture *texture);
 void chunk_draw(struct chunk *c, struct texture *texture, struct camera *camera);
 
-HMM_Vec2 camera_screen_to_world_chunk(struct camera *cam, HMM_Vec2 screen_pos, int width, int height);
-HMM_Vec2 camera_screen_to_world_tile(struct camera *cam, HMM_Vec2 screen_pos, int width, int height);
-HMM_Vec2 camera_screen_to_world_tile_local(struct camera *cam, HMM_Vec2 screen_pos, int width, int height);
+HMM_Vec2 camera_screen_to_chunk(struct camera *cam, HMM_Vec2 screen_pos, int width, int height);
+HMM_Vec2 camera_screen_to_tile(struct camera *cam, HMM_Vec2 screen_pos, int width, int height);
+
+struct rect chunk_bounds_ex(int x, int y);
+struct rect chunk_bounds(struct chunk *chunk);

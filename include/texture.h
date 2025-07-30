@@ -1,5 +1,5 @@
 //
-//  Untitled.h
+//  texture.h
 //  rpg
 //
 //  Created by George Watson on 24/07/2025.

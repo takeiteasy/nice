@@ -13,8 +13,21 @@
 #include <stdlib.h>
 #include <string.h>
 
+struct thrd_queue_entry {
+    void *data;
+    struct thrd_queue_entry *next;
+};
+
+struct thrd_queue {
+    struct thrd_queue_entry *head, *tail;
+    pthread_mutex_t read_lock, write_lock;
+    size_t count;
+};
+
+typedef void(^thrd_callback_t)(void*);
+
 struct thrd_work {
-    void(*func)(void*);
+    thrd_callback_t func;
     void *arg;
     struct thrd_work *next;
 };
@@ -29,23 +42,12 @@ struct thrd_pool {
 
 bool thrd_pool_create(size_t maxThreads, struct thrd_pool *dst);
 void thrd_pool_destroy(struct thrd_pool *pool);
-int thrd_pool_push_work(struct thrd_pool *pool, void(*func)(void*), void *arg);
+int thrd_pool_push_work(struct thrd_pool *pool, thrd_callback_t func, void *arg);
 // Adds work to the front of the queue
-int thrd_pool_push_work_priority(struct thrd_pool *pool, void(*func)(void*), void *arg);
+int thrd_pool_push_work_priority(struct thrd_pool *pool, thrd_callback_t func, void *arg);
 void thrd_pool_join(struct thrd_pool *pool);
-
-struct thrd_queue_entry {
-    void *data;
-    struct thrd_queue_entry *next;
-};
-
-struct thrd_queue {
-    struct thrd_queue_entry *head, *tail;
-    pthread_mutex_t readLock, writeLock;
-    size_t count;
-};
 
 bool thrd_queue_create(struct thrd_queue* dst);
 void thrd_queue_push(struct thrd_queue *queue, void *data);
 void* thrd_queue_pop(struct thrd_queue *queue);
-void thrd_queue_destroy(struct thrd_queue *queue);
+void thrd_queue_destroy(struct thrd_queue *queue, thrd_callback_t func);

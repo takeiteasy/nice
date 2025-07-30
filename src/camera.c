@@ -37,13 +37,13 @@ void camera_set_position(struct camera *cam, float x, float y) {
 void camera_zoom(struct camera *cam, float dz) {
     if (dz != 0.f)
         cam->dirty = true;
-    cam->zoom = clamp(cam->zoom + dz, .1f, 10.f);
+    cam->zoom = clamp(cam->zoom + dz, .1f, MAX_ZOOM);
 }
 
 void camera_set_zoom(struct camera *cam, float zoom) {
     if (cam->zoom != zoom)
         cam->dirty = true;
-    cam->zoom = clamp(zoom, .1f, 10.f);
+    cam->zoom = clamp(zoom, .1f, MAX_ZOOM);
 }
 
 void camera_rotate(struct camera *cam, float dangle) {
@@ -79,4 +79,19 @@ HMM_Vec2 camera_world_to_screen(struct camera *cam, HMM_Vec2 world_pos, int widt
 HMM_Vec2 camera_screen_to_world(struct camera *cam, HMM_Vec2 screen_pos, int width, int height) {
     return HMM_V2((screen_pos.X - width * 0.5f) / cam->zoom + cam->position.X,
                   (screen_pos.Y - height * 0.5f) / cam->zoom + cam->position.Y);
+}
+
+struct rect camera_bounds_ex(float x, float y, float zoom, int width, int height) {
+    int w = (int)(width / zoom);
+    int h = (int)(height / zoom);
+    return (struct rect) {
+        .X = (int)(x - w / 2.f),
+        .Y = (int)(y - h / 2.f),
+        .W = w,
+        .H = h
+    };
+}
+
+struct rect camera_bounds(struct camera *cam, int width, int height) {
+    return camera_bounds_ex(cam->position.X, cam->position.Y, cam->zoom, width, height);
 }

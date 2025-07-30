@@ -74,7 +74,7 @@ void thrd_pool_destroy(struct thrd_pool *pool) {
     memset(pool, 0, sizeof(struct thrd_pool));
 }
 
-int thrd_pool_push_work(struct thrd_pool *pool, void(*func)(void*), void *arg) {
+int thrd_pool_push_work(struct thrd_pool *pool, thrd_callback_t func, void *arg) {
     struct thrd_work *work = malloc(sizeof(struct thrd_work));
     work->arg = arg;
     work->func = func;
@@ -92,7 +92,7 @@ int thrd_pool_push_work(struct thrd_pool *pool, void(*func)(void*), void *arg) {
     return 1;
 }
 
-int thrd_pool_push_work_priority(struct thrd_pool *pool, void(*func)(void*), void *arg) {
+int thrd_pool_push_work_priority(struct thrd_pool *pool, thrd_callback_t func, void *arg) {
     struct thrd_work *work = malloc(sizeof(struct thrd_work));
     work->arg = arg;
     work->func = func;
@@ -129,9 +129,9 @@ bool thrd_queue_create(struct thrd_queue *queue) {
     queue->head = NULL;
     queue->tail = NULL;
     queue->count = 0;
-    pthread_mutex_init(&queue->readLock, NULL);
-    pthread_mutex_init(&queue->writeLock, NULL);
-    pthread_mutex_lock(&queue->readLock);
+    pthread_mutex_init(&queue->read_lock, NULL);
+    pthread_mutex_init(&queue->write_lock, NULL);
+    pthread_mutex_lock(&queue->read_lock);
     return true;
 }
 
@@ -140,7 +140,7 @@ void thrd_queue_push(struct thrd_queue *queue, void *data) {
     item->data = data;
     item->next = NULL;
 
-    pthread_mutex_lock(&queue->writeLock);
+    pthread_mutex_lock(&queue->write_lock);
     if (!queue->head) {
         queue->head = item;
         queue->tail = queue->head;
@@ -150,16 +150,16 @@ void thrd_queue_push(struct thrd_queue *queue, void *data) {
     }
     queue->count++;
 
-    pthread_mutex_unlock(&queue->readLock);
-    pthread_mutex_unlock(&queue->writeLock);
+    pthread_mutex_unlock(&queue->read_lock);
+    pthread_mutex_unlock(&queue->write_lock);
 }
 
 void* thrd_queue_pop(struct thrd_queue *queue) {
     if (!queue->head)
         return NULL;
 
-    pthread_mutex_lock(&queue->readLock);
-    pthread_mutex_lock(&queue->writeLock);
+    pthread_mutex_lock(&queue->read_lock);
+    pthread_mutex_lock(&queue->write_lock);
 
     void *result = queue->head->data;
     struct thrd_queue_entry *tmp = queue->head;
@@ -168,16 +168,26 @@ void* thrd_queue_pop(struct thrd_queue *queue) {
     free(tmp);
 
     if (--queue->count)
-        pthread_mutex_unlock(&queue->readLock);
-    pthread_mutex_unlock(&queue->writeLock);
+        pthread_mutex_unlock(&queue->read_lock);
+    pthread_mutex_unlock(&queue->write_lock);
     return result;
 }
 
-void thrd_queue_destroy(struct thrd_queue *queue) {
+void thrd_queue_destroy(struct thrd_queue *queue, thrd_callback_t func) {
     if (!queue)
         return;
-    // TODO: Handle mutexes + clear queue first
-    pthread_mutex_destroy(&queue->readLock);
-    pthread_mutex_destroy(&queue->writeLock);
+    pthread_mutex_lock(&queue->read_lock);
+    pthread_mutex_lock(&queue->write_lock);
+    struct thrd_queue_entry *tmp = queue->head;
+    while (tmp) {
+        struct thrd_queue_entry *next = tmp->next;
+        if (func)
+            func(tmp->data);
+        free(tmp);
+        tmp = next;
+    }
+    pthread_mutex_unlock(&queue->write_lock);
+    pthread_mutex_destroy(&queue->read_lock);
+    pthread_mutex_destroy(&queue->write_lock);
     memset(queue, 0, sizeof(struct thrd_queue));
 }
