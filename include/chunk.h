@@ -63,7 +63,6 @@ enum chunk_state {
 struct chunk_vertex {
     HMM_Vec2 position;
     HMM_Vec2 texcoord;
-    HMM_Vec4 color;
 };
 
 struct chunk {

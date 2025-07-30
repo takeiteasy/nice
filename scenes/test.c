@@ -22,6 +22,9 @@
 static struct {
     struct world world;
     struct chunk test;
+    struct chunk test2;
+    struct chunk test3;
+    struct chunk test4;
     struct texture tilemap;
     struct camera camera;
 
@@ -37,6 +40,12 @@ void test_enter(void) {
     state.camera = camera_create(0, 0, 1., 0);
     chunk_create(&state.test, 0, 0, 0);
     chunk_fill(&state.test);
+    chunk_create(&state.test2, -1, 0, 0);
+    chunk_fill(&state.test2);
+    chunk_create(&state.test3, -1, -1, 0);
+    chunk_fill(&state.test3);
+    chunk_create(&state.test4, 0, -1, 0);
+    chunk_fill(&state.test4);
 
     sdtx_setup(&(sdtx_desc_t){
         .fonts = {
@@ -53,14 +62,13 @@ void test_enter(void) {
 
     sg_shader shd = sg_make_shader(default_program_shader_desc(sg_query_backend()));
 
-    state.pip = sg_make_pipeline(&(sg_pipeline_desc){
+    state.pip = sg_make_pipeline(&(sg_pipeline_desc) {
         .shader = shd,
         .layout = {
-            .buffers[0].stride = sizeof(float) * 8,
+            .buffers[0].stride = sizeof(float) * 4,
             .attrs = {
                 [ATTR_default_program_position].format = SG_VERTEXFORMAT_FLOAT2,
-                [ATTR_default_program_texcoord].format = SG_VERTEXFORMAT_FLOAT2,
-                [ATTR_default_program_color].format    = SG_VERTEXFORMAT_FLOAT4
+                [ATTR_default_program_texcoord].format = SG_VERTEXFORMAT_FLOAT2
             }
         },
     });
@@ -68,7 +76,7 @@ void test_enter(void) {
     state.pass_action = (sg_pass_action) {
         .colors[0] = {
             .load_action=SG_LOADACTION_CLEAR,
-            .clear_value={.0f, .0f, .0f, 1.f}
+            .clear_value={.125f, .125f, .125f, 1.f}
         }
     };
 }
@@ -97,13 +105,13 @@ void test_step(void) {
 
     sdtx_canvas(sapp_width()/2.0f, sapp_height()/2.0f);
     sdtx_home();
-    sdtx_printf("fps: %.2f", 1.0f / sapp_frame_duration());
+    sdtx_printf("fps:   %.2f", 1.0f / sapp_frame_duration());
     sdtx_crlf();
-    sdtx_printf("pos(%.2f, %.2f)", state.camera.position.X, state.camera.position.Y);
+    sdtx_printf("pos:   (%.2f, %.2f)", state.camera.position.X, state.camera.position.Y);
     sdtx_crlf();
-    sdtx_printf("zoom(%.2f)", state.camera.zoom);
+    sdtx_printf("zoom:  (%.2f)", state.camera.zoom);
     sdtx_crlf();
-    sdtx_printf("dragging: %s", state.dragging ? "true" : "false");
+    sdtx_printf("drag:  %s", state.dragging ? "true" : "false");
     sdtx_crlf();
     sdtx_printf("mouse: (%.2d, %.2d)", sapp_mouse_x(), sapp_mouse_y());
     sdtx_crlf();
@@ -114,7 +122,7 @@ void test_step(void) {
     sdtx_printf("chunk: (%d, %d)", (int)mouse_chunk.X, (int)mouse_chunk.Y);
     sdtx_crlf();
     HMM_Vec2 mouse_tile = camera_screen_to_world_tile(&state.camera, HMM_V2(sapp_mouse_x(), sapp_mouse_y()), sapp_width(), sapp_height());
-    sdtx_printf("tile: (%d, %d)", (int)mouse_tile.X, (int)mouse_tile.Y);
+    sdtx_printf("tile:  (%d, %d)", (int)mouse_tile.X, (int)mouse_tile.Y);
 
     sg_begin_pass(&(sg_pass) {
         .action = state.pass_action,
@@ -122,6 +130,9 @@ void test_step(void) {
     });
     sg_apply_pipeline(state.pip);
     chunk_draw(&state.test, &state.tilemap, &state.camera);
+    chunk_draw(&state.test2, &state.tilemap, &state.camera);
+    chunk_draw(&state.test3, &state.tilemap, &state.camera);
+    chunk_draw(&state.test4, &state.tilemap, &state.camera);
     sdtx_draw();
     sg_end_pass();
     sg_commit();

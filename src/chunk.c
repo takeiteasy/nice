@@ -61,6 +61,11 @@ static uint8_t _bitmask(struct chunk *chunk, int cx, int cy, int oob) {
     return _calc_bitmask(neighbours);
 }
 
+static inline void die_randomly(union tile *tile, int dist) {
+    if (rng_randf() * 100 > 100 - (dist * 19))
+        tile->value = 0;
+}
+
 void chunk_fill(struct chunk *c) {
     assert(c != NULL);
 
@@ -74,6 +79,19 @@ void chunk_fill(struct chunk *c) {
         tile->solid = _grid[y * CHUNK_WIDTH + x];
         tile->bitmask = tile->solid ? _bitmask(c, x, y, 0) : 0;
     });
+    const int fade = 5;
+    for (int y = 0; y < CHUNK_HEIGHT; y++)
+        for (int x = 0; x < fade; x++) {
+            int d = fade - x;
+            die_randomly(&c->grid[y * CHUNK_WIDTH + x], d);
+            die_randomly(&c->grid[y * CHUNK_WIDTH + ((CHUNK_WIDTH - 1) - x)], d);
+        }
+    for (int x = 0; x < CHUNK_WIDTH; x++)
+        for (int y = 0; y < fade; y++) {
+            int d = fade - y;
+            die_randomly(&c->grid[y * CHUNK_WIDTH + x], d);
+            die_randomly(&c->grid[((CHUNK_HEIGHT - 1) - y) * CHUNK_WIDTH + x], d);
+        }
 }
 
 void chunk_each(struct chunk *c, void *userdata, void(^fn)(int x, int y, union tile *tile, void *userdata)) {
@@ -423,7 +441,6 @@ void chunk_draw(struct chunk *c, struct texture *texture, struct camera *camera)
                     HMM_Vec2 offset = HMM_V2(x * TILE_WIDTH, y * TILE_HEIGHT);
                     v->position = HMM_AddV2(_positions[indices[i]], offset);
                     v->texcoord = _texcoords[indices[i]];
-                    v->color = HMM_V4(1.f, 1.f, 1.f, 1.f);
                 }
             }
 
