@@ -37,13 +37,13 @@ void camera_set_position(struct camera *cam, float x, float y) {
 void camera_zoom(struct camera *cam, float dz) {
     if (dz != 0.f)
         cam->dirty = true;
-    cam->zoom = clamp(cam->zoom + dz, .1f, MAX_ZOOM);
+    cam->zoom = clamp(cam->zoom + dz, MIN_ZOOM, MAX_ZOOM);
 }
 
 void camera_set_zoom(struct camera *cam, float zoom) {
     if (cam->zoom != zoom)
         cam->dirty = true;
-    cam->zoom = clamp(zoom, .1f, MAX_ZOOM);
+    cam->zoom = clamp(zoom, MIN_ZOOM, MAX_ZOOM);
 }
 
 void camera_rotate(struct camera *cam, float dangle) {
@@ -71,27 +71,62 @@ HMM_Mat4 camera_mvp(struct camera *cam, int width, int height) {
     return HMM_MulM4(projection, view);
 }
 
-HMM_Vec2 camera_world_to_screen(struct camera *cam, HMM_Vec2 world_pos, int width, int height) {
-    return HMM_V2((world_pos.X - cam->position.X) * cam->zoom + width * 0.5f,
-                  (world_pos.Y - cam->position.Y) * cam->zoom + height * 0.5f);
+HMM_Vec2 camera_world_to_screen(struct camera *cam, HMM_Vec2 world_pos,
+                                int fb_width, int fb_height,
+                                int win_width, int win_height) {
+    // First convert to framebuffer coordinates
+    HMM_Vec2 fb_pos = HMM_V2(
+        (world_pos.X - cam->position.X) * cam->zoom + fb_width * 0.5f,
+        (world_pos.Y - cam->position.Y) * cam->zoom + fb_height * 0.5f
+    );
+
+    // Scale from framebuffer to window coordinates
+    return HMM_V2(
+        fb_pos.X * ((float)win_width / fb_width),
+        fb_pos.Y * ((float)win_height / fb_height)
+    );
 }
 
-HMM_Vec2 camera_screen_to_world(struct camera *cam, HMM_Vec2 screen_pos, int width, int height) {
-    return HMM_V2((screen_pos.X - width * 0.5f) / cam->zoom + cam->position.X,
-                  (screen_pos.Y - height * 0.5f) / cam->zoom + cam->position.Y);
+HMM_Vec2 camera_screen_to_world(struct camera *cam, HMM_Vec2 screen_pos,
+                               int fb_width, int fb_height,
+                               int win_width, int win_height) {
+    // Scale from window coordinates to framebuffer coordinates
+    HMM_Vec2 fb_pos = HMM_V2(
+        screen_pos.X * ((float)fb_width / win_width),
+        screen_pos.Y * ((float)fb_height / win_height)
+    );
+
+    // Convert framebuffer coordinates to world coordinates
+    return HMM_V2(
+        (fb_pos.X - fb_width * 0.5f) / cam->zoom + cam->position.X,
+        (fb_pos.Y - fb_height * 0.5f) / cam->zoom + cam->position.Y
+    );
 }
 
-struct rect camera_bounds_ex(float x, float y, float zoom, int width, int height) {
-    int w = (int)(width / zoom);
-    int h = (int)(height / zoom);
+struct rect camera_bounds_ex(float x, float y, float zoom,
+                            int fb_width, int fb_height,
+                            int win_width, int win_height) {
+    // Scale ratio between framebuffer and window
+    float width_ratio = (float)fb_width / win_width;
+    float height_ratio = (float)fb_height / win_height;
+
+    // Calculate visible area in world coordinates based on framebuffer dimensions
+    float visible_width = fb_width / zoom;
+    float visible_height = fb_height / zoom;
+
+    float left = x - (visible_width * 0.5f);
+    float top = y - (visible_height * 0.5f);
+
     return (struct rect) {
-        .X = (int)(x - w / 2.f),
-        .Y = (int)(y - h / 2.f),
-        .W = w,
-        .H = h
+        .X = (int)left,
+        .Y = (int)top,
+        .W = (int)visible_width,
+        .H = (int)visible_height
     };
 }
 
-struct rect camera_bounds(struct camera *cam, int width, int height) {
-    return camera_bounds_ex(cam->position.X, cam->position.Y, cam->zoom, width, height);
+struct rect camera_bounds(struct camera *cam, int fb_width, int fb_height,
+                         int win_width, int win_height) {
+    return camera_bounds_ex(cam->position.X, cam->position.Y, cam->zoom,
+                          fb_width, fb_height, win_width, win_height);
 }

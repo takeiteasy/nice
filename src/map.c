@@ -26,6 +26,8 @@ static inline bool rect_intersect(struct rect a, struct rect b) {
            b.Y + b.H >= a.Y;
 }
 
+static struct chunk* add_chunk(struct map *map, int x, int y);
+
 bool map_create(struct map *map) {
     assert(map != NULL);
     assert(texture_load_path(&map->tilemap, "assets/tilemap.exploded.png"));
@@ -53,18 +55,21 @@ bool map_create(struct map *map) {
         .colors[0].pixel_format = SG_PIXELFORMAT_RGBA8
     });
 
+    struct chunk *chunk = add_chunk(map, 0, 0);
+    chunk_fill(chunk);
+
     assert(sg_query_pipeline_state(map->pipeline) == SG_RESOURCESTATE_VALID);
-    assert(thrd_pool_create(8, &map->pool));
-    assert(thrd_queue_create(&map->delete_queue));
     return true;
 }
 
 void map_destroy(struct map *map) {
     if (!map)
         return;
+
     sg_destroy_shader(map->shader);
     sg_destroy_pipeline(map->pipeline);
     texture_destroy(&map->tilemap);
+
     table_each(&map->chunks, NULL, ^(table_t *table, const char *key, table_entry_t *entry, void *userdata) {
         struct chunk *c = (struct chunk*)entry->value;
         // TODO: Export chunk to disk if needed
@@ -72,43 +77,43 @@ void map_destroy(struct map *map) {
         free(c);
     });
     table_free(&map->chunks);
-    thrd_pool_destroy(&map->pool);
-    thrd_queue_destroy(&map->delete_queue, NULL);
+}
+
+static struct chunk* add_chunk(struct map *map, int x, int y) {
+    struct chunk *chunk = malloc(sizeof(struct chunk));
+    if (!chunk_create(chunk, x, y, CHUNK_STATE_DORMANT)) {
+        free(chunk);
+        return NULL;
+    }
+    if (!table_set(&map->chunks, chunk_index(chunk), chunk)) {
+        chunk_destroy(chunk);
+        free(chunk);
+        chunk = NULL;
+    }
+    return chunk;
 }
 
 struct chunk* map_chunk(struct map *map, int x, int y, bool ensure) {
     assert(map != NULL);
     int index = chunk_index_ex(x, y);
     struct chunk *chunk = NULL;
-    if (table_get(&map->chunks, index, &chunk))
+    table_get(&map->chunks, index, &chunk);
+    if (chunk != NULL)
         return chunk;
     if (!ensure)
         return NULL;
-
     // TODO: Attempt to find chunk on disk
-    assert(chunk = malloc(sizeof(struct chunk)));
-    if (!chunk_create(chunk, x, y, CHUNK_STATE_DORMANT)) {
-        free(chunk);
-        return NULL;
-    }
-    if (!table_set(&map->chunks, index, chunk)) {
-        chunk_destroy(chunk);
-        free(chunk);
-        return NULL;
-    }
-    chunk_fill(chunk);
-    return chunk;
+    return add_chunk(map, x, y);
 }
 
-void map_draw(struct map *map) {
-    assert(map != NULL);
-
+static void draw_chunks(struct map *map) {
     sg_apply_pipeline(map->pipeline);
     table_each(&map->chunks, NULL, ^(table_t *table, const char *key, table_entry_t *entry, void *userdata) {
         chunk_draw((struct chunk*)entry->value, &map->tilemap, &map->camera);
     });
 }
 
-void map_update(struct map *map) {
-
+void map_draw(struct map *map) {
+    assert(map != NULL);
+    draw_chunks(map);
 }

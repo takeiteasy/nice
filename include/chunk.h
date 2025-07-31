@@ -38,12 +38,10 @@
 #define TILE_PADDING 4
 #endif
 
-#include "pthread_shim.h"
 #include "camera.h"
 #include "texture.h"
 #include "rng.h"
 #include "scene.h"
-#include "sokol/sokol_app.h"
 
 union tile {
     struct {
@@ -70,7 +68,6 @@ struct chunk {
     int x, y;
     enum chunk_state state;
     union tile grid[CHUNK_SIZE];
-    pthread_mutex_t lock;
     bool dirty;
     sg_bindings bind;
     HMM_Mat4 mvp;
@@ -84,8 +81,8 @@ void chunk_each(struct chunk *c, void *userdata, void(^fn)(int x, int y, union t
 void chunk_build(struct chunk *c, struct texture *texture);
 void chunk_draw(struct chunk *c, struct texture *texture, struct camera *camera);
 
-HMM_Vec2 camera_screen_to_chunk(struct camera *cam, HMM_Vec2 screen_pos, int width, int height);
-HMM_Vec2 camera_screen_to_tile(struct camera *cam, HMM_Vec2 screen_pos, int width, int height);
+HMM_Vec2 world_to_chunk(HMM_Vec2 world);
+HMM_Vec2 world_to_tile(HMM_Vec2 world);
 
 struct rect chunk_bounds_ex(int x, int y);
 struct rect chunk_bounds(struct chunk *chunk);

@@ -9,6 +9,7 @@
 #include "ecs.h"
 #include "map.h"
 #include "sokol/util/sokol_debugtext.h"
+#include "sokol/sokol_app.h"
 #include "sokol/sokol_glue.h"
 #include "sokol_input.h"
 
@@ -53,21 +54,25 @@ void test_step(void) {
     sdtx_crlf();
     sdtx_printf("drag:   %s", state.dragging ? "true" : "false");
     sdtx_crlf();
-    sdtx_printf("mouse:  (%.2d, %.2d)", sapp_mouse_x(), sapp_mouse_y());
+    HMM_Vec2 mouse_pos = HMM_V2(sapp_mouse_x(), sapp_mouse_y());
+    sdtx_printf("mouse:  (%.2f, %.2f)", mouse_pos.X, mouse_pos.Y);
     sdtx_crlf();
-    HMM_Vec2 mouse_world = camera_screen_to_world(&state.map.camera, HMM_V2(sapp_mouse_x(), sapp_mouse_y()), sapp_width(), sapp_height());
+    HMM_Vec2 mouse_world = camera_screen_to_world(&state.map.camera, mouse_pos,
+                                                  framebuffer_width(), framebuffer_height(),
+                                                  sapp_width(), sapp_height());
     sdtx_printf("world:  (%.2f, %.2f)", mouse_world.X, mouse_world.Y);
     sdtx_crlf();
-    HMM_Vec2 mouse_chunk = camera_screen_to_chunk(&state.map.camera, HMM_V2(sapp_mouse_x(), sapp_mouse_y()), sapp_width(), sapp_height());
+    HMM_Vec2 mouse_chunk = world_to_chunk(mouse_world);
     sdtx_printf("chunk:  (%d, %d)", (int)mouse_chunk.X, (int)mouse_chunk.Y);
     sdtx_crlf();
-    HMM_Vec2 mouse_tile = camera_screen_to_tile(&state.map.camera, HMM_V2(sapp_mouse_x(), sapp_mouse_y()), sapp_width(), sapp_height());
+    HMM_Vec2 mouse_tile = world_to_tile(mouse_world);
     sdtx_printf("tile:   (%d, %d)", (int)mouse_tile.X, (int)mouse_tile.Y);
     sdtx_crlf();
-    struct rect bounds = camera_bounds(&state.map.camera, framebuffer_width(), framebuffer_height());
+    struct rect bounds = camera_bounds(&state.map.camera,
+                                       framebuffer_width(), framebuffer_height(),
+                                       sapp_width(), sapp_height());
     sdtx_printf("camera: (%d, %d, %d, %d)", bounds.X, bounds.Y, bounds.X + bounds.W, bounds.Y + bounds.H);
 
-    map_update(&state.map);
     map_draw(&state.map);
     state.map.camera.dirty = false;
 }

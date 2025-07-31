@@ -15,13 +15,12 @@ bool chunk_create(struct chunk *c, int x, int y, enum chunk_state state) {
     c->y = y;
     c->state = state;
     c->dirty = true;
-    return pthread_mutex_init(&c->lock, NULL) == 0;
+    return true;
 }
 
 void chunk_destroy(struct chunk *c) {
     if (!c)
         return;
-    pthread_mutex_destroy(&c->lock);
     if (sg_query_buffer_state(c->bind.vertex_buffers[0]) == SG_RESOURCESTATE_VALID)
         sg_destroy_buffer(c->bind.vertex_buffers[0]);
     memset(c, 0, sizeof(struct chunk));
@@ -78,13 +77,11 @@ void chunk_fill(struct chunk *c) {
 
 void chunk_each(struct chunk *c, void *userdata, void(^fn)(int x, int y, union tile *tile, void *userdata)) {
     assert(c != NULL && fn != NULL);
-    pthread_mutex_lock(&c->lock);
     for (int y = 0; y < CHUNK_HEIGHT; y++)
         for (int x = 0; x < CHUNK_WIDTH; x++) {
             union tile *tile = &c->grid[y * CHUNK_WIDTH + x];
             fn(x, y, tile, userdata);
         }
-    pthread_mutex_unlock(&c->lock);
 }
 
 static const HMM_Vec2 Autotile3x3Simplified[256] = {
@@ -212,11 +209,13 @@ void chunk_draw(struct chunk *c, struct texture *texture, struct camera *camera)
         chunk_build(c, texture);
 
     if (camera->dirty)
-        c->mvp = HMM_MulM4(camera_mvp(camera, sapp_width(), sapp_height()),
+        c->mvp = HMM_MulM4(camera_mvp(camera, framebuffer_width(), framebuffer_height()),
                            HMM_Translate(HMM_V3(c->x * CHUNK_WIDTH * TILE_WIDTH,
                                                 c->y * CHUNK_HEIGHT * TILE_HEIGHT,
                                                 0)));
 
+    if (sg_query_buffer_state(c->bind.vertex_buffers[0]) != SG_RESOURCESTATE_VALID)
+        return;
     sg_apply_bindings(&c->bind);
     vs_params_t params;
     memcpy(params.mvp, &c->mvp.Elements, sizeof(float) * 16);
@@ -224,14 +223,12 @@ void chunk_draw(struct chunk *c, struct texture *texture, struct camera *camera)
     sg_draw(0, CHUNK_SIZE * 6, 1);
 }
 
-HMM_Vec2 camera_screen_to_chunk(struct camera *cam, HMM_Vec2 screen_pos, int width, int height) {
-    HMM_Vec2 world = camera_screen_to_world(cam, screen_pos, width, height);
+HMM_Vec2 world_to_chunk(HMM_Vec2 world) {
     return HMM_V2(floor(world.X / (CHUNK_WIDTH * TILE_WIDTH)),
                   floor(world.Y / (CHUNK_HEIGHT * TILE_HEIGHT)));
 }
 
-HMM_Vec2 camera_screen_to_tile(struct camera *cam, HMM_Vec2 screen_pos, int width, int height) {
-    HMM_Vec2 world = camera_screen_to_world(cam, screen_pos, width, height);
+HMM_Vec2 world_to_tile(HMM_Vec2 world) {
     HMM_Vec2 chunk = HMM_V2(world.X / (CHUNK_WIDTH * TILE_WIDTH),
                             world.Y / (CHUNK_HEIGHT * TILE_HEIGHT));
     HMM_Vec2 tile = HMM_V2(fmod(world.X, CHUNK_WIDTH * TILE_WIDTH) / TILE_WIDTH,
