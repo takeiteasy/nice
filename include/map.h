@@ -12,6 +12,7 @@
 #include "texture.h"
 #include "table.h"
 #include "framebuffer.h"
+#include "jobs.h"
 
 struct map {
     table_t chunks;
@@ -21,6 +22,7 @@ struct map {
     sg_pipeline pipeline;
     uint64_t *delete_queue;
     int delete_queue_size;
+    struct job_pool worker;
 };
 
 bool map_create(struct map *map);

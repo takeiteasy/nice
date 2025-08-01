@@ -148,18 +148,12 @@ struct basic_vertex {
 static void init(void) {
     sg_setup(&(sg_desc){
         .environment = sglue_environment(),
+        .buffer_pool_size = (1<<16)-1,
         .logger.func = slog_func,
     });
 
     sdtx_setup(&(sdtx_desc_t){
-        .fonts = {
-            sdtx_font_kc853(),
-//            sdtx_font_kc854(),
-//            sdtx_font_z1013(),
-//            sdtx_font_cpc(),
-//            sdtx_font_c64(),
-//            sdtx_font_oric()
-        }
+        .fonts = { sdtx_font_oric() }
     });
 
     sapp_input_init();

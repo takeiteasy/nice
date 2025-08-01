@@ -8,10 +8,10 @@
 #pragma once
 
 #ifndef CHUNK_WIDTH
-#define CHUNK_WIDTH  64
+#define CHUNK_WIDTH  256
 #endif
 #ifndef CHUNK_HEIGHT
-#define CHUNK_HEIGHT 64
+#define CHUNK_HEIGHT 256
 #endif
 #define CHUNK_SIZE ((CHUNK_WIDTH)*(CHUNK_HEIGHT))
 

@@ -32,8 +32,6 @@ bool map_create(struct map *map) {
     assert(map != NULL);
     assert(texture_load_path(&map->tilemap, "assets/tilemap.exploded.png"));
 
-    map->delete_queue = NULL;
-    map->delete_queue_size = 0;
     map->chunks = table();
     map->camera = camera_create(0, 0, 1, 0);
     map->shader = sg_make_shader(default_program_shader_desc(sg_query_backend()));
@@ -56,14 +54,19 @@ bool map_create(struct map *map) {
         .cull_mode = SG_CULLMODE_BACK,
         .colors[0].pixel_format = SG_PIXELFORMAT_RGBA8
     });
-
     assert(sg_query_pipeline_state(map->pipeline) == SG_RESOURCESTATE_VALID);
+
+    map->delete_queue = NULL;
+    map->delete_queue_size = 0;
+    assert(pool_create(&map->worker, 8));
+
     return true;
 }
 
 void map_destroy(struct map *map) {
     if (!map)
         return;
+    pool_destroy(&map->worker);
     sg_destroy_shader(map->shader);
     sg_destroy_pipeline(map->pipeline);
     texture_destroy(&map->tilemap);
@@ -87,6 +90,50 @@ static const char* chunk_state_str(enum chunk_state state) {
         case CHUNK_STATE_ACTIVE:
             return "ACTIVE";
         default: return "UNKNOWN";
+    }
+}
+
+#define _RADIANS(X) ((X) * (M_PI / 180.0f))
+#define _DEGREES(X) ((X) * (180.0f / M_PI))
+
+enum cardinal {
+    EAST = 0,
+    SOUTH_EAST,
+    SOUTH,
+    SOUTH_WEST,
+    WEST,
+    NORTH_WEST,
+    NORTH,
+    NORTH_EAST
+};
+
+static enum cardinal cardinal(int x1, int y1, int x2, int y2) {
+    float l1 = _RADIANS((float)x1);
+    float l2 = _RADIANS((float)x2);
+    float dl = _RADIANS((float)y2 - (float)y1);
+    return (int)round((((int)_DEGREES(atan2(sin(dl) * cos(l2), cos(l1) * sin(l2) - (sin(l1) * cos(l2) * cos(dl)))) + 360) % 360) / 45.f);
+}
+
+static HMM_Vec2 cardinal_delta(struct chunk *a, struct chunk *b) {
+    switch (cardinal(a->x, a->y, b->x, b->y)) {
+        default:
+            return HMM_V2(0, 0);
+        case EAST:
+            return HMM_V2(-1, 0);
+        case SOUTH_EAST:
+            return HMM_V2(-1, -1);
+        case SOUTH:
+            return HMM_V2(0, -1);
+        case SOUTH_WEST:
+            return HMM_V2(1, -1);
+        case WEST:
+            return HMM_V2(1, 0);
+        case NORTH_WEST:
+            return HMM_V2(1, 1);
+        case NORTH:
+            return HMM_V2(0, 1);
+        case NORTH_EAST:
+            return HMM_V2(-1, 1);
     }
 }
 
