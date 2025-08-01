@@ -205,7 +205,7 @@ void chunk_draw(struct chunk *c, struct texture *texture, struct camera *camera)
         c->bind.samplers[SMP_smp] = texture->sampler;
     }
 
-    if (c->dirty)
+    if (c->dirty && c->state == CHUNK_STATE_ACTIVE)
         chunk_build(c, texture);
 
     if (camera->dirty)

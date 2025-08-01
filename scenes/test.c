@@ -57,9 +57,7 @@ void test_step(void) {
     HMM_Vec2 mouse_pos = HMM_V2(sapp_mouse_x(), sapp_mouse_y());
     sdtx_printf("mouse:  (%.2f, %.2f)", mouse_pos.X, mouse_pos.Y);
     sdtx_crlf();
-    HMM_Vec2 mouse_world = camera_screen_to_world(&state.map.camera, mouse_pos,
-                                                  framebuffer_width(), framebuffer_height(),
-                                                  sapp_width(), sapp_height());
+    HMM_Vec2 mouse_world = camera_screen_to_world(&state.map.camera, mouse_pos);
     sdtx_printf("world:  (%.2f, %.2f)", mouse_world.X, mouse_world.Y);
     sdtx_crlf();
     HMM_Vec2 mouse_chunk = world_to_chunk(mouse_world);
@@ -68,9 +66,7 @@ void test_step(void) {
     HMM_Vec2 mouse_tile = world_to_tile(mouse_world);
     sdtx_printf("tile:   (%d, %d)", (int)mouse_tile.X, (int)mouse_tile.Y);
     sdtx_crlf();
-    struct rect bounds = camera_bounds(&state.map.camera,
-                                       framebuffer_width(), framebuffer_height(),
-                                       sapp_width(), sapp_height());
+    struct rect bounds = camera_bounds(&state.map.camera);
     sdtx_printf("camera: (%d, %d, %d, %d)", bounds.X, bounds.Y, bounds.X + bounds.W, bounds.Y + bounds.H);
 
     map_draw(&state.map);

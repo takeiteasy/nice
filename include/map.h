@@ -11,6 +11,7 @@
 #include "camera.h"
 #include "texture.h"
 #include "table.h"
+#include "framebuffer.h"
 
 struct map {
     table_t chunks;
@@ -18,6 +19,8 @@ struct map {
     struct texture tilemap;
     sg_shader shader;
     sg_pipeline pipeline;
+    uint64_t *delete_queue;
+    int delete_queue_size;
 };
 
 bool map_create(struct map *map);

@@ -32,6 +32,8 @@ bool map_create(struct map *map) {
     assert(map != NULL);
     assert(texture_load_path(&map->tilemap, "assets/tilemap.exploded.png"));
 
+    map->delete_queue = NULL;
+    map->delete_queue_size = 0;
     map->chunks = table();
     map->camera = camera_create(0, 0, 1, 0);
     map->shader = sg_make_shader(default_program_shader_desc(sg_query_backend()));
@@ -55,9 +57,6 @@ bool map_create(struct map *map) {
         .colors[0].pixel_format = SG_PIXELFORMAT_RGBA8
     });
 
-    struct chunk *chunk = add_chunk(map, 0, 0);
-    chunk_fill(chunk);
-
     assert(sg_query_pipeline_state(map->pipeline) == SG_RESOURCESTATE_VALID);
     return true;
 }
@@ -65,11 +64,11 @@ bool map_create(struct map *map) {
 void map_destroy(struct map *map) {
     if (!map)
         return;
-
     sg_destroy_shader(map->shader);
     sg_destroy_pipeline(map->pipeline);
     texture_destroy(&map->tilemap);
-
+    if (map->delete_queue)
+        free(map->delete_queue);
     table_each(&map->chunks, NULL, ^(table_t *table, const char *key, table_entry_t *entry, void *userdata) {
         struct chunk *c = (struct chunk*)entry->value;
         // TODO: Export chunk to disk if needed
@@ -77,6 +76,18 @@ void map_destroy(struct map *map) {
         free(c);
     });
     table_free(&map->chunks);
+}
+
+static const char* chunk_state_str(enum chunk_state state) {
+    switch (state) {
+        case CHUNK_STATE_UNLOAD:
+            return "UNLOAD";
+        case CHUNK_STATE_DORMANT:
+            return "DORMANT";
+        case CHUNK_STATE_ACTIVE:
+            return "ACTIVE";
+        default: return "UNKNOWN";
+    }
 }
 
 static struct chunk* add_chunk(struct map *map, int x, int y) {
@@ -90,6 +101,8 @@ static struct chunk* add_chunk(struct map *map, int x, int y) {
         free(chunk);
         chunk = NULL;
     }
+    chunk_fill(chunk);
+    printf("CHUNK ADDED (%d, %d) (%s)\n", x, y, chunk_state_str(chunk->state));
     return chunk;
 }
 
@@ -113,7 +126,68 @@ static void draw_chunks(struct map *map) {
     });
 }
 
+static bool update_chunk_state(struct chunk *chunk, struct camera *camera) {
+    struct rect chunk_b = chunk_bounds(chunk);
+    enum chunk_state state = chunk->state;
+    if (!rect_intersect(camera_bounds_ex(camera->position.X, camera->position.Y, MIN_ZOOM), chunk_b))
+        chunk->state = CHUNK_STATE_UNLOAD;
+    else
+        chunk->state = rect_intersect(camera_bounds(camera), chunk_b) ? CHUNK_STATE_ACTIVE : CHUNK_STATE_DORMANT;
+    return state != chunk->state;
+}
+
+static void find_chunks(struct map *map) {
+    struct rect camera_b = camera_bounds_ex(map->camera.position.X, map->camera.position.Y, MIN_ZOOM);
+    HMM_Vec2 tl = camera_screen_to_world(&map->camera, HMM_V2(camera_b.X, camera_b.Y));
+    HMM_Vec2 br = camera_screen_to_world(&map->camera, HMM_V2(camera_b.X + camera_b.W, camera_b.Y + camera_b.H));
+    HMM_Vec2 tl_chunk = world_to_chunk(tl);
+    HMM_Vec2 br_chunk = world_to_chunk(br);
+    for (int y = (int)tl_chunk.Y; y <= (int)br_chunk.Y; y++)
+        for (int x = (int)tl_chunk.X; x <= (int)br_chunk.X; x++)
+            if (rect_intersect(chunk_bounds_ex(x, y), camera_b)) {
+                struct chunk *chunk = map_chunk(map, x, y, true);
+                assert(chunk != NULL);
+            }
+}
+
+static void check_chunks(struct map *map) {
+    map->delete_queue = NULL;
+    map->delete_queue_size = 0;
+    table_each(&map->chunks, map, ^(table_t *table, const char *key, table_entry_t *entry, void *userdata) {
+        struct map *map = (struct map*)userdata;
+        struct chunk *chunk = (struct chunk*)entry->value;
+        assert(chunk != NULL);
+        enum chunk_state last_state = chunk->state;
+        bool changed = update_chunk_state(chunk, &map->camera);
+        if (changed) {
+            printf("CHUNK MODIFIED (%d, %d) (%s -> %s)\n", chunk->x, chunk->y, chunk_state_str(last_state), chunk_state_str(chunk->state));
+            if (chunk->state == CHUNK_STATE_UNLOAD) {
+                map->delete_queue = realloc(map->delete_queue, ++map->delete_queue_size * sizeof(uint64_t));
+                map->delete_queue[map->delete_queue_size - 1] = chunk_index(chunk);
+            }
+        }
+    });
+}
+
+static void release_chunks(struct map *map) {
+    for (size_t i = 0; i < map->delete_queue_size; i++) {
+        uint64_t index = map->delete_queue[i];
+        struct chunk *chunk = NULL;
+        if (table_get(&map->chunks, index, &chunk) && chunk != NULL) {
+            printf("CHUNK REMOVED (%d, %d)\n", chunk->x, chunk->y);
+            table_del(&map->chunks, index);
+            chunk_destroy(chunk);
+            free(chunk);
+        }
+    }
+    free(map->delete_queue);
+    map->delete_queue_size = 0;
+}
+
 void map_draw(struct map *map) {
     assert(map != NULL);
+    check_chunks(map);
+    release_chunks(map);
+    find_chunks(map);
     draw_chunks(map);
 }

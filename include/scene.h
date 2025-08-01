@@ -22,7 +22,3 @@ SCENES
 
 void set_scene(struct scene *scene);
 void set_scene_named(const char *name);
-
-int framebuffer_width(void);
-int framebuffer_height(void);
-void framebuffer_resize(int width, int height);
