@@ -15,6 +15,8 @@ bool chunk_create(struct chunk *c, int x, int y, enum chunk_state state) {
     c->y = y;
     c->state = state;
     c->dirty = true;
+    if (pthread_rwlock_init(&c->rwlock, NULL) != 0)
+        return false;
     return true;
 }
 
@@ -23,6 +25,7 @@ void chunk_destroy(struct chunk *c) {
         return;
     if (sg_query_buffer_state(c->bind.vertex_buffers[0]) == SG_RESOURCESTATE_VALID)
         sg_destroy_buffer(c->bind.vertex_buffers[0]);
+    pthread_rwlock_destroy(&c->rwlock);
     memset(c, 0, sizeof(struct chunk));
 }
 
@@ -32,56 +35,17 @@ union tile* chunk_tile(struct chunk *c, int x, int y) {
            &c->grid[y * CHUNK_WIDTH + x];
 }
 
-static uint8_t _calc_bitmask(uint8_t neighbours[9]) {
-#define CHECK_CORNER(N, A, B) \
-    neighbours[(N)] = !neighbours[(A)] || !neighbours[(B)] ? 0 : neighbours[(N)];
-    CHECK_CORNER(0, 1, 3);
-    CHECK_CORNER(2, 1, 5);
-    CHECK_CORNER(6, 7, 3);
-    CHECK_CORNER(8, 7, 5);
-#undef CHECK_CORNER
-    uint8_t result = 0;
-    for (int y = 0, n = 0; y < 3; y++)
-        for (int x = 0; x < 3; x++)
-            if (!(y == 1 && x == 1))
-                result += (neighbours[y * 3 + x] << n++);
-    return result;
-}
-
-static uint8_t _solid(struct chunk *chunk, int x, int y, int oob) {
-    return x < 0 || y < 0 || x >= CHUNK_WIDTH || y >= CHUNK_HEIGHT ? oob : chunk->grid[y * CHUNK_WIDTH + x].solid ? 1 : 0;
-}
-
-static uint8_t _bitmask(struct chunk *chunk, int cx, int cy, int oob) {
-    uint8_t neighbours[9] = {0};
-    for (int x = -1; x < 2; x++)
-        for (int y = -1; y < 2; y++)
-            neighbours[(y+1)*3+(x+1)] = !x && !y ? 0 : _solid(chunk, cx+x, cy+y, oob);
-    return _calc_bitmask(neighbours);
-}
-
-void chunk_fill(struct chunk *c) {
-    assert(c != NULL);
-
-    uint8_t _grid[CHUNK_SIZE];
-    cellular_automata(CHUNK_WIDTH, CHUNK_HEIGHT,
-                      CHUNK_FILL_CHANCE, CHUNK_SMOOTH_ITERATIONS,
-                      CHUNK_SURVIVE, CHUNK_STARVE,
-                      _grid);
-    chunk_each(c, _grid, ^(int x, int y, union tile *tile, void *userdata) {
-        uint8_t *_grid = (uint8_t*)userdata;
-        tile->solid = _grid[y * CHUNK_WIDTH + x];
-        tile->bitmask = tile->solid ? _bitmask(c, x, y, 0) : 0;
-    });
-}
 
 void chunk_each(struct chunk *c, void *userdata, void(^fn)(int x, int y, union tile *tile, void *userdata)) {
     assert(c != NULL && fn != NULL);
+
+    pthread_rwlock_rdlock(&c->rwlock);
     for (int y = 0; y < CHUNK_HEIGHT; y++)
         for (int x = 0; x < CHUNK_WIDTH; x++) {
             union tile *tile = &c->grid[y * CHUNK_WIDTH + x];
             fn(x, y, tile, userdata);
         }
+    pthread_rwlock_unlock(&c->rwlock);
 }
 
 static const HMM_Vec2 Autotile3x3Simplified[256] = {
@@ -134,11 +98,7 @@ static const HMM_Vec2 Autotile3x3Simplified[256] = {
     [255] = {9, 2},
 };
 
-void chunk_build(struct chunk *c, struct texture *texture) {
-    if (sg_query_buffer_state(c->bind.vertex_buffers[0]) == SG_RESOURCESTATE_VALID)
-        sg_destroy_buffer(c->bind.vertex_buffers[0]);
-    c->dirty = false;
-
+static void chunk_build(struct chunk *c, struct texture *texture) {
     float hw = framebuffer_width() / 2.f;
     float hh = framebuffer_height() / 2.f;
     static const size_t mem_size = CHUNK_SIZE * 6 * sizeof(struct chunk_vertex);
@@ -149,7 +109,6 @@ void chunk_build(struct chunk *c, struct texture *texture) {
             union tile *tile = &c->grid[y * CHUNK_WIDTH + x];
             if (!tile->solid)
                 continue;
-            tile->bitmask = tile->solid ? _bitmask(c, x, y, 0) : 0;
 
             HMM_Vec2 clip = Autotile3x3Simplified[tile->bitmask];
             struct rect src = {
@@ -189,26 +148,35 @@ void chunk_build(struct chunk *c, struct texture *texture) {
             }
         }
 
+    pthread_rwlock_wrlock(&c->rwlock);
+    if (sg_query_buffer_state(c->bind.vertex_buffers[0]) == SG_RESOURCESTATE_VALID)
+        sg_destroy_buffer(c->bind.vertex_buffers[0]);
+    c->dirty = false;
     c->bind.vertex_buffers[0] = sg_make_buffer(&(sg_buffer_desc){
         .data = {
             .ptr = vertices,
             .size = mem_size,
         },
     });
+    pthread_rwlock_unlock(&c->rwlock);
     free(vertices);
 }
 
 void chunk_draw(struct chunk *c, struct texture *texture, struct camera *camera) {
     assert(c != NULL && camera != NULL);
+    
+    if (c->state != CHUNK_STATE_ACTIVE)
+        return;
+
     if (texture) {
         c->bind.images[IMG_tex] = texture->image;
         c->bind.samplers[SMP_smp] = texture->sampler;
     }
 
-    if (c->dirty && c->state == CHUNK_STATE_ACTIVE)
+    if (c->dirty)
         chunk_build(c, texture);
 
-    if (camera->dirty)
+    if (camera->dirty || c->mvp.Elements[0][0] == 0)
         c->mvp = HMM_MulM4(camera_mvp(camera, framebuffer_width(), framebuffer_height()),
                            HMM_Translate(HMM_V3(c->x * CHUNK_WIDTH * TILE_WIDTH,
                                                 c->y * CHUNK_HEIGHT * TILE_HEIGHT,
@@ -216,6 +184,7 @@ void chunk_draw(struct chunk *c, struct texture *texture, struct camera *camera)
 
     if (sg_query_buffer_state(c->bind.vertex_buffers[0]) != SG_RESOURCESTATE_VALID)
         return;
+
     sg_apply_bindings(&c->bind);
     vs_params_t params;
     memcpy(params.mvp, &c->mvp.Elements, sizeof(float) * 16);

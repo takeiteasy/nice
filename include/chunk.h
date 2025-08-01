@@ -40,8 +40,9 @@
 
 #include "camera.h"
 #include "texture.h"
-#include "rng.h"
 #include "scene.h"
+#include "pthread_shim.h"
+#include <string.h>
 
 union tile {
     struct {
@@ -71,14 +72,13 @@ struct chunk {
     bool dirty;
     sg_bindings bind;
     HMM_Mat4 mvp;
+    pthread_rwlock_t rwlock;
 };
 
 bool chunk_create(struct chunk *c, int x, int y, enum chunk_state state);
 void chunk_destroy(struct chunk *c);
-void chunk_fill(struct chunk *c);
 union tile* chunk_tile(struct chunk *c, int x, int y);
 void chunk_each(struct chunk *c, void *userdata, void(^fn)(int x, int y, union tile *tile, void *userdata));
-void chunk_build(struct chunk *c, struct texture *texture);
 void chunk_draw(struct chunk *c, struct texture *texture, struct camera *camera);
 
 HMM_Vec2 world_to_chunk(HMM_Vec2 world);
