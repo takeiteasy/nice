@@ -29,10 +29,16 @@
 #endif
 
 #ifndef TILE_WIDTH
-#define TILE_WIDTH 8
+#define TILE_WIDTH 32
 #endif
 #ifndef TILE_HEIGHT
-#define TILE_HEIGHT 8
+#define TILE_HEIGHT 32
+#endif
+#ifndef TILE_ORIGINAL_WIDTH
+#define TILE_ORIGINAL_WIDTH 8
+#endif
+#ifndef TILE_ORIGINAL_HEIGHT
+#define TILE_ORIGINAL_HEIGHT 8
 #endif
 #ifndef TILE_PADDING
 #define TILE_PADDING 4
@@ -40,9 +46,7 @@
 
 #include "camera.h"
 #include "texture.h"
-#include "scene.h"
 #include "pthread_shim.h"
-#include <string.h>
 
 union tile {
     struct {
@@ -67,8 +71,8 @@ struct chunk_vertex {
 
 struct chunk {
     int x, y;
-    enum chunk_state state;
     union tile grid[CHUNK_SIZE];
+    enum chunk_state state;
     bool dirty;
     sg_bindings bind;
     HMM_Mat4 mvp;
@@ -77,7 +81,6 @@ struct chunk {
 
 bool chunk_create(struct chunk *c, int x, int y, enum chunk_state state);
 void chunk_destroy(struct chunk *c);
-union tile* chunk_tile(struct chunk *c, int x, int y);
 void chunk_each(struct chunk *c, void *userdata, void(^fn)(int x, int y, union tile *tile, void *userdata));
 void chunk_draw(struct chunk *c, struct texture *texture, struct camera *camera);
 

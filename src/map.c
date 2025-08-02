@@ -6,7 +6,13 @@
 //
 
 #include "map.h"
+#include "rng.h"
+#include "framebuffer.h"
 #include "default.glsl.h"
+#include <assert.h>
+#include <stdio.h>
+#include <math.h>
+#include <stdlib.h>
 
 #define _INDEX(I) (abs((I) * 2) - ((I) > 0 ? 1 : 0))
 
@@ -74,9 +80,11 @@ void map_destroy(struct map *map) {
     sg_destroy_pipeline(map->pipeline);
     texture_destroy(&map->tilemap);
 
+    pthread_rwlock_wrlock(&map->chunks_lock);
     pthread_rwlock_wrlock(&map->delete_queue_lock);
     if (map->delete_queue)
         free(map->delete_queue);
+    pthread_rwlock_unlock(&map->chunks_lock);
     pthread_rwlock_unlock(&map->delete_queue_lock);
     pthread_rwlock_destroy(&map->delete_queue_lock);
 
@@ -104,14 +112,17 @@ static const char* chunk_state_str(enum chunk_state state) {
     }
 }
 
-static uint8_t _calc_bitmask(uint8_t neighbours[9]) {
-#define CHECK_CORNER(N, A, B) \
-    neighbours[(N)] = !neighbours[(A)] || !neighbours[(B)] ? 0 : neighbours[(N)];
-    CHECK_CORNER(0, 1, 3);
-    CHECK_CORNER(2, 1, 5);
-    CHECK_CORNER(6, 7, 3);
-    CHECK_CORNER(8, 7, 5);
-#undef CHECK_CORNER
+static uint8_t tile_bitmask(struct chunk *chunk, int cx, int cy, int oob) {
+    uint8_t neighbours[9] = {0};
+    for (int x = -1; x < 2; x++)
+        for (int y = -1; y < 2; y++) {
+            int dx = cx+x, dy = cy+y;
+            neighbours[(y+1)*3+(x+1)] = !x && !y ? 0 : dx < 0 || dy < 0 || dx >= CHUNK_WIDTH || dy >= CHUNK_HEIGHT ? oob : chunk->grid[dy * CHUNK_WIDTH + dx].solid ? 1 : 0;
+        }
+    neighbours[0] = !neighbours[1] || !neighbours[3] ? 0 : neighbours[0];
+    neighbours[2] = !neighbours[1] || !neighbours[5] ? 0 : neighbours[2];
+    neighbours[6] = !neighbours[7] || !neighbours[3] ? 0 : neighbours[6];
+    neighbours[8] = !neighbours[7] || !neighbours[5] ? 0 : neighbours[8];
     uint8_t result = 0;
     for (int y = 0, n = 0; y < 3; y++)
         for (int x = 0; x < 3; x++)
@@ -120,19 +131,7 @@ static uint8_t _calc_bitmask(uint8_t neighbours[9]) {
     return result;
 }
 
-static uint8_t _solid(struct chunk *chunk, int x, int y, int oob) {
-    return x < 0 || y < 0 || x >= CHUNK_WIDTH || y >= CHUNK_HEIGHT ? oob : chunk->grid[y * CHUNK_WIDTH + x].solid ? 1 : 0;
-}
-
-static uint8_t _bitmask(struct chunk *chunk, int cx, int cy, int oob) {
-    uint8_t neighbours[9] = {0};
-    for (int x = -1; x < 2; x++)
-        for (int y = -1; y < 2; y++)
-            neighbours[(y+1)*3+(x+1)] = !x && !y ? 0 : _solid(chunk, cx+x, cy+y, oob);
-    return _calc_bitmask(neighbours);
-}
-
-static void chunk_fill(struct chunk *c) {
+static void fill_chunk(struct chunk *c) {
     assert(c != NULL);
 
     uint8_t _grid[CHUNK_SIZE];
@@ -143,12 +142,12 @@ static void chunk_fill(struct chunk *c) {
     pthread_rwlock_wrlock(&c->rwlock);
     for (int y = 0; y < CHUNK_HEIGHT; y++)
         for (int x = 0; x < CHUNK_WIDTH; x++)
-            c->grid[y * CHUNK_WIDTH + x].solid = _grid[y * CHUNK_WIDTH + x];
+            c->grid[y * CHUNK_WIDTH + x].solid = x == 0 || y == 0 || x == CHUNK_WIDTH - 1 || y == CHUNK_HEIGHT - 1 ? 1 : _grid[y * CHUNK_WIDTH + x];
 
     for (int y = 0; y < CHUNK_HEIGHT; y++)
         for (int x = 0; x < CHUNK_WIDTH; x++) {
             union tile *tile = &c->grid[y * CHUNK_WIDTH + x];
-            tile->bitmask = tile->solid ? _bitmask(c, x, y, 0) : 0;
+            tile->bitmask = tile->solid ? tile_bitmask(c, x, y, 1) : 0;
         }
     c->dirty = true;
     pthread_rwlock_unlock(&c->rwlock);
@@ -171,8 +170,7 @@ static struct chunk* add_chunk(struct map *map, int x, int y) {
 
     pool_add_job(&map->worker, map, ^(void *arg) {
         printf("FILLING CHUNK (%d, %d)\n", chunk->x, chunk->y);
-        chunk_fill(chunk);
-        printf("CHUNK FILLED (%d, %d)\n", chunk->x, chunk->y);
+        fill_chunk(chunk);
     });
     printf("CHUNK ADDED (%d, %d) (%s)\n", x, y, chunk_state_str(chunk->state));
     return chunk;
@@ -193,7 +191,7 @@ struct chunk* map_chunk(struct map *map, int x, int y, bool ensure) {
     return add_chunk(map, x, y);
 }
 
-static bool update_chunk_state(struct chunk *chunk, struct camera *camera) {
+static bool update_chunk(struct chunk *chunk, struct camera *camera) {
     pthread_rwlock_wrlock(&chunk->rwlock);
     struct rect chunk_b = chunk_bounds(chunk);
     enum chunk_state state = chunk->state;
@@ -220,14 +218,13 @@ static void find_chunks(struct map *map) {
 }
 
 static void check_chunks(struct map *map) {
-    map->delete_queue = NULL;
-    map->delete_queue_size = 0;
+    pthread_rwlock_rdlock(&map->chunks_lock);
     table_each(&map->chunks, map, ^(table_t *table, const char *key, table_entry_t *entry, void *userdata) {
         struct map *map = (struct map*)userdata;
         struct chunk *chunk = (struct chunk*)entry->value;
         assert(chunk != NULL);
         enum chunk_state last_state = chunk->state;
-        if (!update_chunk_state(chunk, &map->camera))
+        if (!update_chunk(chunk, &map->camera))
             return;
         printf("CHUNK MODIFIED (%d, %d) (%s -> %s)\n", chunk->x, chunk->y, chunk_state_str(last_state), chunk_state_str(chunk->state));
         if (chunk->state == CHUNK_STATE_UNLOAD) {
@@ -237,10 +234,15 @@ static void check_chunks(struct map *map) {
             pthread_rwlock_unlock(&map->delete_queue_lock);
         }
     });
+    pthread_rwlock_unlock(&map->chunks_lock);
 }
 
 static void release_chunks(struct map *map) {
     pthread_rwlock_wrlock(&map->delete_queue_lock);
+    if (!map->delete_queue || map->delete_queue_size == 0) {
+        pthread_rwlock_unlock(&map->delete_queue_lock);
+        return;
+    }
     for (size_t i = 0; i < map->delete_queue_size; i++) {
         uint64_t index = map->delete_queue[i];
         struct chunk *chunk = NULL;
@@ -260,10 +262,12 @@ static void release_chunks(struct map *map) {
 
 static void draw_chunks(struct map *map) {
     sg_apply_pipeline(map->pipeline);
+    pthread_rwlock_rdlock(&map->chunks_lock);
     table_each(&map->chunks, NULL, ^(table_t *table, const char *key, table_entry_t *entry, void *userdata) {
         struct chunk *chunk = (struct chunk*)entry->value;
         chunk_draw(chunk, &map->tilemap, &map->camera);
     });
+    pthread_rwlock_unlock(&map->chunks_lock);
 }
 
 void map_draw(struct map *map) {

@@ -8,10 +8,6 @@
 #pragma once
 
 #include <stdint.h>
-#include <float.h>
-#include <time.h>
-#include <string.h>
-#include <stdlib.h>
 
 void rng_srand(uint64_t seed);
 uint64_t rng_rand(void);

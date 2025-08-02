@@ -7,9 +7,8 @@
 
 #pragma once
 
-#include <stdbool.h>
 #include "HandmadeMath.h"
-#include "framebuffer.h"
+#include <stdbool.h>
 
 struct camera {
     HMM_Vec2 position;

@@ -6,7 +6,11 @@
 //
 
 #include "chunk.h"
+#include "framebuffer.h"
 #include "default.glsl.h"
+#include <assert.h>
+#include <stdlib.h>
+#include <string.h>
 
 bool chunk_create(struct chunk *c, int x, int y, enum chunk_state state) {
     assert(c != NULL);
@@ -28,13 +32,6 @@ void chunk_destroy(struct chunk *c) {
     pthread_rwlock_destroy(&c->rwlock);
     memset(c, 0, sizeof(struct chunk));
 }
-
-union tile* chunk_tile(struct chunk *c, int x, int y) {
-    return x < 0 || x >= CHUNK_WIDTH ||
-           y < 0 || y >= CHUNK_HEIGHT ? NULL :
-           &c->grid[y * CHUNK_WIDTH + x];
-}
-
 
 void chunk_each(struct chunk *c, void *userdata, void(^fn)(int x, int y, union tile *tile, void *userdata)) {
     assert(c != NULL && fn != NULL);
@@ -112,9 +109,9 @@ static void chunk_build(struct chunk *c, struct texture *texture) {
 
             HMM_Vec2 clip = Autotile3x3Simplified[tile->bitmask];
             struct rect src = {
-                (clip.X * TILE_WIDTH) + ((clip.X + 1) * TILE_PADDING),
-                (clip.Y * TILE_HEIGHT) + ((clip.Y + 1) * TILE_PADDING),
-                TILE_WIDTH, TILE_HEIGHT
+                (clip.X * TILE_ORIGINAL_WIDTH) + ((clip.X + 1) * TILE_PADDING),
+                (clip.Y * TILE_ORIGINAL_HEIGHT) + ((clip.Y + 1) * TILE_PADDING),
+                TILE_ORIGINAL_WIDTH, TILE_ORIGINAL_HEIGHT
             };
 
             float hqw = TILE_WIDTH / 2.f;

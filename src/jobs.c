@@ -6,6 +6,7 @@
 //
 
 #include "jobs.h"
+#include <stdlib.h>
 
 static void* work(void *arg) {
     struct job_pool *pool = (struct job_pool*)arg;

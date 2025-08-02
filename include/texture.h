@@ -8,8 +8,6 @@
 #pragma once
 
 #include "sokol/sokol_gfx.h"
-#include "stb_image.h"
-#include <assert.h>
 #include <stdbool.h>
 
 struct texture {

@@ -8,7 +8,6 @@
 #pragma once
 
 #include "pthread_shim.h"
-#include <stdlib.h>
 #include <stdbool.h>
 
 struct job {

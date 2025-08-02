@@ -7,12 +7,10 @@
 
 #pragma once
 
+#include "table.h"
 #include "chunk.h"
 #include "camera.h"
 #include "texture.h"
-#include "table.h"
-#include "rng.h"
-#include "framebuffer.h"
 #include "jobs.h"
 
 struct map {

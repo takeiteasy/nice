@@ -8,6 +8,7 @@
 #include "scene.h"
 #include "ecs.h"
 #include "map.h"
+#include "rng.h"
 #include "sokol/util/sokol_debugtext.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_glue.h"
@@ -67,6 +68,9 @@ void test_step(void) {
     sdtx_printf("tile:   (%d, %d)", (int)mouse_tile.X, (int)mouse_tile.Y);
     sdtx_crlf();
     struct rect bounds = camera_bounds(&state.map.camera);
+    sdtx_printf("camera: (%d, %d, %d, %d)", bounds.X, bounds.Y, bounds.X + bounds.W, bounds.Y + bounds.H);
+    sdtx_crlf();
+    bounds = camera_bounds_ex(state.map.camera.position.X, state.map.camera.position.Y, MIN_ZOOM);
     sdtx_printf("camera: (%d, %d, %d, %d)", bounds.X, bounds.Y, bounds.X + bounds.W, bounds.Y + bounds.H);
 
     map_draw(&state.map);

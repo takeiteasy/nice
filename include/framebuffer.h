@@ -7,8 +7,6 @@
 
 #pragma once
 
-#include "sokol/sokol_app.h"
-
 int framebuffer_width(void);
 int framebuffer_height(void);
 void framebuffer_resize(int width, int height);

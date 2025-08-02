@@ -6,7 +6,9 @@
 //
 
 #define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 #include "texture.h"
+#include <assert.h>
 
 bool texture_load_path(struct texture *texture, const char *path) {
     assert(texture != NULL && path != NULL);

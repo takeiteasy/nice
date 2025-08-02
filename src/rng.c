@@ -6,6 +6,10 @@
 //
 
 #include "rng.h"
+#include <float.h>
+#include <time.h>
+#include <string.h>
+#include <stdlib.h>
 
 #define _PRNG_LAG1 (UINT16_C(24))
 #define _PRNG_LAG2 (UINT16_C(55))
