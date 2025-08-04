@@ -1,4 +1,4 @@
-name: rpg
+name: rpg 
 
 options:
   bundleIdPrefix: io.github.takeiteasy
@@ -7,6 +7,8 @@ options:
     macOS: "15.0"
 
 settings:
+  CLANG_CXX_LANGUAGE_STANDARD: c++17
+  CLANG_CXX_LIBRARY: libc++
   GCC_C_LANGUAGE_STANDARD: c11
   CLANG_WARN_DOCUMENTATION_COMMENTS: false
 
@@ -16,15 +18,19 @@ targets:
     platform: macOS
     sources:
         - path: src/
-        - path: include/
         - path: scenes/
+        - path: deps/fmt
+          includes:
+            - "*.cc"
+          excludes:
+            - "fmt.cc"
         - path: deps/
           type: folder
         - path: assets/
           type: folder
         - path: shaders/
           type: folder
-        - path: build/
+        - path: misc/
           type: folder
         - path: project.yml
           type: folder
@@ -39,6 +45,5 @@ targets:
         - sdk: AudioToolbox.framework
     settings:
         HEADER_SEARCH_PATHS: [$(PROJECT_DIR)/deps,
-                              $(PROJECT_DIR)/include,
                               $(PROJECT_DIR)/scenes]
-        OTHER_CFLAGS: [-x objective-c, -DSOKOL_METAL, -fenable-matrix]
+        OTHER_CFLAGS: [-x objective-c++, -DSOKOL_METAL]

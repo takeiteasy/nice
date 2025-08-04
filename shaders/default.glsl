@@ -5,6 +5,9 @@
 //  Created by George Watson on 24/07/2025.
 //
 
+@ctype mat4 glm::mat4
+@ctype vec2 glm::vec2
+
 @vs default_vs
 layout(location=0) in vec2 position;
 layout(location=1) in vec2 texcoord;

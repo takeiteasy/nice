@@ -1,7 +1,7 @@
 UNAME := $(shell uname -s)
 PROG_EXT :=
 LIB_EXT := dylib
-CFLAGS := -x objective-c -DSOKOL_METAL -fenable-matrix \
+CFLAGS := -x objective-c++ -DSOKOL_METAL -fenable-matrix \
 		  -framework Metal -framework Cocoa -framework IOKit \
 		  -framework MetalKit -framework Quartz -framework AudioToolbox
 ARCH := $(shell uname -m)
@@ -12,13 +12,13 @@ else
 endif
 SHDC_FLAGS := metal_macos
 
-SOURCE := $(wildcard src/*.c)
-SCENES := $(wildcard scenes/*.c)
+SOURCE := $(wildcard src/*.cc)
+SCENES := $(wildcard scenes/*.cc)
 EXE := build/rpg_$(ARCH)$(PROG_EXT)
 LIB := build/librpg_$(ARCH).$(LIB_EXT)
-INC := -Iinclude -Iscenes -Lbuild -Ideps
+INC := -std=c++17 -Iscenes -Lbuild -Ideps
 
-ARCH_PATH := ./build/$(ARCH)
+ARCH_PATH := bin/$(ARCH)
 SHDC_PATH := $(ARCH_PATH)/sokol-shdc$(PROG_EXT)
 SHADERS := $(wildcard shaders/*.glsl)
 SHADER_OUTS := $(patsubst shaders/%,include/%.h,$(SHADERS))
@@ -33,7 +33,7 @@ shaders: $(SHADER_OUTS)
 app: shaders
 	$(CC) $(INC) $(CFLAGS) $(SOURCE) $(SCENES) -o $(EXE)
 
-default: app
+default: shaders
 
 all: shaders app
 
