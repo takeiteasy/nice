@@ -37,8 +37,8 @@ class Camera {
     Rect _bounds(float zoom) {
         float visible_width = framebuffer_width() / zoom;
         float visible_height = framebuffer_height() / zoom;
-        float left = _position.x - (visible_width * 0.5f);
-        float top = _position.y - (visible_height * 0.5f);
+        float left = _position.x - (visible_width * .5f);
+        float top = _position.y - (visible_height * .5f);
         return (struct Rect) {
             .x = (int)left,
             .y = (int)top,
@@ -106,6 +106,7 @@ public:
         glm::mat4 view = glm::mat4(1.f);
         float hw = (float)w / 2.f;
         float hh = (float)h / 2.f;
+        // Apply camera transformations: translate to center, scale for zoom, rotate, then translate to position
         view = glm::translate(view, glm::vec3(hw, hh, 0.f));
         view = glm::scale(view, glm::vec3(_zoom, _zoom, 1.f));
         view = glm::rotate(view, glm::radians(_rotation), glm::vec3(0.f, 0.f, 1.f));
@@ -121,7 +122,7 @@ public:
         // Apply camera transformation: translate relative to camera, then zoom, then center on screen
         glm::vec2 relative_pos = world_pos - _position;
         glm::vec2 zoomed_pos = relative_pos * _zoom;
-        glm::vec2 screen_pos = zoomed_pos + glm::vec2(w * 0.5f, h * 0.5f);
+        glm::vec2 screen_pos = zoomed_pos + glm::vec2(w * .5f, h * .5f);
 
         // Convert from framebuffer coordinates to actual screen coordinates
         return screen_pos * glm::vec2((float)sapp_width() / w, (float)sapp_height() / h);
@@ -135,7 +136,7 @@ public:
         glm::vec2 fb_pos = screen_pos * glm::vec2((float)w / sapp_width(), (float)h / sapp_height());
 
         // Reverse the camera transformation: uncenter, unzoom, then translate back to world
-        glm::vec2 centered_pos = fb_pos - glm::vec2(w * 0.5f, h * 0.5f);
+        glm::vec2 centered_pos = fb_pos - glm::vec2(w * .5f, h * .5f);
         glm::vec2 unzoomed_pos = centered_pos / _zoom;
         glm::vec2 world_pos = unzoomed_pos + _position;
 
@@ -160,10 +161,8 @@ public:
         int tile_y = (int)floor(rel_y / TILE_HEIGHT);
 
         // Clamp to chunk bounds and handle negative coordinates
-        tile_x = tile_x < 0 ? 0 : (tile_x >= CHUNK_WIDTH ? CHUNK_WIDTH - 1 : tile_x);
-        tile_y = tile_y < 0 ? 0 : (tile_y >= CHUNK_HEIGHT ? CHUNK_HEIGHT - 1 : tile_y);
-
-        return glm::vec2(tile_x, tile_y);
+        return glm::vec2(tile_x < 0 ? 0 : (tile_x >= CHUNK_WIDTH ? CHUNK_WIDTH - 1 : tile_x),
+                         tile_y < 0 ? 0 : (tile_y >= CHUNK_HEIGHT ? CHUNK_HEIGHT - 1 : tile_y));
     }
 
     glm::vec2 world_to_chunk(glm::vec2 world) const {

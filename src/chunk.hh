@@ -42,7 +42,8 @@ static inline const char* chunk_state_to_string(ChunkState state) {
             return "ACTIVE";
         case ChunkState::CHUNK_STATE_UNLOAD:
             return "UNLOAD";
-        default: assert(0);
+        default:
+            assert(0);
     }
 }
 

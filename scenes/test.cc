@@ -31,13 +31,13 @@ void test_step(void) {
     if (sapp_was_button_released(SAPP_MOUSEBUTTON_LEFT) && state.dragging)
         state.dragging = false;
     if (state.dragging)
-        state.map->camera()->move_by(glm::vec2(-sapp_mouse_delta_x(), -sapp_mouse_delta_y()) * (1.0f / state.map->camera()->zoom()));
+        state.map->camera()->move_by(glm::vec2(-sapp_mouse_delta_x(), -sapp_mouse_delta_y()) * (1.f / state.map->camera()->zoom()));
 
     if (sapp_was_scrolled())
         state.map->camera()->zoom_by(sapp_scroll_y() * .1f);
 
     sdtx_home();
-    sdtx_printf("fps:    %.2f", 1.0f / sapp_frame_duration());
+    sdtx_printf("fps:    %.2f", 1.f / sapp_frame_duration());
     sdtx_crlf();
     sdtx_printf("pos:    (%.2f, %.2f)", state.map->camera()->position().x, state.map->camera()->position().y);
     sdtx_crlf();
