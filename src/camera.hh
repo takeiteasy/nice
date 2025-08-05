@@ -22,7 +22,10 @@ struct Rect {
     }
 
     bool intersects(const Rect &other) const {
-        return !(x + w < other.x || x > other.x + other.w || y + h < other.y || y > other.y + other.h);
+        return (x < other.x + other.w) &&
+               (x + w > other.x) &&
+               (y < other.y + other.h) &&
+               (y + h > other.y);
     }
 };
 
@@ -44,7 +47,7 @@ class Camera {
         };
     }
 
-    template<typename T> T clamp(T value) {
+    template<typename T> T _clamp(T value) {
         return (value < MIN_ZOOM) ? MIN_ZOOM : (value > MAX_ZOOM) ? MAX_ZOOM : value;
     }
 
@@ -69,12 +72,12 @@ public:
     }
 
     void set_zoom(float z) {
-        _zoom = clamp(z);
+        _zoom = _clamp(z);
         dirty = true;
     }
 
     void zoom_by(float z) {
-        _zoom = clamp(_zoom + z);
+        _zoom = _clamp(_zoom + z);
         dirty = true;
     }
 
@@ -99,47 +102,78 @@ public:
     glm::mat4 matrix() const {
         int w = framebuffer_width();
         int h = framebuffer_height();
-        float hw = (float)w / 2.f;
-        float hh = (float)h / 2.f;
         glm::mat4 projection = glm::ortho(0.f, (float)w, (float)h, 0.f, -1.f, 1.f);
         glm::mat4 view = glm::mat4(1.f);
-        view = glm::translate(view, glm::vec3(hw, hh, 0.f)); // Center the view
-        view = glm::translate(view, glm::vec3(-_position, 0.f));
-        view = glm::rotate(view, glm::radians(_rotation), glm::vec3(0.f, 0.f, 1.f));
+        float hw = (float)w / 2.f;
+        float hh = (float)h / 2.f;
+        view = glm::translate(view, glm::vec3(hw, hh, 0.f));
         view = glm::scale(view, glm::vec3(_zoom, _zoom, 1.f));
-        view = glm::translate(view, glm::vec3(-hw, -hh, 0.f)); // Adjust for center
+        view = glm::rotate(view, glm::radians(_rotation), glm::vec3(0.f, 0.f, 1.f));
+        view = glm::translate(view, glm::vec3(-_position, 0.f));
+        view = glm::translate(view, glm::vec3(-hw, -hh, 0.f));
         return projection * view;
     }
 
     glm::vec2 world_to_screen(glm::vec2 world_pos) const {
         int w = framebuffer_width();
         int h = framebuffer_height();
-        return glm::vec2((world_pos.x - _position.x) * _zoom + w * .5f,
-                         (world_pos.y - _position.y) * _zoom + h * .5f) *
-               glm::vec2((float)sapp_width() / w,
-                         (float)sapp_height() / h);
+
+        // Apply camera transformation: translate relative to camera, then zoom, then center on screen
+        glm::vec2 relative_pos = world_pos - _position;
+        glm::vec2 zoomed_pos = relative_pos * _zoom;
+        glm::vec2 screen_pos = zoomed_pos + glm::vec2(w * 0.5f, h * 0.5f);
+
+        // Convert from framebuffer coordinates to actual screen coordinates
+        return screen_pos * glm::vec2((float)sapp_width() / w, (float)sapp_height() / h);
     }
 
     glm::vec2 screen_to_world(glm::vec2 screen_pos) const {
         int w = framebuffer_width();
         int h = framebuffer_height();
-        return glm::vec2(screen_pos.x * ((float)w / sapp_width()),
-                         screen_pos.y * ((float)h / sapp_height())) -
-                glm::vec2(w * .5f, h * .5f) / _zoom + _position;
+
+        // Convert from screen coordinates to framebuffer coordinates
+        glm::vec2 fb_pos = screen_pos * glm::vec2((float)w / sapp_width(), (float)h / sapp_height());
+
+        // Reverse the camera transformation: uncenter, unzoom, then translate back to world
+        glm::vec2 centered_pos = fb_pos - glm::vec2(w * 0.5f, h * 0.5f);
+        glm::vec2 unzoomed_pos = centered_pos / _zoom;
+        glm::vec2 world_pos = unzoomed_pos + _position;
+
+        return world_pos;
     }
 
     glm::vec2 world_to_tile(glm::vec2 world) const {
-        const static glm::vec2 SIZE = glm::vec2(CHUNK_WIDTH * TILE_WIDTH, CHUNK_HEIGHT * TILE_HEIGHT);
-        glm::vec2 final = glm::vec2((int)((world.x / SIZE.x) * CHUNK_WIDTH  + (fmod(world.x, SIZE.x) / TILE_WIDTH)) % CHUNK_WIDTH,
-                                    (int)((world.y / SIZE.y) * CHUNK_HEIGHT + (fmod(world.y, SIZE.y) / TILE_HEIGHT)) % CHUNK_HEIGHT);
-        return glm::vec2(final.x < 0 ? CHUNK_WIDTH + final.x : final.x,
-                         final.y < 0 ? CHUNK_HEIGHT + final.y : final.y);
+        // Convert world position to tile coordinates within a chunk
+        // First get the chunk coordinates
+        glm::vec2 chunk_pos = world_to_chunk(world);
+
+        // Calculate the world position of the chunk's top-left corner
+        float chunk_world_x = chunk_pos.x * CHUNK_WIDTH * TILE_WIDTH;
+        float chunk_world_y = chunk_pos.y * CHUNK_HEIGHT * TILE_HEIGHT;
+
+        // Get the relative position within the chunk
+        float rel_x = world.x - chunk_world_x;
+        float rel_y = world.y - chunk_world_y;
+
+        // Convert to tile coordinates within the chunk
+        int tile_x = (int)floor(rel_x / TILE_WIDTH);
+        int tile_y = (int)floor(rel_y / TILE_HEIGHT);
+
+        // Clamp to chunk bounds and handle negative coordinates
+        tile_x = tile_x < 0 ? 0 : (tile_x >= CHUNK_WIDTH ? CHUNK_WIDTH - 1 : tile_x);
+        tile_y = tile_y < 0 ? 0 : (tile_y >= CHUNK_HEIGHT ? CHUNK_HEIGHT - 1 : tile_y);
+
+        return glm::vec2(tile_x, tile_y);
     }
 
-    glm::vec2 world_to_chunk(glm::vec2 world) {
-        const static glm::vec2 SIZE = glm::vec2(CHUNK_WIDTH * TILE_WIDTH, CHUNK_HEIGHT * TILE_HEIGHT);
-        return glm::vec2(floor(world.x / SIZE.x),
-                         floor(world.y / SIZE.y));
+    glm::vec2 world_to_chunk(glm::vec2 world) const {
+        // Calculate chunk size in world units
+        float chunk_world_width = CHUNK_WIDTH * TILE_WIDTH;
+        float chunk_world_height = CHUNK_HEIGHT * TILE_HEIGHT;
+
+        // Convert world position to chunk coordinates
+        return glm::vec2(floor(world.x / chunk_world_width),
+                         floor(world.y / chunk_world_height));
     }
 
     struct Rect bounds() {

@@ -11,6 +11,10 @@
 #include "job.hh"
 #include <unordered_map>
 #include <vector>
+#include <mutex>
+#include <shared_mutex>
+#include <chrono>
+#include <fmt/format.h>
 
 class Map {
     std::unordered_map<uint64_t, Chunk*> _chunks;
@@ -21,60 +25,93 @@ class Map {
     sg_shader _shader;
     sg_pipeline _pipeline;
 
-    bool update_chunk(Chunk *chunk) {
+    mutable std::shared_mutex _chunks_mutex;
+    mutable std::mutex _delete_queue_mutex;
+
+    static bool update_chunk(Chunk *chunk, const Rect &camera_bounds, const Rect &max_bounds) {
         ChunkState old_state = chunk->state();
-        chunk->set_state(!_camera->max_bounds().intersects(chunk->bounds()) ?
+        chunk->set_state(!max_bounds.intersects(chunk->bounds()) ?
                          ChunkState::CHUNK_STATE_UNLOAD :
-                         _camera->bounds().intersects(chunk->bounds()) ? ChunkState::CHUNK_STATE_ACTIVE :
+                         camera_bounds.intersects(chunk->bounds()) ? ChunkState::CHUNK_STATE_ACTIVE :
                                                                          ChunkState::CHUNK_STATE_DORMANT);
         bool result = chunk->state() != old_state;
         if (result)
-            printf("CHUNK MODIFIED (%d, %d) (%s -> %s)\n",
-                   static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y),
-                   chunk_state_to_string(old_state), chunk_state_to_string(chunk->state()));
+            std::cout << fmt::format("Chunk state changed at ({}, {}) from {} to {}\n",
+                                static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y),
+                                chunk_state_to_string(old_state), chunk_state_to_string(chunk->state()));
         return result;
     }
 
     void check_chunks() {
+        std::shared_lock<std::shared_mutex> chunks_lock(_chunks_mutex);
+        std::lock_guard<std::mutex> delete_lock(_delete_queue_mutex);
+
+        Rect camera_bounds = _camera->bounds();
+        Rect max_bounds = _camera->max_bounds();
         for (auto it = _chunks.begin(); it != _chunks.end(); ++it) {
             Chunk *chunk = it->second;
-            if (update_chunk(chunk) && chunk->state() == ChunkState::CHUNK_STATE_UNLOAD)
+            if (update_chunk(chunk, camera_bounds, max_bounds) && chunk->state() == ChunkState::CHUNK_STATE_UNLOAD)
                 _delete_queue.push_back(chunk->id());
         }
     }
 
     void release_chunks() {
+        std::lock_guard<std::mutex> delete_lock(_delete_queue_mutex);
+
         for (uint64_t id : _delete_queue) {
+            // Need exclusive access to chunks map for deletion
+            std::unique_lock<std::shared_mutex> chunks_lock(_chunks_mutex);
             Chunk *chunk = _chunks[id];
             _chunks.erase(id);
+            chunks_lock.unlock(); // Release lock before delete to avoid holding it too long
+
+            std::cout << fmt::format("Chunk at ({}, {}) released\n",
+                                     static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
             delete chunk;
-            printf("CHUNK RELEASED (%d, %d)\n", static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
         }
         _delete_queue.clear();
     }
 
     Chunk* ensure_chunk(int x, int y, bool create = false) {
         uint64_t idx = Chunk::id(x, y);
-        if (_chunks.find(idx) != _chunks.end())
-            return _chunks[idx];
+        // First try with shared lock (read access)
+        {
+            std::shared_lock<std::shared_mutex> chunks_lock(_chunks_mutex);
+            if (_chunks.find(idx) != _chunks.end())
+                return _chunks[idx];
+        }
         if (!create)
             return nullptr;
+
+        // Need exclusive lock for chunk creation
+        std::unique_lock<std::shared_mutex> chunks_lock(_chunks_mutex);
+
+        // Double-check pattern - another thread might have created it
+        if (_chunks.find(idx) != _chunks.end())
+            return _chunks[idx];
+
         // TODO: Search on disk for chunk data
-        printf("CHUNK CREATED (%d, %d)\n", x, y);
+        std::cout << fmt::format("Creating chunk at ({}, {})\n", x, y);
         Chunk *chunk = new Chunk(x, y, _tilemap);
+        _chunks[idx] = chunk;
+
+        // Release the chunks lock before enqueueing work to avoid deadlock
+        chunks_lock.unlock();
+
         // Simply run the function in the background - no future handling needed
         _worker.enqueue(_camera->bounds().intersects(chunk->bounds()), [chunk]() {
-            printf("FILLING CHUNK (%d, %d)\n", static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
+            std::cout << fmt::format("Filling chunk at ({}, {})\n",
+                                     static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
             chunk->fill();
         });
-        _chunks[idx] = chunk;
+
         return chunk;
     }
 
     void find_chunks() {
         Rect bounds = _camera->max_bounds();
-        glm::vec2 tl = _camera->screen_to_world(glm::vec2(bounds.x, bounds.y));
-        glm::vec2 br = _camera->screen_to_world(glm::vec2(bounds.x + bounds.w, bounds.y + bounds.h));
+        glm::vec2 tl = glm::vec2(bounds.x, bounds.y);
+        glm::vec2 br = glm::vec2(bounds.x + bounds.w, bounds.y + bounds.h);
         glm::vec2 tl_chunk = _camera->world_to_chunk(tl);
         glm::vec2 br_chunk = _camera->world_to_chunk(br);
         for (int y = (int)tl_chunk.y; y <= (int)br_chunk.y; y++)
@@ -83,15 +120,27 @@ class Map {
                     assert(ensure_chunk(x, y, true) != NULL);
     }
 
-    void draw_chunks() {
+    int draw_chunks() {
         sg_apply_pipeline(_pipeline);
         int i = 0;
+        glm::mat4 *mvp = nullptr;
+        if (_camera->dirty) {
+            mvp = new glm::mat4();
+            glm::mat4 camera_matrix = _camera->matrix();
+            memcpy(mvp, &camera_matrix, sizeof(glm::mat4));
+        }
+
+        // Use shared lock for reading chunks during drawing
+        std::shared_lock<std::shared_mutex> chunks_lock(_chunks_mutex);
         for (auto it = _chunks.begin(); it != _chunks.end(); ++it) {
             Chunk *chunk = it->second;
-            chunk->draw(const_cast<Camera*>(_camera));
-            i++;
+            if (chunk->draw(mvp))
+                i++;
         }
-        printf("CHUNKS DRAWN: %d\n", i);
+
+        if (mvp != nullptr)
+            delete mvp;
+        return i;
     }
 
 public:
@@ -130,11 +179,12 @@ public:
         return _camera;
     }
 
-    void draw() {
+    int draw() {
         check_chunks();
         release_chunks();
         find_chunks();
-        draw_chunks();
+        int n = draw_chunks();
         _camera->dirty = false;
+        return n;
     }
 };

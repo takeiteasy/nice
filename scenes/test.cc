@@ -62,6 +62,8 @@ void test_step(void) {
     sdtx_crlf();
     bounds = state.map->camera()->max_bounds();
     sdtx_printf("camera: (%d, %d, %d, %d)", bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h);
+    sdtx_crlf();
 
-    state.map->draw();
+    int chunks_drawn = state.map->draw();
+    sdtx_printf("chunks drawn: %d", chunks_drawn);
 }

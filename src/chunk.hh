@@ -9,6 +9,8 @@
 
 #include "config.h"
 #include <stdint.h>
+#include <mutex>
+#include <atomic>
 #include "camera.hh"
 #include "texture.hh"
 #include "glm/vec2.hpp"
@@ -99,17 +101,23 @@ static const glm::vec2 Autotile3x3Simplified[256] = {
     [255] = {9, 2},
 };
 
-#define _MAX(A, B) ((A) > (B) ? (A) : (B))
-
 class Chunk {
     int _x, _y;
     Tile _tiles[CHUNK_WIDTH][CHUNK_HEIGHT];
     const Texture *_tilemap;
-    ChunkState _state;
+    std::atomic<ChunkState> _state;
     sg_bindings _bind;
     glm::mat4 _mvp;
 
+    mutable std::mutex _chunk_mutex;
+
+    static int _max(int a, int b) {
+        return (a > b) ? a : b;
+    }
+
     void build() {
+        std::lock_guard<std::mutex> lock(_chunk_mutex);
+
         float hw = framebuffer_width() / 2.f;
         float hh = framebuffer_height() / 2.f;
         ChunkVertex vertices[CHUNK_SIZE * 6];
@@ -158,7 +166,7 @@ class Chunk {
                 }
             }
 
-        dirty = false;
+        dirty.store(false);
         sg_buffer_desc desc = {
             .data = {
                 .ptr = vertices,
@@ -178,7 +186,7 @@ class Chunk {
             for (int y = 0; y < height; y++)
                 result[y * width + x] = ud(gen) < fill_chance;
         // Run cellular-automata on grid n times
-        for (int i = 0; i < _MAX(smooth_iterations, 1); i++)
+        for (int i = 0; i < _max(smooth_iterations, 1); i++)
             for (int x = 0; x < width; x++)
                 for (int y = 0; y < height; y++) {
                     // Count the cell's living neighbours
@@ -203,7 +211,9 @@ class Chunk {
         for (int x = -1; x < 2; x++)
             for (int y = -1; y < 2; y++) {
                 int dx = cx+x, dy = cy+y;
-                neighbours[(y+1)*3+(x+1)] = !x && !y ? 0 : dx < 0 || dy < 0 || dx >= CHUNK_WIDTH || dy >= CHUNK_HEIGHT ? oob : chunk->get_tile(dx, dy)->solid ? 1 : 0;
+                // Direct access to _tiles since we're already holding the mutex in fill()
+                Tile* tile = dx < 0 || dy < 0 || dx >= CHUNK_WIDTH || dy >= CHUNK_HEIGHT ? nullptr : &chunk->_tiles[dx][dy];
+                neighbours[(y+1)*3+(x+1)] = !x && !y ? 0 : tile == nullptr ? oob : tile->solid ? 1 : 0;
             }
         neighbours[0] = !neighbours[1] || !neighbours[3] ? 0 : neighbours[0];
         neighbours[2] = !neighbours[1] || !neighbours[5] ? 0 : neighbours[2];
@@ -218,27 +228,28 @@ class Chunk {
     }
 
 public:
-    bool dirty = true;
+    std::atomic<bool> dirty{true};  // Make dirty flag atomic
 
     Chunk(int x, int y, const Texture* texture): _x(x), _y(y), dirty(true) {
         memset(_tiles, 0, sizeof(_tiles));
         memset(&_bind, 0, sizeof(sg_bindings));
         _tilemap = texture;
         _tilemap->bind(_bind);
-        _state = ChunkState::CHUNK_STATE_ACTIVE;
+        _state.store(ChunkState::CHUNK_STATE_ACTIVE);
     }
 
     ~Chunk() {
+        std::lock_guard<std::mutex> lock(_chunk_mutex);
         if (sg_query_buffer_state(_bind.vertex_buffers[0]) == SG_RESOURCESTATE_VALID)
             sg_destroy_buffer(_bind.vertex_buffers[0]);
     }
 
     void set_state(ChunkState state) {
-        _state = state;
+        _state.store(state);
     }
 
     ChunkState state() const {
-        return _state;
+        return _state.load();
     }
 
     glm::vec2 position() const {
@@ -257,18 +268,21 @@ public:
     }
 
     static Rect bounds(int _x, int _y) {
-        return { _x * CHUNK_WIDTH, _y * CHUNK_HEIGHT, CHUNK_WIDTH, CHUNK_HEIGHT };
+        return {
+            .x = _x * CHUNK_WIDTH * TILE_WIDTH,
+            .y = _y * CHUNK_HEIGHT * TILE_HEIGHT,
+            .w = CHUNK_WIDTH * TILE_WIDTH,
+            .h = CHUNK_HEIGHT * TILE_HEIGHT
+        };
     }
 
     Rect bounds() const {
         return Chunk::bounds(_x, _y);
     }
 
-    Tile* get_tile(int x, int y) {
-        return x < 0 || x >= CHUNK_WIDTH || y < 0 || y >= CHUNK_HEIGHT ? nullptr : &_tiles[x][y];
-    }
-
     void fill() {
+        std::lock_guard<std::mutex> lock(_chunk_mutex);
+
         uint8_t _grid[CHUNK_SIZE];
         cellular_automata(CHUNK_WIDTH, CHUNK_HEIGHT,
                           CHUNK_FILL_CHANCE, CHUNK_SMOOTH_ITERATIONS,
@@ -280,28 +294,32 @@ public:
         for (int y = 0; y < CHUNK_HEIGHT; y++)
             for (int x = 0; x < CHUNK_WIDTH; x++)
                 _tiles[x][y].bitmask = _tiles[x][y].solid ? tile_bitmask(this, x, y, 1) : 0;
-        dirty = true;
+        dirty.store(true);
     }
 
-    void draw(const Camera* camera) {
-        if (_state != ChunkState::CHUNK_STATE_ACTIVE)
-            return;
+    bool draw(glm::mat4 *mvp = nullptr) {
+        if (_state.load() != ChunkState::CHUNK_STATE_ACTIVE)
+            return false;
 
-        if (dirty)
+        if (dirty.load())
             build();
-        if (camera->dirty || _mvp[0][0] == 0.f)
-            _mvp = glm::translate(camera->matrix(), glm::vec3(_x * CHUNK_WIDTH * TILE_WIDTH, _y * CHUNK_HEIGHT * TILE_HEIGHT, 0.f));
+        if (mvp != nullptr) {
+            std::lock_guard<std::mutex> lock(_chunk_mutex);
+            _mvp = glm::translate(*mvp, glm::vec3(_x * CHUNK_WIDTH * TILE_WIDTH, _y * CHUNK_HEIGHT * TILE_HEIGHT, 0.f));
+        }
         if (sg_query_buffer_state(_bind.vertex_buffers[0]) != SG_RESOURCESTATE_VALID)
-            return;
+            return false;
 
         sg_apply_bindings(_bind);
         vs_params_t vs_params = { .mvp = _mvp };
         sg_range params = SG_RANGE(vs_params);
         sg_apply_uniforms(UB_vs_params, &params);
         sg_draw(0, CHUNK_SIZE * 6, 1);
+        return true;
     }
 
     void each(const std::function<void(int, int, Tile&)>& func) {
+        std::lock_guard<std::mutex> lock(_chunk_mutex);
         for (int x = 0; x < CHUNK_WIDTH; x++)
             for (int y = 0; y < CHUNK_HEIGHT; y++) {
                 Tile &tile = _tiles[x][y];
