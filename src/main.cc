@@ -109,8 +109,8 @@ void framebuffer_resize(int width, int height) {
         sg_destroy_image(state.depth);
     sg_image_desc img_desc = {
         .usage.render_attachment = true,
-        .width = 640,
-        .height = 480,
+        .width = width,
+        .height = height,
         .pixel_format = SG_PIXELFORMAT_RGBA8
     };
     state.color = sg_make_image(&img_desc);

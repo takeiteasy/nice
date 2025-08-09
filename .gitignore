@@ -5,3 +5,4 @@ bin/
 *.plist
 *.xcodeproj/
 .vscode/
+compile_commands.json

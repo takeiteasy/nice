@@ -26,6 +26,8 @@ SHDC_PATH := $(ARCH_PATH)/sokol-shdc$(PROG_EXT)
 SHADERS := $(wildcard shaders/*.glsl)
 SHADER_OUTS := $(patsubst shaders/%,src/%.h,$(SHADERS))
 
+default: all
+
 .SECONDEXPANSION:
 SHADER_OUT := $@
 src/%.glsl.h: shaders/%.glsl
@@ -36,7 +38,6 @@ shaders: $(SHADER_OUTS)
 app: shaders
 	$(CXX) $(INC) $(CFLAGS) $(SOURCE) $(SCENES) -o $(EXE)
 
-default: shaders
 
 all: shaders app
 

@@ -112,10 +112,6 @@ class Chunk {
 
     mutable std::mutex _chunk_mutex;
 
-    static int _max(int a, int b) {
-        return (a > b) ? a : b;
-    }
-
     void build() {
         std::lock_guard<std::mutex> lock(_chunk_mutex);
 
@@ -177,6 +173,14 @@ class Chunk {
         _bind.vertex_buffers[0] = sg_make_buffer(&desc);
     }
 
+    static int _max(int a, int b) {
+        return (a > b) ? a : b;
+    }
+
+    static int _min(int a, int b) {
+        return (a < b) ? a : b;
+    }
+
     static void cellular_automata(unsigned int width, unsigned int height, unsigned int fill_chance, unsigned int smooth_iterations, unsigned int survive, unsigned int starve, uint8_t* result) {
         memset(result, 0, width * height * sizeof(uint8_t));
         // Randomly fill the grid
@@ -184,8 +188,13 @@ class Chunk {
         std::mt19937 gen{seed()};
         std::uniform_int_distribution<> ud{1, 100};
         for (int x = 0; x < width; x++)
-            for (int y = 0; y < height; y++)
-                result[y * width + x] = ud(gen) < fill_chance;
+            for (int y = 0; y < height; y++) {
+                int min_dist_from_edge = _min(_min(x, width - 1 - x), _min(y, height - 1 - y));
+                int edge_bonus = _max(0, 30 - (min_dist_from_edge * 5)); // 30% bonus at edges, decreasing toward center
+                int adjusted_fill_chance = fill_chance + edge_bonus;
+                if (adjusted_fill_chance > 100) adjusted_fill_chance = 100;
+                result[y * width + x] = ud(gen) <= adjusted_fill_chance;
+            }
         // Run cellular-automata on grid n times
         for (int i = 0; i < _max(smooth_iterations, 1); i++)
             for (int x = 0; x < width; x++)
