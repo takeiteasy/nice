@@ -441,6 +441,7 @@ public:
             return false;
         if (sg_query_buffer_state(_bind.vertex_buffers[0]) != SG_RESOURCESTATE_VALID)
             return false;
+        std::lock_guard<std::shared_mutex> lock(_chunk_mutex);
         sg_apply_bindings(_bind);
         if (mvp != nullptr)
             _mvp = glm::translate(*mvp, glm::vec3(_x * CHUNK_WIDTH * TILE_WIDTH, _y * CHUNK_HEIGHT * TILE_HEIGHT, 0.f));

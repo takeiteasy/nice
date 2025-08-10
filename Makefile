@@ -13,7 +13,7 @@ else
 endif
 SHDC_FLAGS := metal_macos
 CXX = clang++
-CXXFLAGS = -std=c++17 -arch arm64
+CXXFLAGS = -std=c++17 -arch arm64 -Wno-c99-designator -Wno-reorder-init-list
 LDFLAGS = -arch arm64
 
 default: app

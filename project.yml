@@ -26,6 +26,8 @@ targets:
             - "fmt.cc"
         - path: deps/
           type: folder
+        - path: tools/
+          type: folder
         - path: assets/
           type: folder
         - path: shaders/
