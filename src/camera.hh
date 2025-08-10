@@ -180,6 +180,6 @@ public:
     }
 
     struct Rect max_bounds() {
-        return _bounds(MIN_ZOOM);
+        return _bounds(std::max(MIN_ZOOM - .1f, __FLT_EPSILON__));
     }
 };

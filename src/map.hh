@@ -14,6 +14,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <fmt/format.h>
+#include "flecs.h"
 
 class Map {
     ThreadPool _worker{std::thread::hardware_concurrency()};
@@ -32,6 +33,7 @@ class Map {
     std::atomic<bool> _out_queue_stop{false};
     std::thread _out_queue_thread;
 
+    flecs::world *_ecs;
     Camera *_camera;
     Texture *_tilemap;
     sg_shader _shader;
@@ -164,10 +166,7 @@ class Map {
     }
 
 public:
-    Map() {
-        _camera = new Camera();
-        _camera->set_position(glm::vec2(CHUNK_WIDTH * TILE_WIDTH * .5f, CHUNK_HEIGHT * TILE_HEIGHT * .5f));
-        _tilemap = new Texture("assets/tilemap.exploded.png");
+    Map(flecs::world *ecs, Camera *camera, Texture *tilemap): _ecs(ecs), _camera(camera), _tilemap(tilemap) {
         _shader = sg_make_shader(basic_shader_desc(sg_query_backend()));
         sg_pipeline_desc desc = {
             .shader = _shader,

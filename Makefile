@@ -13,20 +13,30 @@ endif
 SHDC_FLAGS := metal_macos
 CXX = clang++
 CXXFLAGS = -std=c++17 -arch arm64
-LDFLAGS = -lc++ -arch arm64
+LDFLAGS = -arch arm64
 
-SOURCE := $(wildcard src/*.cc) deps/fmt/format.cc deps/fmt/os.cc
+default: all
+
+FLECS_SOURCE := $(shell find deps/flecs -name "*.c")
+
+flecs-shared: $(FLECS_SOURCE)
+	$(CC) -fpic -shared $(FLECS_SOURCE) -Ideps/flecs -o build/libflecs.$(LIB_EXT)
+
+flecs-static: $(FLECS_SOURCE)
+	$(CC) -c $(FLECS_SOURCE) -Ideps/flecs
+	ar rcs build/libflecs.a *.o
+	rm -f *.o
+
+SOURCE := $(wildcard src/*.cc) deps/fmt/format.cc deps/fmt/os.cc 
 SCENES := $(wildcard scenes/*.cc)
 EXE := build/rpg_$(ARCH)$(PROG_EXT)
 LIB := build/librpg_$(ARCH).$(LIB_EXT)
-INC := $(CXXFLAGS) -Iscenes -Isrc -Ideps $(LDFLAGS)
+INC := $(CXXFLAGS) -Iscenes -Isrc -Ideps $(LDFLAGS) -Ideps/flecs -Lbuild -lflecs
 
 ARCH_PATH := bin/$(ARCH)
 SHDC_PATH := $(ARCH_PATH)/sokol-shdc$(PROG_EXT)
 SHADERS := $(wildcard shaders/*.glsl)
 SHADER_OUTS := $(patsubst shaders/%,src/%.h,$(SHADERS))
-
-default: all
 
 .SECONDEXPANSION:
 SHADER_OUT := $@
@@ -35,10 +45,9 @@ src/%.glsl.h: shaders/%.glsl
 
 shaders: $(SHADER_OUTS)
 
-app: shaders
+app: shaders flecs-shared $(SOURCE)
 	$(CXX) $(INC) $(CFLAGS) $(SOURCE) $(SCENES) -o $(EXE)
 
+all: shaders flecs-shared app
 
-all: shaders app
-
-.PHONY: app shaders
+.PHONY: default all app shaders flecs-shared flecs-static

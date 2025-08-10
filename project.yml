@@ -30,8 +30,6 @@ targets:
           type: folder
         - path: shaders/
           type: folder
-        - path: misc/
-          type: folder
         - path: project.yml
           type: folder
         - path: Makefile
@@ -43,7 +41,18 @@ targets:
         - sdk: MetalKit.framework
         - sdk: Quartz.framework
         - sdk: AudioToolbox.framework
+        - target: flecs
     settings:
         HEADER_SEARCH_PATHS: [$(PROJECT_DIR)/deps,
+                              $(PROJECT_DIR)/deps/flecs,
                               $(PROJECT_DIR)/scenes]
         OTHER_CFLAGS: [-x objective-c++, -DSOKOL_METAL]
+  flecs:
+    type: library.dynamic
+    platform: macOS
+    sources:
+      - path: deps/flecs
+        includes:
+          - "**/*.c"
+    settings:
+      HEADER_SEARCH_PATHS: [$(PROJECT_DIR)/deps/flecs]

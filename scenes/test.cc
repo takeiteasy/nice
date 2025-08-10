@@ -9,20 +9,33 @@
 #include "map.hh"
 #include "sokol/util/sokol_debugtext.h"
 #include "sokol_input.h"
+#include "flecs.h"
+#include <thread>
 
 static struct {
+    flecs::world *ecs;
     Map *map;
+    Camera *camera;
+    Texture *tilemap;
     bool dragging;
 } state;
 
 void test_enter(void) {
-    state.map = new Map();
+    state.ecs = new flecs::world();
+    state.ecs->set_target_fps(60);
+    state.ecs->set_threads(std::thread::hardware_concurrency());
+    state.camera = new Camera();
+    state.camera->set_position(glm::vec2(CHUNK_WIDTH * TILE_WIDTH * .5f, CHUNK_HEIGHT * TILE_HEIGHT * .5f));
+    state.tilemap = new Texture("assets/tilemap.exploded.png");
+    state.map = new Map(state.ecs, state.camera, state.tilemap);
     state.dragging = false;
 }
 
 void test_exit(void) {
-    if (state.map)
-        delete state.map;
+    delete state.map;
+    delete state.camera;
+    delete state.tilemap;
+    delete state.ecs;
 }
 
 void test_step(void) {
@@ -35,6 +48,9 @@ void test_step(void) {
 
     if (sapp_was_scrolled())
         state.map->camera()->zoom_by(sapp_scroll_y() * .1f);
+    
+    if (!state.ecs->progress())
+        sapp_quit();
 
     sdtx_home();
     sdtx_printf("fps:    %.2f\n", 1.f / sapp_frame_duration());

@@ -25,5 +25,5 @@
 #define TILE_ORIGINAL_HEIGHT 8
 #define TILE_PADDING 4
 
-#define MAX_ZOOM 10.f
-#define MIN_ZOOM .1f
+#define MAX_ZOOM 2.f
+#define MIN_ZOOM .2f
