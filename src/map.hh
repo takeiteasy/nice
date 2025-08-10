@@ -22,8 +22,8 @@ class Map {
     mutable std::shared_mutex _chunks_mutex;
     std::vector<uint64_t> _delete_queue;
     mutable std::mutex _delete_queue_mutex;
-    WorkerQueue<Chunk*> _vertex_generator;
-    WorkerQueue<std::pair<Chunk*, ChunkVertex*>> _mesh_builder;
+    JobQueue<Chunk*> _vertex_generator;
+    JobQueue<std::pair<Chunk*, ChunkVertex*>> _mesh_builder;
 
     flecs::world *_ecs;
     Camera *_camera;
@@ -71,6 +71,10 @@ class Map {
             std::unique_lock<std::shared_mutex> chunks_lock(_chunks_mutex);
             Chunk *chunk = _chunks[id];
             _chunks.erase(id);
+            flecs::entity chunk_entity = _ecs->entity(fmt::format("Chunk({}, {})", chunk->position().x, chunk->position().y).c_str());
+            _ecs->defer_begin();
+            chunk_entity.destruct();
+            _ecs->defer_end();
             chunks_lock.unlock();
             std::cout << fmt::format("Chunk at ({}, {}) released\n",
                                      static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
@@ -96,6 +100,8 @@ class Map {
         std::cout << fmt::format("Creating chunk at ({}, {})\n", x, y);
         Chunk *chunk = new Chunk(x, y, _tilemap);
         _chunks[idx] = chunk;
+        flecs::entity chunk_entity = _ecs->entity(fmt::format("Chunk({}, {})", x, y).c_str())
+                                         .set<ChunkEntity>(ChunkEntity{chunk});
 
         chunks_lock.unlock();
         _worker.enqueue(_camera->bounds().intersects(chunk->bounds()), [chunk]() {
@@ -178,6 +184,12 @@ public:
             .colors[0].pixel_format = SG_PIXELFORMAT_RGBA8
         };
         _pipeline = sg_make_pipeline(&desc);
+
+        flecs::system draw = _ecs->system<ChunkEntity>().each([this](ChunkEntity &chunk_entity) {
+            int n = this->draw_chunks();
+            if (n > 0)
+                this->_camera->dirty = false;
+        });
     }
 
     ~Map() {
@@ -191,13 +203,9 @@ public:
         return _camera;
     }
 
-    int draw() {
+    void update() {
         check_chunks();
         release_chunks();
         find_chunks();
-        int n = draw_chunks();
-        if (n > 0)
-            _camera->dirty = false;
-        return n;
     }
 };

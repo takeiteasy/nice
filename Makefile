@@ -1,6 +1,7 @@
 UNAME := $(shell uname -s)
 PROG_EXT :=
 LIB_EXT := dylib
+STATIC_LIB_EXT := a
 CFLAGS := -x objective-c++ -DSOKOL_METAL -fenable-matrix \
 		  -framework Metal -framework Cocoa -framework IOKit \
 		  -framework MetalKit -framework Quartz -framework AudioToolbox
@@ -15,7 +16,9 @@ CXX = clang++
 CXXFLAGS = -std=c++17 -arch arm64
 LDFLAGS = -arch arm64
 
-default: all
+default: app
+
+all: shaders flecs-shared app
 
 FLECS_SOURCE := $(shell find deps/flecs -name "*.c")
 
@@ -24,7 +27,7 @@ flecs-shared: $(FLECS_SOURCE)
 
 flecs-static: $(FLECS_SOURCE)
 	$(CC) -c $(FLECS_SOURCE) -Ideps/flecs
-	ar rcs build/libflecs.a *.o
+	ar rcs build/libflecs.$(STATIC_LIB_EXT) *.o
 	rm -f *.o
 
 SOURCE := $(wildcard src/*.cc) deps/fmt/format.cc deps/fmt/os.cc 
@@ -45,9 +48,12 @@ src/%.glsl.h: shaders/%.glsl
 
 shaders: $(SHADER_OUTS)
 
-app: shaders flecs-shared $(SOURCE)
+app: $(SOURCE)
 	$(CXX) $(INC) $(CFLAGS) $(SOURCE) $(SCENES) -o $(EXE)
 
-all: shaders flecs-shared app
+clean:
+	rm -f $(EXE) 
+	rm -f build/libflecs.$(LIB_EXT)
+	rm -f src/*.glsl.h
 
-.PHONY: default all app shaders flecs-shared flecs-static
+.PHONY: default all clean app shaders flecs-shared flecs-static

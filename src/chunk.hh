@@ -19,9 +19,9 @@
 #include "camera.hh"
 #include "texture.hh"
 #include "glm/vec2.hpp"
+#include "components.hh"
 #include "glm/mat4x4.hpp"
 #include "basic.glsl.h"
-#include <random>
 
 union Tile {
     struct {
@@ -253,6 +253,7 @@ public:
         for (int y = 0; y < CHUNK_HEIGHT; y++)
             for (int x = 0; x < CHUNK_WIDTH; x++)
                 _tiles[x][y].bitmask = _tiles[x][y].solid ? tile_bitmask(this, x, y, 1) : 0;
+        
         _is_filled.store(true);
         _dirty.store(true);
     }
@@ -449,4 +450,8 @@ public:
         sg_draw(0, CHUNK_SIZE * 6, 1);
         return true;
     }
+};
+
+struct ChunkEntity {
+    Chunk *chunk;
 };

@@ -39,14 +39,14 @@ void test_exit(void) {
 }
 
 void test_step(void) {
-    if (sapp_was_button_pressed(SAPP_MOUSEBUTTON_LEFT) && !state.dragging)
+    if ((sapp_was_button_pressed(SAPP_MOUSEBUTTON_LEFT) && sapp_modifier_equals(SAPP_MODIFIER_SHIFT)) && !state.dragging)
         state.dragging = true;
     if (sapp_was_button_released(SAPP_MOUSEBUTTON_LEFT) && state.dragging)
         state.dragging = false;
     if (state.dragging)
         state.map->camera()->move_by(glm::vec2(-sapp_mouse_delta_x(), -sapp_mouse_delta_y()) * (1.f / state.map->camera()->zoom()));
 
-    if (sapp_was_scrolled())
+    if (sapp_was_scrolled() && sapp_modifier_equals(SAPP_MODIFIER_SHIFT))
         state.map->camera()->zoom_by(sapp_scroll_y() * .1f);
     
     if (!state.ecs->progress())
@@ -69,6 +69,6 @@ void test_step(void) {
     sdtx_printf("camera: (%d, %d, %d, %d)\n", bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h);
     bounds = state.map->camera()->max_bounds();
     sdtx_printf("camera: (%d, %d, %d, %d)\n", bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h);
-    int chunks_drawn = state.map->draw();
-    sdtx_printf("chunks drawn: %d\n", chunks_drawn);
+
+    state.map->update();
 }

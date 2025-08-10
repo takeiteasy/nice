@@ -17,7 +17,7 @@
 #include <future>
 #include <atomic>
 
-template<typename T> class WorkerQueue {
+template<typename T> class JobQueue {
     std::queue<T> _queue;
     mutable std::mutex _queue_mutex;
     std::condition_variable _condition;
@@ -26,7 +26,7 @@ template<typename T> class WorkerQueue {
     std::function<void(T)> _processor;
 
 public:
-    explicit WorkerQueue(std::function<void(T)> processor) : _processor(std::move(processor)) {
+    explicit JobQueue(std::function<void(T)> processor) : _processor(std::move(processor)) {
         _worker_thread = std::thread([this]() {
             while (true) {
                 std::unique_lock<std::mutex> lock(this->_queue_mutex);
@@ -46,9 +46,9 @@ public:
         });
     }
 
-    WorkerQueue(const WorkerQueue&) = delete;
-    WorkerQueue& operator=(const WorkerQueue&) = delete;
-    WorkerQueue(WorkerQueue&& other) noexcept
+    JobQueue(const JobQueue&) = delete;
+    JobQueue& operator=(const JobQueue&) = delete;
+    JobQueue(JobQueue&& other) noexcept
         : _queue(std::move(other._queue))
         , _processor(std::move(other._processor))
         , _stop(other._stop.load()) {
@@ -57,7 +57,7 @@ public:
         }
     }
 
-    ~WorkerQueue() {
+    ~JobQueue() {
         stop();
     }
 
