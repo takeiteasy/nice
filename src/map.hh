@@ -13,7 +13,6 @@
 #include <vector>
 #include <mutex>
 #include <shared_mutex>
-#include <chrono>
 #include <fmt/format.h>
 
 class Map {
@@ -167,15 +166,16 @@ class Map {
 public:
     Map() {
         _camera = new Camera();
+        _camera->set_position(glm::vec2(CHUNK_WIDTH * TILE_WIDTH * .5f, CHUNK_HEIGHT * TILE_HEIGHT * .5f));
         _tilemap = new Texture("assets/tilemap.exploded.png");
-        _shader = sg_make_shader(default_program_shader_desc(sg_query_backend()));
+        _shader = sg_make_shader(basic_shader_desc(sg_query_backend()));
         sg_pipeline_desc desc = {
             .shader = _shader,
             .layout = {
                 .buffers[0].stride = sizeof(ChunkVertex),
                 .attrs = {
-                    [ATTR_default_program_position].format = SG_VERTEXFORMAT_FLOAT2,
-                    [ATTR_default_program_texcoord].format = SG_VERTEXFORMAT_FLOAT2
+                    [ATTR_basic_position].format = SG_VERTEXFORMAT_FLOAT2,
+                    [ATTR_basic_texcoord].format = SG_VERTEXFORMAT_FLOAT2
                 }
             },
             .depth = {
@@ -247,7 +247,8 @@ public:
         find_chunks();
         build_chunks();
         int n = draw_chunks();
-        _camera->dirty = false;
+        if (n > 0)
+            _camera->dirty = false;
         return n;
     }
 };

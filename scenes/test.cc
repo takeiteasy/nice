@@ -37,33 +37,22 @@ void test_step(void) {
         state.map->camera()->zoom_by(sapp_scroll_y() * .1f);
 
     sdtx_home();
-    sdtx_printf("fps:    %.2f", 1.f / sapp_frame_duration());
-    sdtx_crlf();
-    sdtx_printf("pos:    (%.2f, %.2f)", state.map->camera()->position().x, state.map->camera()->position().y);
-    sdtx_crlf();
-    sdtx_printf("zoom:   (%.2f)", state.map->camera()->zoom());
-    sdtx_crlf();
-    sdtx_printf("drag:   %s", state.dragging ? "true" : "false");
-    sdtx_crlf();
+    sdtx_printf("fps:    %.2f\n", 1.f / sapp_frame_duration());
+    sdtx_printf("pos:    (%.2f, %.2f)\n", state.map->camera()->position().x, state.map->camera()->position().y);
+    sdtx_printf("zoom:   (%.2f)\n", state.map->camera()->zoom());
+    sdtx_printf("drag:   %s\n", state.dragging ? "true" : "false");
     glm::vec2 mouse_pos = glm::vec2(sapp_mouse_x(), sapp_mouse_y());
-    sdtx_printf("mouse:  (%.2f, %.2f)", mouse_pos.x, mouse_pos.y);
-    sdtx_crlf();
+    sdtx_printf("mouse:  (%.2f, %.2f)\n", mouse_pos.x, mouse_pos.y);
     glm::vec2 mouse_world = state.map->camera()->screen_to_world(mouse_pos);
-    sdtx_printf("world:  (%.2f, %.2f)", mouse_world.x, mouse_world.y);
-    sdtx_crlf();
+    sdtx_printf("world:  (%.2f, %.2f)\n", mouse_world.x, mouse_world.y);
     glm::vec2 mouse_chunk = state.map->camera()->world_to_chunk(mouse_world);
-    sdtx_printf("chunk:  (%d, %d)", (int)mouse_chunk.x, (int)mouse_chunk.y);
-    sdtx_crlf();
+    sdtx_printf("chunk:  (%d, %d)\n", (int)mouse_chunk.x, (int)mouse_chunk.y);
     glm::vec2 mouse_tile = state.map->camera()->world_to_tile(mouse_world);
-    sdtx_printf("tile:   (%d, %d)", (int)mouse_tile.x, (int)mouse_tile.y);
-    sdtx_crlf();
+    sdtx_printf("tile:   (%d, %d)\n", (int)mouse_tile.x, (int)mouse_tile.y);
     Rect bounds = state.map->camera()->bounds();
-    sdtx_printf("camera: (%d, %d, %d, %d)", bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h);
-    sdtx_crlf();
+    sdtx_printf("camera: (%d, %d, %d, %d)\n", bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h);
     bounds = state.map->camera()->max_bounds();
-    sdtx_printf("camera: (%d, %d, %d, %d)", bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h);
-    sdtx_crlf();
-
+    sdtx_printf("camera: (%d, %d, %d, %d)\n", bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h);
     int chunks_drawn = state.map->draw();
-    sdtx_printf("chunks drawn: %d", chunks_drawn);
+    sdtx_printf("chunks drawn: %d\n", chunks_drawn);
 }

@@ -27,7 +27,7 @@
 #include "sokol/util/sokol_debugtext.h"
 #include "sokol_input.h"
 #include "glm/vec2.hpp"
-#include "basic.glsl.h"
+#include "passthru.glsl.h"
 
 #ifndef DEFAULT_WINDOW_WIDTH
 #define DEFAULT_WINDOW_WIDTH 640
@@ -128,7 +128,7 @@ void framebuffer_resize(int width, int height) {
     state.bind.samplers[SMP_smp] = state.sampler;
 }
 
-struct basic_vertex {
+struct passthru_vertex {
     glm::vec2 position;
     glm::vec2 texcoord;
 };
@@ -148,17 +148,17 @@ static void init(void) {
 
     sapp_input_init();
 
-    state.shader = sg_make_shader(basic_shader_desc(sg_query_backend()));
+    state.shader = sg_make_shader(passthru_shader_desc(sg_query_backend()));
 
     sg_pipeline_desc pip_desc = {
         .primitive_type = SG_PRIMITIVETYPE_TRIANGLES,
         .shader = state.shader,
         .index_type = SG_INDEXTYPE_UINT16,
         .layout = {
-            .buffers[0].stride = sizeof(struct basic_vertex),
+            .buffers[0].stride = sizeof(struct passthru_vertex),
             .attrs = {
-                [ATTR_basic_position].format = SG_VERTEXFORMAT_FLOAT2,
-                [ATTR_basic_texcoord].format = SG_VERTEXFORMAT_FLOAT2
+                [ATTR_passthru_position].format = SG_VERTEXFORMAT_FLOAT2,
+                [ATTR_passthru_texcoord].format = SG_VERTEXFORMAT_FLOAT2
             }
         },
         .cull_mode = SG_CULLMODE_BACK,
