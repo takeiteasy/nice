@@ -11,6 +11,8 @@
 #include <stdint.h>
 #include <mutex>
 #include <atomic>
+#include <algorithm>
+#include <functional>
 #include "camera.hh"
 #include "texture.hh"
 #include "glm/vec2.hpp"
@@ -102,6 +104,8 @@ static const glm::vec2 Autotile3x3Simplified[256] = {
     [255] = {9, 2},
 };
 
+static constexpr uint16_t _indices[] = {0, 1, 2, 2, 3, 0};
+
 class Chunk {
     int _x, _y;
     Tile _tiles[CHUNK_WIDTH][CHUNK_HEIGHT];
@@ -109,79 +113,11 @@ class Chunk {
     std::atomic<ChunkState> _state;
     sg_bindings _bind;
     glm::mat4 _mvp;
-
+    std::atomic<bool> _dirty{true};
+    std::atomic<bool> _is_filled{false};
     mutable std::mutex _chunk_mutex;
 
-    void build() {
-        std::lock_guard<std::mutex> lock(_chunk_mutex);
-
-        float hw = framebuffer_width() / 2.f;
-        float hh = framebuffer_height() / 2.f;
-        ChunkVertex vertices[CHUNK_SIZE * 6];
-        memset(vertices, 0, sizeof(vertices));
-        for (int x = 0; x < CHUNK_WIDTH; x++)
-            for (int y = 0; y < CHUNK_HEIGHT; y++) {
-                Tile *tile = &_tiles[x][y];
-                if (!tile->solid)
-                    continue;
-
-                glm::vec2 clip = Autotile3x3Simplified[tile->bitmask];
-                Rect src = {
-                    static_cast<int>((clip.x * TILE_ORIGINAL_WIDTH) + ((clip.x + 1) * TILE_PADDING)),
-                    static_cast<int>((clip.y * TILE_ORIGINAL_HEIGHT) + ((clip.y + 1) * TILE_PADDING)),
-                    TILE_ORIGINAL_WIDTH, TILE_ORIGINAL_HEIGHT
-                };
-
-                float hqw = TILE_WIDTH / 2.f;
-                float hqh = TILE_HEIGHT / 2.f;
-                glm::vec2 _positions[] = {
-                    {hw - hqw, hh - hqh}, // Top-left
-                    {hw + hqw, hh - hqh}, // Top-right
-                    {hw + hqw, hh + hqh}, // Bottom-right
-                    {hw - hqw, hh + hqh}, // Bottom-left
-                };
-
-                float iw = 1.f / _tilemap->width();
-                float ih = 1.f / _tilemap->height();
-                float tl = src.x * iw;
-                float tt = src.y * ih;
-                float tr = (src.x + src.w) * iw;
-                float tb = (src.y + src.h) * ih;
-                glm::vec2 _texcoords[4] = {
-                    {tl, tt}, // top left
-                    {tr, tt}, // top right
-                    {tr, tb}, // bottom right
-                    {tl, tb}, // bottom left
-                };
-
-                uint16_t indices[] = { 0, 1, 2, 2, 3, 0 };
-                for (int i = 0; i < 6; i++) {
-                    ChunkVertex *v = &vertices[(y * CHUNK_WIDTH + x) * 6 + i];
-                    glm::vec2 offset = glm::vec2(x * TILE_WIDTH, y * TILE_HEIGHT);
-                    v->position = _positions[indices[i]] + offset;
-                    v->texcoord = _texcoords[indices[i]];
-                }
-            }
-
-        dirty.store(false);
-        sg_buffer_desc desc = {
-            .data = {
-                .ptr = vertices,
-                .size = sizeof(vertices)
-            }
-        };
-        _bind.vertex_buffers[0] = sg_make_buffer(&desc);
-    }
-
-    static int _max(int a, int b) {
-        return (a > b) ? a : b;
-    }
-
-    static int _min(int a, int b) {
-        return (a < b) ? a : b;
-    }
-
-    static void cellular_automata(unsigned int width, unsigned int height, unsigned int fill_chance, unsigned int smooth_iterations, unsigned int survive, unsigned int starve, uint8_t* result) {
+    static void cellular_automata(int width, int height, int fill_chance, int smooth_iterations, int survive, int starve, uint8_t* result) {
         memset(result, 0, width * height * sizeof(uint8_t));
         // Randomly fill the grid
         std::random_device seed;
@@ -189,14 +125,14 @@ class Chunk {
         std::uniform_int_distribution<> ud{1, 100};
         for (int x = 0; x < width; x++)
             for (int y = 0; y < height; y++) {
-                int min_dist_from_edge = _min(_min(x, width - 1 - x), _min(y, height - 1 - y));
-                int edge_bonus = _max(0, 30 - (min_dist_from_edge * 5)); // 30% bonus at edges, decreasing toward center
+                int min_dist_from_edge = std::min(std::min(x, width - 1 - x), std::min(y, height - 1 - y));
+                int edge_bonus = std::max(0, 30 - (min_dist_from_edge * 5)); // 30% bonus at edges, decreasing toward center
                 int adjusted_fill_chance = fill_chance + edge_bonus;
                 if (adjusted_fill_chance > 100) adjusted_fill_chance = 100;
                 result[y * width + x] = ud(gen) <= adjusted_fill_chance;
             }
         // Run cellular-automata on grid n times
-        for (int i = 0; i < _max(smooth_iterations, 1); i++)
+        for (int i = 0; i < std::max(smooth_iterations, 1); i++)
             for (int x = 0; x < width; x++)
                 for (int y = 0; y < height; y++) {
                     // Count the cell's living neighbours
@@ -238,9 +174,8 @@ class Chunk {
     }
 
 public:
-    std::atomic<bool> dirty{true};  // Make dirty flag atomic
 
-    Chunk(int x, int y, const Texture* texture): _x(x), _y(y), dirty(true) {
+    Chunk(int x, int y, const Texture* texture): _x(x), _y(y), _dirty(true) {
         memset(_tiles, 0, sizeof(_tiles));
         memset(&_bind, 0, sizeof(sg_bindings));
         _tilemap = texture;
@@ -290,6 +225,18 @@ public:
         return Chunk::bounds(_x, _y);
     }
 
+    bool is_dirty() const {
+        return _dirty.load();
+    }
+
+    void mark_dirty() {
+        _dirty.store(true);
+    }
+
+    void mark_clean() {
+        _dirty.store(false);
+    }
+
     void fill() {
         std::lock_guard<std::mutex> lock(_chunk_mutex);
 
@@ -304,36 +251,88 @@ public:
         for (int y = 0; y < CHUNK_HEIGHT; y++)
             for (int x = 0; x < CHUNK_WIDTH; x++)
                 _tiles[x][y].bitmask = _tiles[x][y].solid ? tile_bitmask(this, x, y, 1) : 0;
-        dirty.store(true);
+        _is_filled.store(true);
+        _dirty.store(true);
+    }
+
+    bool is_filled() const {
+        return _is_filled.load();
+    }
+
+    ChunkVertex* vertices() {
+        float hw = framebuffer_width() / 2.f;
+        float hh = framebuffer_height() / 2.f;
+        ChunkVertex *vertices = new ChunkVertex[CHUNK_SIZE * 6];
+        for (int x = 0; x < CHUNK_WIDTH; x++)
+            for (int y = 0; y < CHUNK_HEIGHT; y++) {
+                Tile *tile = &_tiles[x][y];
+                if (!tile->solid)
+                    continue;
+
+                glm::vec2 clip = Autotile3x3Simplified[tile->bitmask];
+                Rect src = {
+                    static_cast<int>((clip.x * TILE_ORIGINAL_WIDTH) + ((clip.x + 1) * TILE_PADDING)),
+                    static_cast<int>((clip.y * TILE_ORIGINAL_HEIGHT) + ((clip.y + 1) * TILE_PADDING)),
+                    TILE_ORIGINAL_WIDTH, TILE_ORIGINAL_HEIGHT
+                };
+
+                float hqw = TILE_WIDTH / 2.f;
+                float hqh = TILE_HEIGHT / 2.f;
+                glm::vec2 _positions[] = {
+                    {hw - hqw, hh - hqh}, // Top-left
+                    {hw + hqw, hh - hqh}, // Top-right
+                    {hw + hqw, hh + hqh}, // Bottom-right
+                    {hw - hqw, hh + hqh}, // Bottom-left
+                };
+
+                float iw = 1.f / _tilemap->width();
+                float ih = 1.f / _tilemap->height();
+                float tl = src.x * iw;
+                float tt = src.y * ih;
+                float tr = (src.x + src.w) * iw;
+                float tb = (src.y + src.h) * ih;
+                glm::vec2 _texcoords[4] = {
+                    {tl, tt}, // top left
+                    {tr, tt}, // top right
+                    {tr, tb}, // bottom right
+                    {tl, tb}, // bottom left
+                };
+
+                for (int i = 0; i < 6; i++) {
+                    ChunkVertex *v = &vertices[(y * CHUNK_WIDTH + x) * 6 + i];
+                    glm::vec2 offset = glm::vec2(x * TILE_WIDTH, y * TILE_HEIGHT);
+                    v->position = _positions[_indices[i]] + offset;
+                    v->texcoord = _texcoords[_indices[i]];
+                }
+            }
+        return vertices;
+    }
+
+    void build(ChunkVertex* vertices) {
+        if (sg_query_buffer_state(_bind.vertex_buffers[0]) == SG_RESOURCESTATE_VALID)
+            sg_destroy_buffer(_bind.vertex_buffers[0]);
+        sg_buffer_desc desc = {
+            .data = {
+                .ptr = vertices,
+                .size = sizeof(ChunkVertex) * CHUNK_SIZE * 6
+            }
+        };
+        _bind.vertex_buffers[0] = sg_make_buffer(&desc);
+        _dirty.store(false);
     }
 
     bool draw(glm::mat4 *mvp = nullptr) {
         if (_state.load() != ChunkState::CHUNK_STATE_ACTIVE)
             return false;
-
-        if (dirty.load())
-            build();
-        if (mvp != nullptr) {
-            std::lock_guard<std::mutex> lock(_chunk_mutex);
-            _mvp = glm::translate(*mvp, glm::vec3(_x * CHUNK_WIDTH * TILE_WIDTH, _y * CHUNK_HEIGHT * TILE_HEIGHT, 0.f));
-        }
         if (sg_query_buffer_state(_bind.vertex_buffers[0]) != SG_RESOURCESTATE_VALID)
             return false;
-
         sg_apply_bindings(_bind);
+        if (mvp != nullptr)
+            _mvp = glm::translate(*mvp, glm::vec3(_x * CHUNK_WIDTH * TILE_WIDTH, _y * CHUNK_HEIGHT * TILE_HEIGHT, 0.f));
         vs_params_t vs_params = { .mvp = _mvp };
         sg_range params = SG_RANGE(vs_params);
         sg_apply_uniforms(UB_vs_params, &params);
         sg_draw(0, CHUNK_SIZE * 6, 1);
         return true;
     }
-
-    void each(const std::function<void(int, int, Tile&)>& func) {
-        std::lock_guard<std::mutex> lock(_chunk_mutex);
-        for (int x = 0; x < CHUNK_WIDTH; x++)
-            for (int y = 0; y < CHUNK_HEIGHT; y++) {
-                Tile &tile = _tiles[x][y];
-                func(x, y, tile);
-            }
-    };
 };

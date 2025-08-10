@@ -17,18 +17,28 @@
 #include <fmt/format.h>
 
 class Map {
+    ThreadPool _worker{std::thread::hardware_concurrency()};
     std::unordered_map<uint64_t, Chunk*> _chunks;
+    mutable std::shared_mutex _chunks_mutex;
     std::vector<uint64_t> _delete_queue;
+    mutable std::mutex _delete_queue_mutex;
+    std::queue<Chunk*> _in_queue;
+    std::queue<std::pair<Chunk*, ChunkVertex*>> _out_queue;
+    mutable std::mutex _in_queue_mutex;
+    mutable std::mutex _out_queue_mutex;
+    std::condition_variable _in_queue_condition;
+    std::atomic<bool> _in_queue_stop{false};
+    std::thread _in_queue_thread;
+    std::condition_variable _out_queue_condition;
+    std::atomic<bool> _out_queue_stop{false};
+    std::thread _out_queue_thread;
+
     Camera *_camera;
     Texture *_tilemap;
-    ThreadPool _worker{std::thread::hardware_concurrency()};
     sg_shader _shader;
-    sg_pipeline _pipeline;
+    sg_pipeline _pipeline; 
 
-    mutable std::shared_mutex _chunks_mutex;
-    mutable std::mutex _delete_queue_mutex;
-
-    static bool update_chunk(Chunk *chunk, const Rect &camera_bounds, const Rect &max_bounds) {
+    bool update_chunk(Chunk *chunk, const Rect &camera_bounds, const Rect &max_bounds) {
         ChunkState old_state = chunk->state();
         chunk->set_state(!max_bounds.intersects(chunk->bounds()) ?
                          ChunkState::CHUNK_STATE_UNLOAD :
@@ -39,6 +49,14 @@ class Map {
             std::cout << fmt::format("Chunk state changed at ({}, {}) from {} to {}\n",
                                 static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y),
                                 chunk_state_to_string(old_state), chunk_state_to_string(chunk->state()));
+        if (chunk->state() != ChunkState::CHUNK_STATE_UNLOAD && chunk->is_dirty() && chunk->is_filled()) {
+            std::lock_guard<std::mutex> lock(_in_queue_mutex);
+            std::cout << fmt::format("Chunk at ({}, {}) queued for build\n",
+                                     static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
+            chunk->mark_clean();
+            _in_queue.push(chunk);
+            _in_queue_condition.notify_one();
+        }
         return result;
     }
 
@@ -74,7 +92,6 @@ class Map {
 
     Chunk* ensure_chunk(int x, int y, bool create = false) {
         uint64_t idx = Chunk::id(x, y);
-        // First try with shared lock (read access)
         {
             std::shared_lock<std::shared_mutex> chunks_lock(_chunks_mutex);
             if (_chunks.find(idx) != _chunks.end())
@@ -82,11 +99,7 @@ class Map {
         }
         if (!create)
             return nullptr;
-
-        // Need exclusive lock for chunk creation
         std::unique_lock<std::shared_mutex> chunks_lock(_chunks_mutex);
-
-        // Double-check pattern - another thread might have created it
         if (_chunks.find(idx) != _chunks.end())
             return _chunks[idx];
 
@@ -95,16 +108,12 @@ class Map {
         Chunk *chunk = new Chunk(x, y, _tilemap);
         _chunks[idx] = chunk;
 
-        // Release the chunks lock before enqueueing work to avoid deadlock
         chunks_lock.unlock();
-
-        // Simply run the function in the background - no future handling needed
         _worker.enqueue(_camera->bounds().intersects(chunk->bounds()), [chunk]() {
             std::cout << fmt::format("Filling chunk at ({}, {})\n",
                                      static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
             chunk->fill();
         });
-
         return chunk;
     }
 
@@ -118,6 +127,18 @@ class Map {
             for (int x = (int)tl_chunk.x; x <= (int)br_chunk.x; x++)
                 if (Chunk::bounds(x, y).intersects(bounds))
                     assert(ensure_chunk(x, y, true) != NULL);
+    }
+
+    void build_chunks() {
+        std::lock_guard<std::mutex> lock(_out_queue_mutex);
+        while (!_out_queue.empty()) {
+            auto [chunk, mesh] = _out_queue.front();
+            std::cout << fmt::format("Building chunk at ({}, {})\n",
+                                     static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
+            _out_queue.pop();
+            chunk->build(mesh);
+            delete[] mesh;
+        }
     }
 
     int draw_chunks() {
@@ -166,6 +187,43 @@ public:
             .colors[0].pixel_format = SG_PIXELFORMAT_RGBA8
         };
         _pipeline = sg_make_pipeline(&desc);
+
+        _in_queue_thread = std::thread([this]() {
+            while (true) {
+                std::unique_lock<std::mutex> in_lock(this->_in_queue_mutex);
+                this->_in_queue_condition.wait(in_lock, [this] {
+                    return this->_in_queue_stop.load() || !this->_in_queue.empty();
+                });
+                if (this->_in_queue_stop.load() && this->_in_queue.empty())
+                    return;
+                Chunk *chunk = this->_in_queue.front();
+                this->_in_queue.pop();
+                std::unique_lock<std::mutex> out_lock(this->_out_queue_mutex);
+                std::cout << fmt::format("Generating vertices for chunk at ({}, {})\n",
+                                         static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
+                this->_out_queue.push({chunk, chunk->vertices()});
+                _out_queue_condition.notify_one();
+            }
+        });
+        _in_queue_thread.detach();
+
+        _out_queue_thread = std::thread([this]() {
+            while (true) {
+                std::unique_lock<std::mutex> out_lock(this->_out_queue_mutex);
+                this->_out_queue_condition.wait(out_lock, [this] {
+                    return this->_out_queue_stop.load() || !this->_out_queue.empty();
+                });
+                if (this->_out_queue_stop.load() && this->_out_queue.empty())
+                    return;
+                auto [chunk, vertices] = this->_out_queue.front();
+                this->_out_queue.pop();
+                chunk->build(vertices);
+                delete[] vertices;
+                std::cout << fmt::format("Finished building chunk at ({}, {})\n",
+                                         static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
+            }
+        });
+        _out_queue_thread.detach();
     }
 
     ~Map() {
@@ -173,6 +231,10 @@ public:
             sg_destroy_pipeline(_pipeline);
         if (sg_query_shader_state(_shader) == SG_RESOURCESTATE_VALID)
             sg_destroy_shader(_shader);
+        _in_queue_stop.store(true);
+        _in_queue_condition.notify_all();
+        _out_queue_stop.store(true);
+        _out_queue_condition.notify_all();
     }
 
     Camera* camera() const {
@@ -183,6 +245,7 @@ public:
         check_chunks();
         release_chunks();
         find_chunks();
+        build_chunks();
         int n = draw_chunks();
         _camera->dirty = false;
         return n;
