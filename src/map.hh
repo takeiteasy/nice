@@ -22,16 +22,8 @@ class Map {
     mutable std::shared_mutex _chunks_mutex;
     std::vector<uint64_t> _delete_queue;
     mutable std::mutex _delete_queue_mutex;
-    std::queue<Chunk*> _in_queue;
-    std::queue<std::pair<Chunk*, ChunkVertex*>> _out_queue;
-    mutable std::mutex _in_queue_mutex;
-    mutable std::mutex _out_queue_mutex;
-    std::condition_variable _in_queue_condition;
-    std::atomic<bool> _in_queue_stop{false};
-    std::thread _in_queue_thread;
-    std::condition_variable _out_queue_condition;
-    std::atomic<bool> _out_queue_stop{false};
-    std::thread _out_queue_thread;
+    WorkerQueue<Chunk*> _vertex_generator;
+    WorkerQueue<std::pair<Chunk*, ChunkVertex*>> _mesh_builder;
 
     flecs::world *_ecs;
     Camera *_camera;
@@ -51,12 +43,10 @@ class Map {
                                 static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y),
                                 chunk_state_to_string(old_state), chunk_state_to_string(chunk->state()));
         if (chunk->state() != ChunkState::CHUNK_STATE_UNLOAD && chunk->is_dirty() && chunk->is_filled()) {
-            std::lock_guard<std::mutex> lock(_in_queue_mutex);
             std::cout << fmt::format("Chunk at ({}, {}) queued for build\n",
                                      static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
             chunk->mark_clean();
-            _in_queue.push(chunk);
-            _in_queue_condition.notify_one();
+            _vertex_generator.push(chunk);
         }
         return result;
     }
@@ -78,12 +68,10 @@ class Map {
         std::lock_guard<std::mutex> delete_lock(_delete_queue_mutex);
 
         for (uint64_t id : _delete_queue) {
-            // Need exclusive access to chunks map for deletion
             std::unique_lock<std::shared_mutex> chunks_lock(_chunks_mutex);
             Chunk *chunk = _chunks[id];
             _chunks.erase(id);
-            chunks_lock.unlock(); // Release lock before delete to avoid holding it too long
-
+            chunks_lock.unlock();
             std::cout << fmt::format("Chunk at ({}, {}) released\n",
                                      static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
             delete chunk;
@@ -130,18 +118,6 @@ class Map {
                     assert(ensure_chunk(x, y, true) != NULL);
     }
 
-    void build_chunks() {
-        std::lock_guard<std::mutex> lock(_out_queue_mutex);
-        while (!_out_queue.empty()) {
-            auto [chunk, mesh] = _out_queue.front();
-            std::cout << fmt::format("Building chunk at ({}, {})\n",
-                                     static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
-            _out_queue.pop();
-            chunk->build(mesh);
-            delete[] mesh;
-        }
-    }
-
     int draw_chunks() {
         sg_apply_pipeline(_pipeline);
         int i = 0;
@@ -166,7 +142,23 @@ class Map {
     }
 
 public:
-    Map(flecs::world *ecs, Camera *camera, Texture *tilemap): _ecs(ecs), _camera(camera), _tilemap(tilemap) {
+    Map(flecs::world *ecs, Camera *camera, Texture *tilemap): 
+        _ecs(ecs), _camera(camera), _tilemap(tilemap),
+        _vertex_generator([this](Chunk* chunk) {
+            std::cout << fmt::format("Generating vertices for chunk at ({}, {})\n",
+                                     static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
+            ChunkVertex* vertices = chunk->vertices();
+            _mesh_builder.push({chunk, vertices});
+        }),
+        _mesh_builder([](std::pair<Chunk*, ChunkVertex*> data) {
+            auto [chunk, vertices] = data;
+            std::cout << fmt::format("Building chunk at ({}, {})\n",
+                                     static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
+            chunk->build(vertices);
+            delete[] vertices;
+            std::cout << fmt::format("Finished building chunk at ({}, {})\n",
+                                     static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
+        }) {
         _shader = sg_make_shader(basic_shader_desc(sg_query_backend()));
         sg_pipeline_desc desc = {
             .shader = _shader,
@@ -186,43 +178,6 @@ public:
             .colors[0].pixel_format = SG_PIXELFORMAT_RGBA8
         };
         _pipeline = sg_make_pipeline(&desc);
-
-        _in_queue_thread = std::thread([this]() {
-            while (true) {
-                std::unique_lock<std::mutex> in_lock(this->_in_queue_mutex);
-                this->_in_queue_condition.wait(in_lock, [this] {
-                    return this->_in_queue_stop.load() || !this->_in_queue.empty();
-                });
-                if (this->_in_queue_stop.load() && this->_in_queue.empty())
-                    return;
-                Chunk *chunk = this->_in_queue.front();
-                this->_in_queue.pop();
-                std::unique_lock<std::mutex> out_lock(this->_out_queue_mutex);
-                std::cout << fmt::format("Generating vertices for chunk at ({}, {})\n",
-                                         static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
-                this->_out_queue.push({chunk, chunk->vertices()});
-                _out_queue_condition.notify_one();
-            }
-        });
-        _in_queue_thread.detach();
-
-        _out_queue_thread = std::thread([this]() {
-            while (true) {
-                std::unique_lock<std::mutex> out_lock(this->_out_queue_mutex);
-                this->_out_queue_condition.wait(out_lock, [this] {
-                    return this->_out_queue_stop.load() || !this->_out_queue.empty();
-                });
-                if (this->_out_queue_stop.load() && this->_out_queue.empty())
-                    return;
-                auto [chunk, vertices] = this->_out_queue.front();
-                this->_out_queue.pop();
-                chunk->build(vertices);
-                delete[] vertices;
-                std::cout << fmt::format("Finished building chunk at ({}, {})\n",
-                                         static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
-            }
-        });
-        _out_queue_thread.detach();
     }
 
     ~Map() {
@@ -230,10 +185,6 @@ public:
             sg_destroy_pipeline(_pipeline);
         if (sg_query_shader_state(_shader) == SG_RESOURCESTATE_VALID)
             sg_destroy_shader(_shader);
-        _in_queue_stop.store(true);
-        _in_queue_condition.notify_all();
-        _out_queue_stop.store(true);
-        _out_queue_condition.notify_all();
     }
 
     Camera* camera() const {
@@ -244,7 +195,6 @@ public:
         check_chunks();
         release_chunks();
         find_chunks();
-        build_chunks();
         int n = draw_chunks();
         if (n > 0)
             _camera->dirty = false;

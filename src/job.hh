@@ -5,6 +5,8 @@
 //  Created by George Watson on 04/08/2025.
 //
 
+#pragma once
+
 #include <iostream>
 #include <vector>
 #include <queue>
@@ -14,6 +16,81 @@
 #include <functional>
 #include <future>
 #include <atomic>
+
+template<typename T> class WorkerQueue {
+    std::queue<T> _queue;
+    mutable std::mutex _queue_mutex;
+    std::condition_variable _condition;
+    std::atomic<bool> _stop{false};
+    std::thread _worker_thread;
+    std::function<void(T)> _processor;
+
+public:
+    explicit WorkerQueue(std::function<void(T)> processor) : _processor(std::move(processor)) {
+        _worker_thread = std::thread([this]() {
+            while (true) {
+                std::unique_lock<std::mutex> lock(this->_queue_mutex);
+                this->_condition.wait(lock, [this] {
+                    return this->_stop.load() || !this->_queue.empty();
+                });
+                
+                if (this->_stop.load() && this->_queue.empty())
+                    return;
+                    
+                T item = std::move(this->_queue.front());
+                this->_queue.pop();
+                lock.unlock(); // Release lock before processing
+                
+                this->_processor(item);
+            }
+        });
+    }
+
+    WorkerQueue(const WorkerQueue&) = delete;
+    WorkerQueue& operator=(const WorkerQueue&) = delete;
+    WorkerQueue(WorkerQueue&& other) noexcept
+        : _queue(std::move(other._queue))
+        , _processor(std::move(other._processor))
+        , _stop(other._stop.load()) {
+        if (other._worker_thread.joinable()) {
+            _worker_thread = std::move(other._worker_thread);
+        }
+    }
+
+    ~WorkerQueue() {
+        stop();
+    }
+
+    void push(T item) {
+        {
+            std::lock_guard<std::mutex> lock(_queue_mutex);
+            _queue.push(std::move(item));
+        }
+        _condition.notify_one();
+    }
+
+    void enqueue(T item) {
+        push(std::move(item));
+    }
+
+    void stop() {
+        _stop.store(true);
+        _condition.notify_all();
+        if (_worker_thread.joinable()) {
+            _worker_thread.join();
+        }
+    }
+
+    bool empty() const {
+        std::lock_guard<std::mutex> lock(_queue_mutex);
+        return _queue.empty();
+    }
+
+    size_t size() const {
+        std::lock_guard<std::mutex> lock(_queue_mutex);
+        return _queue.size();
+    }
+};
 
 class ThreadPool {
     std::vector<std::thread> workers;

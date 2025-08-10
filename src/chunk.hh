@@ -10,6 +10,7 @@
 #include "config.h"
 #include <stdint.h>
 #include <mutex>
+#include <shared_mutex>
 #include <atomic>
 #include <algorithm>
 #include <functional>
@@ -117,7 +118,7 @@ class Chunk {
     glm::mat4 _mvp;
     std::atomic<bool> _dirty{true};
     std::atomic<bool> _is_filled{false};
-    mutable std::mutex _chunk_mutex;
+    mutable std::shared_mutex _chunk_mutex;
 
     static void cellular_automata(int width, int height, int fill_chance, int smooth_iterations, int survive, int starve, uint8_t* result) {
         memset(result, 0, width * height * sizeof(uint8_t));
@@ -185,7 +186,7 @@ public:
     }
 
     ~Chunk() {
-        std::lock_guard<std::mutex> lock(_chunk_mutex);
+        std::shared_lock<std::shared_mutex> lock(_chunk_mutex);
         if (sg_query_buffer_state(_bind.vertex_buffers[0]) == SG_RESOURCESTATE_VALID)
             sg_destroy_buffer(_bind.vertex_buffers[0]);
     }
@@ -239,7 +240,7 @@ public:
     }
 
     void fill() {
-        std::lock_guard<std::mutex> lock(_chunk_mutex);
+        std::unique_lock<std::shared_mutex> lock(_chunk_mutex);
 
         uint8_t _grid[CHUNK_SIZE];
         cellular_automata(CHUNK_WIDTH, CHUNK_HEIGHT,
@@ -323,7 +324,7 @@ public:
     }
 
     std::vector<glm::vec2> poisson(float r, int k=5, int offset_x=0, int offset_y=0, int max_width=CHUNK_WIDTH, int max_height=CHUNK_HEIGHT, int max_tries=CHUNK_SIZE / 4) {
-        std::lock_guard<std::mutex> lock(_chunk_mutex);
+        std::shared_lock<std::shared_mutex> lock(_chunk_mutex);
         float cell_size = r / std::sqrt(2.0f);
         int grid_width = static_cast<int>(std::ceil(CHUNK_WIDTH / cell_size));
         int grid_height = static_cast<int>(std::ceil(CHUNK_HEIGHT / cell_size));
