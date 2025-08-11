@@ -92,7 +92,7 @@ public:
     }
 };
 
-class ThreadPool {
+class JobPool {
     std::vector<std::thread> workers;
     std::queue<std::function<void()>> jobs;
     std::queue<std::function<void()>> priority_jobs;
@@ -101,7 +101,7 @@ class ThreadPool {
     std::atomic<bool> stop;
 
 public:
-    ThreadPool(size_t num_threads): stop(false) {
+    JobPool(size_t num_threads): stop(false) {
         for (size_t i = 0; i < num_threads; ++i)
             workers.emplace_back([this] {
                 while (true) {
@@ -130,7 +130,7 @@ public:
         std::future<return_type> result = job->get_future();
         std::unique_lock<std::mutex> lock(queue_mutex);
         if (stop)
-            throw std::runtime_error("enqueue on stopped ThreadPool");
+            throw std::runtime_error("enqueue on stopped JobPool");
         if (priority)
             priority_jobs.emplace([job](){(*job)();});
         else
@@ -148,7 +148,7 @@ public:
         return workers.size();
     }
 
-    ~ThreadPool() {
+    ~JobPool() {
         {
             std::unique_lock<std::mutex> lock(queue_mutex);
             stop = true;

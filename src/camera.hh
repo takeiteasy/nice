@@ -143,7 +143,7 @@ public:
         return world_pos;
     }
 
-    glm::vec2 world_to_tile(glm::vec2 world) const {
+    static glm::vec2 world_to_tile(glm::vec2 world) {
         // Convert world position to tile coordinates within a chunk
         // First get the chunk coordinates
         glm::vec2 chunk_pos = world_to_chunk(world);
@@ -165,7 +165,7 @@ public:
                          tile_y < 0 ? 0 : (tile_y >= CHUNK_HEIGHT ? CHUNK_HEIGHT - 1 : tile_y));
     }
 
-    glm::vec2 world_to_chunk(glm::vec2 world) const {
+    static glm::vec2 world_to_chunk(glm::vec2 world) {
         // Calculate chunk size in world units
         float chunk_world_width = CHUNK_WIDTH * TILE_WIDTH;
         float chunk_world_height = CHUNK_HEIGHT * TILE_HEIGHT;
@@ -173,6 +173,19 @@ public:
         // Convert world position to chunk coordinates
         return glm::vec2(floor(world.x / chunk_world_width),
                          floor(world.y / chunk_world_height));
+    }
+
+    static glm::vec2 chunk_to_world(glm::vec2 chunk) {
+        // Convert chunk coordinates to world position
+        return glm::vec2(chunk.x * CHUNK_WIDTH * TILE_WIDTH,
+                         chunk.y * CHUNK_HEIGHT * TILE_HEIGHT);
+    }
+
+    static glm::vec2 chunk_tile_to_world(glm::vec2 chunk, glm::vec2 tile) {
+        // Convert chunk and tile coordinates to world position
+        glm::vec2 chunk_world = chunk_to_world(chunk);
+        return glm::vec2(chunk_world.x + tile.x * TILE_WIDTH,
+                         chunk_world.y + tile.y * TILE_HEIGHT);
     }
 
     struct Rect bounds() {

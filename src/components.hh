@@ -7,6 +7,12 @@
 
 #pragma once
 
+struct Chunk;
+
+struct _Chunk {
+    Chunk *chunk;
+};
+
 struct Position {
     int x, y;
 };

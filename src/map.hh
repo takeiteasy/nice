@@ -17,7 +17,7 @@
 #include "flecs.h"
 
 class Map {
-    ThreadPool _worker{std::thread::hardware_concurrency()};
+    JobPool _worker{std::thread::hardware_concurrency()};
     std::unordered_map<uint64_t, Chunk*> _chunks;
     mutable std::shared_mutex _chunks_mutex;
     std::vector<uint64_t> _delete_queue;
@@ -39,12 +39,10 @@ class Map {
                                                                          ChunkState::CHUNK_STATE_DORMANT);
         bool result = chunk->state() != old_state;
         if (result)
-            std::cout << fmt::format("Chunk state changed at ({}, {}) from {} to {}\n",
-                                static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y),
-                                chunk_state_to_string(old_state), chunk_state_to_string(chunk->state()));
+            std::cout << fmt::format("{} state changed from {} to {}\n",
+                                chunk->name(), chunk_state_to_string(old_state), chunk_state_to_string(chunk->state()));
         if (chunk->state() != ChunkState::CHUNK_STATE_UNLOAD && chunk->is_dirty() && chunk->is_filled()) {
-            std::cout << fmt::format("Chunk at ({}, {}) queued for build\n",
-                                     static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
+            std::cout << fmt::format("{} queued for build\n", chunk->name());
             chunk->mark_clean();
             _vertex_generator.push(chunk);
         }
@@ -71,13 +69,10 @@ class Map {
             std::unique_lock<std::shared_mutex> chunks_lock(_chunks_mutex);
             Chunk *chunk = _chunks[id];
             _chunks.erase(id);
-            flecs::entity chunk_entity = _ecs->entity(fmt::format("Chunk({}, {})", chunk->position().x, chunk->position().y).c_str());
-            _ecs->defer_begin();
+            flecs::entity chunk_entity = _ecs->entity(chunk->name().c_str());
             chunk_entity.destruct();
-            _ecs->defer_end();
             chunks_lock.unlock();
-            std::cout << fmt::format("Chunk at ({}, {}) released\n",
-                                     static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
+            std::cout << fmt::format("{} released\n", chunk->name());
             delete chunk;
         }
         _delete_queue.clear();
@@ -97,16 +92,15 @@ class Map {
             return _chunks[idx];
 
         // TODO: Search on disk for chunk data
-        std::cout << fmt::format("Creating chunk at ({}, {})\n", x, y);
+        std::cout << fmt::format("Creating new Chunk({}, {})\n", x, y);
         Chunk *chunk = new Chunk(x, y, _tilemap);
         _chunks[idx] = chunk;
-        flecs::entity chunk_entity = _ecs->entity(fmt::format("Chunk({}, {})", x, y).c_str())
-                                         .set<ChunkEntity>(ChunkEntity{chunk});
+        flecs::entity chunk_entity = _ecs->entity(chunk->name().c_str())
+                                         .set<_Chunk>(_Chunk{chunk});
 
         chunks_lock.unlock();
         _worker.enqueue(_camera->bounds().intersects(chunk->bounds()), [chunk]() {
-            std::cout << fmt::format("Filling chunk at ({}, {})\n",
-                                     static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
+            std::cout << fmt::format("Filling {}\n", chunk->name());
             chunk->fill();
         });
         return chunk;
@@ -151,19 +145,16 @@ public:
     Map(flecs::world *ecs, Camera *camera, Texture *tilemap): 
         _ecs(ecs), _camera(camera), _tilemap(tilemap),
         _vertex_generator([this](Chunk* chunk) {
-            std::cout << fmt::format("Generating vertices for chunk at ({}, {})\n",
-                                     static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
+            std::cout << fmt::format("Generating vertices for {}\n", chunk->name());
             ChunkVertex* vertices = chunk->vertices();
             _mesh_builder.push({chunk, vertices});
         }),
         _mesh_builder([](std::pair<Chunk*, ChunkVertex*> data) {
             auto [chunk, vertices] = data;
-            std::cout << fmt::format("Building chunk at ({}, {})\n",
-                                     static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
+            std::cout << fmt::format("Building {}\n", chunk->name());
             chunk->build(vertices);
             delete[] vertices;
-            std::cout << fmt::format("Finished building chunk at ({}, {})\n",
-                                     static_cast<int>(chunk->position().x), static_cast<int>(chunk->position().y));
+            std::cout << fmt::format("Finished building {}\n", chunk->name());
         }) {
         _shader = sg_make_shader(basic_shader_desc(sg_query_backend()));
         sg_pipeline_desc desc = {
@@ -185,9 +176,8 @@ public:
         };
         _pipeline = sg_make_pipeline(&desc);
 
-        flecs::system draw = _ecs->system<ChunkEntity>().each([this](ChunkEntity &chunk_entity) {
-            int n = this->draw_chunks();
-            if (n > 0)
+        flecs::system draw = _ecs->system<_Chunk>().each([this](_Chunk &chunk_entity) {
+            if (this->draw_chunks() > 0)
                 this->_camera->dirty = false;
         });
     }

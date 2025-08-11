@@ -16,6 +16,7 @@
 #include <functional>
 #include <numeric>
 #include <random>
+#include "fmt/format.h"
 #include "camera.hh"
 #include "texture.hh"
 #include "glm/vec2.hpp"
@@ -189,6 +190,10 @@ public:
         std::shared_lock<std::shared_mutex> lock(_chunk_mutex);
         if (sg_query_buffer_state(_bind.vertex_buffers[0]) == SG_RESOURCESTATE_VALID)
             sg_destroy_buffer(_bind.vertex_buffers[0]);
+    }
+
+    std::string name() const {
+        return fmt::format("Chunk({}, {})", _x, _y);
     }
 
     void set_state(ChunkState state) {
@@ -451,8 +456,4 @@ public:
         sg_draw(0, CHUNK_SIZE * 6, 1);
         return true;
     }
-};
-
-struct ChunkEntity {
-    Chunk *chunk;
 };
