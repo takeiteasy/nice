@@ -71,4 +71,9 @@ public:
         bindings.images[0] = image;
         bindings.samplers[0] = sampler;
     }
+
+    bool is_valid() const {
+        return sg_query_image_state(image) == SG_RESOURCESTATE_VALID &&
+               sg_query_sampler_state(sampler) == SG_RESOURCESTATE_VALID;
+    }
 };

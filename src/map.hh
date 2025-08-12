@@ -13,7 +13,7 @@
 #include <vector>
 #include <mutex>
 #include <shared_mutex>
-#include <fmt/format.h>
+#include "fmt/format.h"
 #include "flecs.h"
 
 class Map {
@@ -29,7 +29,7 @@ class Map {
     Camera *_camera;
     Texture *_tilemap;
     sg_shader _shader;
-    sg_pipeline _pipeline; 
+    sg_pipeline _pipeline;
 
     bool update_chunk(Chunk *chunk, const Rect &camera_bounds, const Rect &max_bounds) {
         ChunkState old_state = chunk->state();
@@ -92,7 +92,7 @@ class Map {
             return _chunks[idx];
 
         // TODO: Search on disk for chunk data
-        std::cout << fmt::format("Creating new Chunk({}, {})\n", x, y);
+        std::cout << fmt::format("Creating new Chunk({},{})\n", x, y);
         Chunk *chunk = new Chunk(x, y, _tilemap);
         _chunks[idx] = chunk;
         flecs::entity chunk_entity = _ecs->entity(chunk->name().c_str())
@@ -176,7 +176,7 @@ public:
         };
         _pipeline = sg_make_pipeline(&desc);
 
-        flecs::system draw = _ecs->system<_Chunk>().each([this](_Chunk &chunk_entity) {
+        _ecs->system<_Chunk>("DrawChunks").each([this](_Chunk &chunk_entity) {
             if (this->draw_chunks() > 0)
                 this->_camera->dirty = false;
         });

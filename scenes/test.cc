@@ -25,8 +25,9 @@ void test_enter(void) {
     state.ecs->set_target_fps(60);
     state.ecs->set_threads(std::thread::hardware_concurrency());
     state.camera = new Camera();
-    state.camera->set_position(glm::vec2(CHUNK_WIDTH * TILE_WIDTH * .5f, CHUNK_HEIGHT * TILE_HEIGHT * .5f));
+    // state.camera->set_position(glm::vec2(CHUNK_WIDTH * TILE_WIDTH * .5f, CHUNK_HEIGHT * TILE_HEIGHT * .5f));
     state.tilemap = new Texture("assets/tilemap.exploded.png");
+    assert(state.tilemap->is_valid());
     state.map = new Map(state.ecs, state.camera, state.tilemap);
     state.dragging = false;
 }

@@ -17,7 +17,8 @@
 #include <future>
 #include <atomic>
 
-template<typename T> class JobQueue {
+template<typename T>
+class JobQueue {
     std::queue<T> _queue;
     mutable std::mutex _queue_mutex;
     std::condition_variable _condition;
@@ -52,9 +53,8 @@ public:
         : _queue(std::move(other._queue))
         , _processor(std::move(other._processor))
         , _stop(other._stop.load()) {
-        if (other._worker_thread.joinable()) {
+        if (other._worker_thread.joinable())
             _worker_thread = std::move(other._worker_thread);
-        }
     }
 
     ~JobQueue() {
@@ -76,9 +76,8 @@ public:
     void stop() {
         _stop.store(true);
         _condition.notify_all();
-        if (_worker_thread.joinable()) {
+        if (_worker_thread.joinable())
             _worker_thread.join();
-        }
     }
 
     bool empty() const {

@@ -56,4 +56,7 @@ clean:
 	rm -f build/libflecs.$(LIB_EXT)
 	rm -f src/*.glsl.h
 
-.PHONY: default all clean app shaders flecs-shared flecs-static
+run: app
+	./$(EXE)
+
+.PHONY: run default all clean app shaders flecs-shared flecs-static
