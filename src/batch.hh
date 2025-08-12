@@ -135,9 +135,17 @@ public:
     int capacity() const { return _capacity; }
     bool empty() const { return _count == 0; }
     bool full() const { return Dynamic ? false : _count >= _capacity; }
-    void clear() { _count = 0; }
     const T* data() const { return _vertices.get(); }
     T* data() { return _vertices.get(); }
+
+    void clear() {
+        _count = 0;
+        if (Dynamic) {
+            _capacity = InitialCapacity;
+            _vertices = std::make_unique<T[]>(_capacity);
+        } else
+            std::memset(_vertices.get(), 0, sizeof(T) * _capacity);
+    }
 
     bool is_valid() const {
         return sg_query_buffer_state(_bind.vertex_buffers[0]) == SG_RESOURCESTATE_VALID;

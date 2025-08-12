@@ -24,3 +24,5 @@ struct Scale {
 };
 
 typedef float Rotation;
+
+typedef float Zoom;

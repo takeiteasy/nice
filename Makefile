@@ -16,16 +16,16 @@ CXX = clang++
 CXXFLAGS = -std=c++17 -arch arm64 -Wno-c99-designator -Wno-reorder-init-list
 LDFLAGS = -arch arm64
 
-default: app
+default: exe
 
-all: shaders flecs-shared app
+all: shaders flecs-shared exe
 
 FLECS_SOURCE := $(shell find deps/flecs -name "*.c")
 
-flecs-shared: $(FLECS_SOURCE)
+flecs-shared:
 	$(CC) -fpic -shared $(FLECS_SOURCE) -Ideps/flecs -o build/libflecs.$(LIB_EXT)
 
-flecs-static: $(FLECS_SOURCE)
+flecs-static:
 	$(CC) -c $(FLECS_SOURCE) -Ideps/flecs
 	ar rcs build/libflecs.$(STATIC_LIB_EXT) *.o
 	rm -f *.o
@@ -48,7 +48,7 @@ src/%.glsl.h: shaders/%.glsl
 
 shaders: $(SHADER_OUTS)
 
-app: $(SOURCE)
+exe:
 	$(CXX) $(INC) $(CFLAGS) $(SOURCE) $(SCENES) -o $(EXE)
 
 clean:
@@ -56,7 +56,9 @@ clean:
 	rm -f build/libflecs.$(LIB_EXT)
 	rm -f src/*.glsl.h
 
-run: app
+rrun:
 	./$(EXE)
 
-.PHONY: run default all clean app shaders flecs-shared flecs-static
+run: exe rrun
+
+.PHONY: rrun run default all clean exe shaders flecs-shared flecs-static
