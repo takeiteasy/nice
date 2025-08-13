@@ -147,7 +147,7 @@ public:
             std::memset(_vertices.get(), 0, sizeof(T) * _capacity);
     }
 
-    bool is_valid() const {
+    bool is_ready() const {
         return sg_query_buffer_state(_bind.vertex_buffers[0]) == SG_RESOURCESTATE_VALID;
     }
 
@@ -175,7 +175,7 @@ public:
     }
 
     void flush(bool empty_after=false) {
-        if (!is_valid())
+        if (!is_ready())
             throw std::runtime_error("VertexBatch is not built");
         if (sg_query_pipeline_state(_pipeline) == SG_RESOURCESTATE_VALID)
             sg_apply_pipeline(_pipeline);
