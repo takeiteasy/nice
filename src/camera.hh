@@ -84,6 +84,10 @@ public:
         return _zoom;
     }
 
+    bool is_dirty() {
+        return _dirty;
+    }
+
     glm::mat4 matrix() {
         if (_dirty) {
             int w = framebuffer_width();

@@ -21,7 +21,7 @@ static struct {
 
 void test_enter(void) {
     state.camera = new Camera();
-    state.tilemap = new Texture("assets/tilemap.png");
+    state.tilemap = new Texture("assets/tilemap.exploded.png");
     state.manager = new ChunkManager(state.camera, state.tilemap);
 }
 
@@ -63,4 +63,5 @@ void test_step(void) {
     state.manager->update_chunks();
     state.manager->scan_for_chunks();
     state.manager->release_chunks();
+    state.manager->draw_chunks();
 }

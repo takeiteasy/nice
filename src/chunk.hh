@@ -12,6 +12,7 @@
 #include "camera.hh"
 #include <shared_mutex>
 #include <random>
+#include "basic.glsl.h"
 
 static const glm::vec2 Autotile3x3Simplified[256] = {
     [0] = {0, 3},
@@ -246,14 +247,8 @@ public:
         return true;
     }
 
-    bool build() {
-        if (!is_filled())
-            return false;
-
-        std::vector<ChunkVertex> vertices;
-        vertices.reserve(CHUNK_SIZE * 6);  // Reserve space but don't allocate on stack
-        float hw = framebuffer_width() / 2.f;
-        float hh = framebuffer_height() / 2.f;
+    ChunkVertex* vertices() {
+        ChunkVertex *vertices = new ChunkVertex[CHUNK_SIZE * 6];
         for (int x = 0; x < CHUNK_WIDTH; x++)
             for (int y = 0; y < CHUNK_HEIGHT; y++) {
                 Tile *tile = &_tiles[x][y];
@@ -267,13 +262,15 @@ public:
                     TILE_ORIGINAL_WIDTH, TILE_ORIGINAL_HEIGHT
                 };
 
-                float hqw = TILE_WIDTH / 2.f;
-                float hqh = TILE_HEIGHT / 2.f;
+                // Calculate world position for this tile
+                float tile_x = x * TILE_WIDTH;
+                float tile_y = y * TILE_HEIGHT;
+                
                 glm::vec2 _positions[] = {
-                    {hw - hqw, hh - hqh}, // Top-left
-                    {hw + hqw, hh - hqh}, // Top-right
-                    {hw + hqw, hh + hqh}, // Bottom-right
-                    {hw - hqw, hh + hqh}, // Bottom-left
+                    {tile_x, tile_y},                           // Top-left
+                    {tile_x + TILE_WIDTH, tile_y},              // Top-right
+                    {tile_x + TILE_WIDTH, tile_y + TILE_HEIGHT}, // Bottom-right
+                    {tile_x, tile_y + TILE_HEIGHT},             // Bottom-left
                 };
 
                 float iw = 1.f / _texture_width;
@@ -291,18 +288,23 @@ public:
 
                 static uint16_t _indices[] = {0, 1, 2, 2, 3, 0};
                 for (int i = 0; i < 6; i++) {
-                    ChunkVertex vertex;
-                    glm::vec2 offset = glm::vec2(x * TILE_WIDTH, y * TILE_HEIGHT);
-                    vertex.position = _positions[_indices[i]] + offset;
-                    vertex.texcoord = _texcoords[_indices[i]];
-                    vertices.push_back(vertex);
+                    ChunkVertex *v = &vertices[(y * CHUNK_WIDTH + x) * 6 + i];
+                    v->position = _positions[_indices[i]];
+                    v->texcoord = _texcoords[_indices[i]];
                 }
             }
+        return vertices;
+    }
 
-        _batch.clear();
-        if (!vertices.empty())
-            _batch.add_vertices(vertices.data(), vertices.size());
+    bool build() {
+        if (!is_filled())
+            return false;
+        std::unique_lock<std::shared_mutex> lock(_chunk_mutex);
+        ChunkVertex *_vertices = vertices();
+        _batch.add_vertices(_vertices, CHUNK_SIZE * 6);
+        lock.unlock();
         _batch.build();
+        delete[] _vertices;
         _is_built.store(true);
         return true;
     }
@@ -416,13 +418,22 @@ public:
         return points;
     }
 
-    void draw(Camera *camera) {
-        if (_rebuild_mvp) {
+    void draw(Camera *camera, bool force_update = false) {
+        if (!is_ready())
+            return;
+
+        if (_rebuild_mvp || force_update) {
             _mvp = glm::translate(camera->matrix(),
                                   glm::vec3(_x * CHUNK_WIDTH * TILE_WIDTH,
                                             _y * CHUNK_HEIGHT * TILE_HEIGHT,
                                             0.f));
             _rebuild_mvp = false;
         }
+        
+        std::lock_guard<std::shared_mutex> lock(_chunk_mutex);
+        vs_params_t vs_params = { .mvp = _mvp };
+        sg_range params = SG_RANGE(vs_params);
+        sg_apply_uniforms(UB_vs_params, &params);
+        _batch.flush();
     }
 };

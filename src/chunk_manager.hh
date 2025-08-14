@@ -9,7 +9,6 @@
 
 #include "chunk.hh"
 #include "jobs.hh"
-#include "basic.glsl.h"
 #include <unordered_map>
 #include <iostream>
 #include "fmt/format.h"
@@ -199,5 +198,14 @@ public:
         // Remove from destroyed set
         for (uint64_t chunk_id : chunks_to_destroy)
             _chunks_being_destroyed.erase(chunk_id);
+    }
+
+    void draw_chunks() {
+        std::shared_lock<std::shared_mutex> lock(_chunks_lock);
+        sg_apply_pipeline(_pipeline);
+        bool force_update_mvp = _camera->is_dirty();
+        for (const auto& [id, chunk] : _chunks)
+            if (chunk != nullptr && !_chunks_being_destroyed.contains(id))
+                chunk->draw(_camera, force_update_mvp);
     }
 };
