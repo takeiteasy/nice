@@ -31,24 +31,22 @@ class ChunkManager {
     void ensure_chunk(int x, int y) {
         uint64_t idx = Chunk::id(x, y);
         
-        // Check if chunk already exists or is being created
-        std::unique_lock<std::shared_mutex> chunks_lock(_chunks_lock);
-        auto created_lock = _chunks_being_created.get_shared_lock();
-        auto built_lock = _chunks_being_built.get_shared_lock();
-        
-        if (_chunks.find(idx) != _chunks.end() ||
-            _chunks_being_created.contains_unsafe(idx) ||
-            _chunks_being_built.contains_unsafe(idx)) {
-            return;
+        // Check if chunk already exists or is being processed
+        {
+            std::shared_lock<std::shared_mutex> chunks_lock(_chunks_lock);
+            if (_chunks.find(idx) != _chunks.end())
+                return;
         }
         
-        // Upgrade to exclusive lock for _chunks_being_created to modify it
-        created_lock.unlock();
-        built_lock.unlock();
-        
-        // Mark as being created
-        _chunks_being_created.insert(idx);
-        chunks_lock.unlock();
+        // Check and insert atomically using ThreadSafeSet methods
+        if (_chunks_being_created.contains(idx) || 
+            _chunks_being_built.contains(idx))
+            return;
+
+        // Try to mark as being created
+        if (!_chunks_being_created.insert(idx))
+            return; // Another thread already marked it
+
         _create_chunk_queue.enqueue({x, y});
     }
 
@@ -64,15 +62,13 @@ class ChunkManager {
         chunk->set_visibility(new_visibility);
         if (new_visibility != last_visibility) {
             std::cout << fmt::format("Chunk at ({}, {}) visibility changed from {} to {}\n",
-                            chunk->x(), chunk->y(),
-                            chunk_visibility_to_string(last_visibility),
-                            chunk_visibility_to_string(new_visibility));
+                                     chunk->x(), chunk->y(),
+                                     chunk_visibility_to_string(last_visibility),
+                                     chunk_visibility_to_string(new_visibility));
             switch (new_visibility) {
                 case ChunkVisibility::OutOfSign:
-                {
                     _chunks_being_destroyed.insert(chunk->id());
                     break;
-                }
                 case ChunkVisibility::Visible:
                     break;
                 case ChunkVisibility::Occluded:
@@ -90,13 +86,13 @@ public:
         
         {
             std::unique_lock<std::shared_mutex> lock(_chunks_lock);
-            std::cout << fmt::format("Creating chunk at ({}, {})\n", x, y);
+            std::cout << fmt::format("New chunk created at ({}, {})\n", x, y);
             _chunks[idx] = chunk;
             _chunks_being_created.erase(idx);  // Remove from being created set
         }
         
         chunk->fill();
-        std::cout << fmt::format("Chunk at ({}, {}) filled\n", x, y);
+        std::cout << fmt::format("Chunk at ({}, {}) finished filling\n", x, y);
 
         {
             std::lock_guard<std::shared_mutex> lock(_chunks_lock);
@@ -106,8 +102,8 @@ public:
     }),
     _build_chunk_queue([&](Chunk *chunk) {
         chunk->build();
-        std::cout << fmt::format("Chunk at ({}, {}) built\n", chunk->x(), chunk->y());
-        
+        std::cout << fmt::format("Chunk at ({}, {}) finished building\n", chunk->x(), chunk->y());
+
         // Remove from being built set after successful build
         uint64_t idx = chunk->id();
         _chunks_being_built.erase(idx);
@@ -138,14 +134,31 @@ public:
             sg_destroy_shader(_shader);
         if (sg_query_pipeline_state(_pipeline) == SG_RESOURCESTATE_VALID)
             sg_destroy_pipeline(_pipeline);
+        {
+            std::unique_lock<std::shared_mutex> lock(_chunks_lock);
+            for (auto& [id, chunk] : _chunks)
+                if (chunk != nullptr)
+                    delete chunk;
+            _chunks.clear();
+        }
     }
 
     void update_chunks() {
-        std::unique_lock<std::shared_mutex> lock(_chunks_lock);
-        for (auto it = _chunks.begin(); it != _chunks.end();) {
-            auto chunk = it->second;
-
+        Rect max_bounds = _camera->max_bounds();
+        Rect bounds = _camera->bounds();
+        
+        // Collect chunks to update without holding the lock
+        std::vector<Chunk*> chunks_to_update;
+        {
+            std::shared_lock<std::shared_mutex> lock(_chunks_lock);
+            chunks_to_update.reserve(_chunks.size());
+            for (const auto& [id, chunk] : _chunks)
+                chunks_to_update.push_back(chunk);
         }
+        
+        // Update chunks without holding the lock
+        for (auto chunk : chunks_to_update)
+            update_chunk(chunk, bounds, max_bounds);
     }
 
     void scan_for_chunks() {
@@ -154,9 +167,37 @@ public:
         glm::vec2 br = glm::vec2(bounds.x + bounds.w, bounds.y + bounds.h);
         glm::vec2 tl_chunk = _camera->world_to_chunk(tl);
         glm::vec2 br_chunk = _camera->world_to_chunk(br);
-        for (int y = (int)tl_chunk.y; y <= (int)br_chunk.y; y++)
-            for (int x = (int)tl_chunk.x; x <= (int)br_chunk.x; x++)
+        for (int y = (int)br_chunk.y; y >= (int)tl_chunk.y; y--)
+            for (int x = (int)br_chunk.x; x >= (int)tl_chunk.x; x--)
                 if (Chunk::bounds(x, y).intersects(bounds))
                     ensure_chunk(x, y);
+    }
+
+    void release_chunks() {
+        std::vector<uint64_t> chunks_to_destroy;
+        std::vector<Chunk*> chunks_to_delete;
+        {
+            std::unique_lock<std::shared_mutex> lock(_chunks_lock);
+            // Iterate through chunks and check if they're marked for destruction
+            for (auto it = _chunks.begin(); it != _chunks.end();) {
+                uint64_t chunk_id = it->first;
+                Chunk* chunk = it->second;
+                
+                if (_chunks_being_destroyed.contains(chunk_id)) {
+                    std::cout << fmt::format("Releasing chunk at ({}, {})\n", chunk->x(), chunk->y());
+                    chunks_to_delete.push_back(chunk);
+                    chunks_to_destroy.push_back(chunk_id);
+                    it = _chunks.erase(it);
+                } else
+                    ++it;
+            }
+        }
+        
+        // Delete chunks outside of the lock
+        for (Chunk* chunk : chunks_to_delete)
+            delete chunk;
+        // Remove from destroyed set
+        for (uint64_t chunk_id : chunks_to_destroy)
+            _chunks_being_destroyed.erase(chunk_id);
     }
 };

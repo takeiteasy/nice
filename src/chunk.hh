@@ -300,9 +300,8 @@ public:
             }
 
         _batch.clear();
-        if (!vertices.empty()) {
+        if (!vertices.empty())
             _batch.add_vertices(vertices.data(), vertices.size());
-        }
         _batch.build();
         _is_built.store(true);
         return true;

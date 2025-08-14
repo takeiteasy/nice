@@ -29,8 +29,8 @@ class VertexBatch {
     Texture *_texture = nullptr;
     sg_pipeline _pipeline = {SG_INVALID_ID};
     sg_bindings _bind = {SG_INVALID_ID};
-    int _capacity;
-    int _count = 0;
+    size_t _capacity;
+    size_t _count = 0;
     std::unique_ptr<T[]> _vertices;
 
     void resize(int new_capacity) {
@@ -114,7 +114,7 @@ public:
     }
 
 public:
-    void add_vertices(const T* vertices, int count) {
+    void add_vertices(const T* vertices, size_t count) {
         if (_count + count > _capacity) {
             if (Dynamic)
                 while (_count + count > _capacity)
@@ -131,8 +131,8 @@ public:
             resize(new_capacity);
     }
 
-    int count() const { return _count; }
-    int capacity() const { return _capacity; }
+    size_t count() const { return _count; }
+    size_t capacity() const { return _capacity; }
     bool empty() const { return _count == 0; }
     bool full() const { return Dynamic ? false : _count >= _capacity; }
     const T* data() const { return _vertices.get(); }
