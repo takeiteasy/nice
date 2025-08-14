@@ -80,6 +80,23 @@ union Tile {
     uint32_t value;
 };
 
+enum class ChunkVisibility {
+    OutOfSign,
+    Visible,
+    Occluded
+};
+
+static inline std::string chunk_visibility_to_string(ChunkVisibility visibility) {
+    switch (visibility) {
+        case ChunkVisibility::OutOfSign:
+            return "None";
+        case ChunkVisibility::Visible:
+            return "Visible";
+        case ChunkVisibility::Occluded:
+            return "Occluded";
+    }
+}
+
 class Chunk {
     int _x, _y, _texture_width, _texture_height;
     Tile _tiles[CHUNK_WIDTH][CHUNK_HEIGHT];
@@ -87,6 +104,7 @@ class Chunk {
     ChunkVertexBatch _batch;
     std::atomic<bool> _is_filled = false;
     std::atomic<bool> _is_built = false;
+    std::atomic<ChunkVisibility> _visibility = ChunkVisibility::OutOfSign;
     glm::mat4 _mvp;
     bool _rebuild_mvp = true;
 
@@ -198,6 +216,14 @@ public:
         return is_filled() && is_built();
     }
 
+    ChunkVisibility visibility() const {
+        return _visibility.load();
+    }
+
+    void set_visibility(ChunkVisibility visibility) {
+        _visibility.store(visibility);
+    }
+
     bool fill() {
         if (is_filled())
             return false;
@@ -224,9 +250,10 @@ public:
         if (!is_filled())
             return false;
 
+        std::vector<ChunkVertex> vertices;
+        vertices.reserve(CHUNK_SIZE * 6);  // Reserve space but don't allocate on stack
         float hw = framebuffer_width() / 2.f;
         float hh = framebuffer_height() / 2.f;
-        ChunkVertex vertices[CHUNK_SIZE * 6];
         for (int x = 0; x < CHUNK_WIDTH; x++)
             for (int y = 0; y < CHUNK_HEIGHT; y++) {
                 Tile *tile = &_tiles[x][y];
@@ -264,15 +291,18 @@ public:
 
                 static uint16_t _indices[] = {0, 1, 2, 2, 3, 0};
                 for (int i = 0; i < 6; i++) {
-                    ChunkVertex *v = &vertices[(y * CHUNK_WIDTH + x) * 6 + i];
+                    ChunkVertex vertex;
                     glm::vec2 offset = glm::vec2(x * TILE_WIDTH, y * TILE_HEIGHT);
-                    v->position = _positions[_indices[i]] + offset;
-                    v->texcoord = _texcoords[_indices[i]];
+                    vertex.position = _positions[_indices[i]] + offset;
+                    vertex.texcoord = _texcoords[_indices[i]];
+                    vertices.push_back(vertex);
                 }
             }
 
         _batch.clear();
-        _batch.add_vertices(vertices, CHUNK_SIZE * 6);
+        if (!vertices.empty()) {
+            _batch.add_vertices(vertices.data(), vertices.size());
+        }
         _batch.build();
         _is_built.store(true);
         return true;

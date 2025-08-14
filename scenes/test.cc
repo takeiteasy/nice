@@ -13,17 +13,24 @@
 #include "chunk_manager.hh"
 
 static struct {
+    Camera *camera;
+    Texture *tilemap;
     ChunkManager *manager;
 } state;
 
 void test_enter(void) {
-    state.manager = new ChunkManager();
+    state.camera = new Camera();
+    state.tilemap = new Texture("assets/tilemap.png");
+    state.manager = new ChunkManager(state.camera, state.tilemap);
 }
 
 void test_exit(void) {
-    if (state.manager)
-        delete state.manager;
+    delete state.manager;
+    delete state.tilemap;
+    delete state.camera;
 }
 
 void test_step(void) {
+//    state.manager->update_chunks();
+    state.manager->scan_for_chunks();
 }
