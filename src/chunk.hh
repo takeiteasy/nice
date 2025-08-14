@@ -2,17 +2,16 @@
 //  chunk.hh
 //  rpg
 //
-//  Created by George Watson on 12/08/2025.
+//  Created by George Watson on 14/08/2025.
 //
 
 #pragma once
 
 #include "batch.hh"
-#include <shared_mutex>
-#include <atomic>
-#include <random>
 #include "fmt/format.h"
-#include "basic.glsl.h"
+#include "camera.hh"
+#include <shared_mutex>
+#include <random>
 
 static const glm::vec2 Autotile3x3Simplified[256] = {
     [0] = {0, 3},
@@ -64,18 +63,12 @@ static const glm::vec2 Autotile3x3Simplified[256] = {
     [255] = {9, 2},
 };
 
-enum class ChunkVisiblity {
-    None = 0,
-    Partial = 1,
-    Full = 2
+struct ChunkVertex {
+    glm::vec2 position;
+    glm::vec2 texcoord;
 };
 
-enum class ChunkBuildState {
-    None = 0,
-    Filling,
-    Building,
-    Ready
-};
+typedef VertexBatch<ChunkVertex, CHUNK_SIZE * 6, false> ChunkVertexBatch;
 
 union Tile {
     struct {
@@ -87,23 +80,15 @@ union Tile {
     uint32_t value;
 };
 
-struct ChunkVertex {
-    glm::vec2 position;
-    glm::vec2 texcoord;
-};
-
-typedef VertexBatch<ChunkVertex, CHUNK_SIZE * 6, false> ChunkVertexBatch;
-
 class Chunk {
-    int _x, _y, _tw, _th;
+    int _x, _y, _texture_width, _texture_height;
     Tile _tiles[CHUNK_WIDTH][CHUNK_HEIGHT];
-    mutable std::shared_mutex _tiles_mutex;
-    std::atomic<ChunkVisiblity> _visibility = ChunkVisiblity::None;
-    std::atomic<ChunkBuildState> _build_state = ChunkBuildState::None;
-    std::atomic<bool> _dirty = false;
-    std::atomic<bool> _deleted = false;
+    mutable std::shared_mutex _chunk_mutex;
     ChunkVertexBatch _batch;
+    std::atomic<bool> _is_filled = false;
+    std::atomic<bool> _is_built = false;
     glm::mat4 _mvp;
+    bool _rebuild_mvp = true;
 
     static void cellular_automata(int width, int height, int fill_chance, int smooth_iterations, int survive, int starve, uint8_t* result) {
         memset(result, 0, width * height * sizeof(uint8_t));
@@ -162,30 +147,62 @@ class Chunk {
     }
 
 public:
-    Chunk(int x, int y, Texture *texture): _x(x), _y(y) {
+    Chunk(int x, int y, Texture *texture): _x(x), _y(y), _texture_width(texture->width()), _texture_height(texture->height()) {
         _batch.set_texture(texture);
-        _tw = texture->width();
-        _th = texture->height();
+    };
+
+    std::string name() const {
+        return fmt::format("Chunk({},{})", _x, _y);
     }
 
-    bool draw(glm::mat4 *mvp = nullptr) {
-        if (is_deleted())
-            return false;
-        if (mvp != nullptr)
-            _mvp = glm::translate(*mvp, glm::vec3(_x * CHUNK_WIDTH * TILE_WIDTH,
-                                                  _y * CHUNK_HEIGHT * TILE_HEIGHT,
-                                                  0.f));
-        if (!is_visible() || !is_ready() || !_batch.is_ready())
-            return false;
-        vs_params_t vs_params = { .mvp = _mvp };
-        sg_range params = SG_RANGE(vs_params);
-        sg_apply_uniforms(UB_vs_params, &params);
-        _batch.flush();
-        return true;
+    static uint64_t id(int _x, int _y) {
+#define _INDEX(I) (abs((I) * 2) - ((I) > 0 ? 1 : 0))
+        int x = _INDEX(_x), y = _INDEX(_y);
+        return x >= y ? x * x + x + y : x + y * y;
     }
 
-    void fill() {
-        std::unique_lock<std::shared_mutex> lock(_tiles_mutex);
+    uint64_t id() const {
+        return Chunk::id(_x, _y);
+    }
+
+    static Rect bounds(int _x, int _y) {
+        return {
+            .x = _x * CHUNK_WIDTH * TILE_WIDTH,
+            .y = _y * CHUNK_HEIGHT * TILE_HEIGHT,
+            .w = CHUNK_WIDTH * TILE_WIDTH,
+            .h = CHUNK_HEIGHT * TILE_HEIGHT
+        };
+    }
+
+    Rect bounds() const {
+        return Chunk::bounds(_x, _y);
+    }
+
+    int x() const {
+        return _x;
+    }
+
+    int y() const {
+        return _y;
+    }
+
+    bool is_filled() const {
+        return _is_filled.load();
+    }
+
+    bool is_built() const {
+        return _is_built.load();
+    }
+
+    bool is_ready() const {
+        return is_filled() && is_built();
+    }
+
+    bool fill() {
+        if (is_filled())
+            return false;
+
+        std::unique_lock<std::shared_mutex> lock(_chunk_mutex);
 
         uint8_t _grid[CHUNK_SIZE];
         cellular_automata(CHUNK_WIDTH, CHUNK_HEIGHT,
@@ -198,12 +215,18 @@ public:
         for (int y = 0; y < CHUNK_HEIGHT; y++)
             for (int x = 0; x < CHUNK_WIDTH; x++)
                 _tiles[x][y].bitmask = _tiles[x][y].solid ? tile_bitmask(this, x, y, 1) : 0;
+
+        _is_filled.store(true);
+        return true;
     }
 
-    ChunkVertex* vertices() {
+    bool build() {
+        if (!is_filled())
+            return false;
+
         float hw = framebuffer_width() / 2.f;
         float hh = framebuffer_height() / 2.f;
-        ChunkVertex *vertices = new ChunkVertex[CHUNK_SIZE * 6];
+        ChunkVertex vertices[CHUNK_SIZE * 6];
         for (int x = 0; x < CHUNK_WIDTH; x++)
             for (int y = 0; y < CHUNK_HEIGHT; y++) {
                 Tile *tile = &_tiles[x][y];
@@ -226,8 +249,8 @@ public:
                     {hw - hqw, hh + hqh}, // Bottom-left
                 };
 
-                float iw = 1.f / _tw;
-                float ih = 1.f / _th;
+                float iw = 1.f / _texture_width;
+                float ih = 1.f / _texture_height;
                 float tl = src.x * iw;
                 float tt = src.y * ih;
                 float tr = (src.x + src.w) * iw;
@@ -247,7 +270,12 @@ public:
                     v->texcoord = _texcoords[_indices[i]];
                 }
             }
-        return vertices;
+
+        _batch.clear();
+        _batch.add_vertices(vertices, CHUNK_SIZE * 6);
+        _batch.build();
+        _is_built.store(true);
+        return true;
     }
 
     std::vector<glm::vec2> poisson(float r, int k=5, int offset_x=0, int offset_y=0, int max_width=CHUNK_WIDTH, int max_height=CHUNK_HEIGHT, int max_tries=CHUNK_SIZE / 4, bool invert=false) {
@@ -284,7 +312,7 @@ public:
         std::random_device rd;
         std::mt19937 gen(rd());
         std::uniform_real_distribution<float> random_dis(0.0f, 1.0f);
-        std::shared_lock<std::shared_mutex> lock(_tiles_mutex);
+        std::shared_lock<std::shared_mutex> lock(_chunk_mutex);
         int tries = 0;
         glm::vec2 p;
         while (tries++ < max_tries) {
@@ -359,41 +387,13 @@ public:
         return points;
     }
 
-    static uint64_t id(int _x, int _y) {
-#define _INDEX(I) (abs((I) * 2) - ((I) > 0 ? 1 : 0))
-        int x = _INDEX(_x), y = _INDEX(_y);
-        return x >= y ? x * x + x + y : x + y * y;
+    void draw(Camera *camera) {
+        if (_rebuild_mvp) {
+            _mvp = glm::translate(camera->matrix(),
+                                  glm::vec3(_x * CHUNK_WIDTH * TILE_WIDTH,
+                                            _y * CHUNK_HEIGHT * TILE_HEIGHT,
+                                            0.f));
+            _rebuild_mvp = false;
+        }
     }
-
-    static Rect bounds(int _x, int _y) {
-        return {
-            .x = _x * CHUNK_WIDTH * TILE_WIDTH,
-            .y = _y * CHUNK_HEIGHT * TILE_HEIGHT,
-            .w = CHUNK_WIDTH * TILE_WIDTH,
-            .h = CHUNK_HEIGHT * TILE_HEIGHT
-        };
-    }
-
-    void set_visibility(ChunkVisiblity visibility) {
-        _visibility.store(visibility);
-    }
-
-    void set_build_state(ChunkBuildState state) {
-        _build_state.store(state);
-    }
-
-    int x() const { return _x; }
-    int y() const { return _y; }
-    uint64_t id() const { return Chunk::id(_x, _y); }
-    Rect bounds() const { return Chunk::bounds(_x, _y); }
-    std::string name() const { return fmt::format("Chunk({},{})", _x, _y); }
-    bool is_visible() const { return _visibility.load() == ChunkVisiblity::Full; }
-    bool is_too_far() const { return _visibility.load() == ChunkVisiblity::None; }
-    bool is_filling() const { return _build_state.load() == ChunkBuildState::Filling; }
-    bool is_building() const { return _build_state.load() == ChunkBuildState::Building; }
-    bool is_ready() const { return _build_state.load() == ChunkBuildState::Ready; }
-    bool is_deleted() const { return _deleted.load(); }
-    ChunkVisiblity visibility() const { return _visibility.load(); }
-    ChunkBuildState build_state() const { return _build_state.load(); }
-    void mark_deleted() { _deleted.store(true); }
 };

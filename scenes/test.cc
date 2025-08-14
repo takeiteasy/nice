@@ -10,25 +10,20 @@
 #include "sokol/sokol_gfx.h"
 #include "sokol/util/sokol_debugtext.h"
 #include "sokol_input.h"
-#include "camera.hh"
-#include "chunk.hh"
-#include "flecs.h"
-#include <thread>
+#include "chunk_manager.hh"
 
 static struct {
-    flecs::world world;
+    ChunkManager *manager;
 } state;
 
 void test_enter(void) {
-    state.world.set_target_fps(60.f);
-    state.world.set_threads(std::thread::hardware_concurrency());
+    state.manager = new ChunkManager();
 }
 
 void test_exit(void) {
-    // ...
+    if (state.manager)
+        delete state.manager;
 }
 
 void test_step(void) {
-    if (!state.world.progress())
-        sapp_quit();
 }

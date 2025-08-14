@@ -18,23 +18,13 @@ LDFLAGS = -arch arm64
 
 default: exe
 
-all: shaders flecs-shared exe
+all: clean shaders exe
 
-FLECS_SOURCE := $(shell find deps/flecs -name "*.c")
-
-flecs-shared:
-	$(CC) -fpic -shared $(FLECS_SOURCE) -Ideps/flecs -o build/libflecs.$(LIB_EXT)
-
-flecs-static:
-	$(CC) -c $(FLECS_SOURCE) -Ideps/flecs
-	ar rcs build/libflecs.$(STATIC_LIB_EXT) *.o
-	rm -f *.o
-
-SOURCE := $(wildcard src/*.cc) deps/fmt/format.cc deps/fmt/os.cc 
+SOURCE := $(wildcard src/*.cc) deps/fmt/format.cc deps/fmt/os.cc
 SCENES := $(wildcard scenes/*.cc)
 EXE := build/rpg_$(ARCH)$(PROG_EXT)
 LIB := build/librpg_$(ARCH).$(LIB_EXT)
-INC := $(CXXFLAGS) -Iscenes -Isrc -Ideps $(LDFLAGS) -Ideps/flecs -Lbuild -lflecs
+INC := $(CXXFLAGS) -Iscenes -Isrc -Ideps $(LDFLAGS)
 
 ARCH_PATH := bin/$(ARCH)
 SHDC_PATH := $(ARCH_PATH)/sokol-shdc$(PROG_EXT)
@@ -53,7 +43,6 @@ exe:
 
 clean:
 	rm -f $(EXE) 
-	rm -f build/libflecs.$(LIB_EXT)
 	rm -f src/*.glsl.h
 
 rrun:
@@ -61,4 +50,4 @@ rrun:
 
 run: exe rrun
 
-.PHONY: rrun run default all clean exe shaders flecs-shared flecs-static
+.PHONY: rrun run default all clean exe shaders
