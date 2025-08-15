@@ -128,7 +128,7 @@ void framebuffer_resize(int width, int height) {
     state.bind.samplers[SMP_smp] = state.sampler;
 }
 
-struct passthru_vertex {
+struct PassThruVertex {
     glm::vec2 position;
     glm::vec2 texcoord;
 };
@@ -155,7 +155,7 @@ static void init(void) {
         .shader = state.shader,
         .index_type = SG_INDEXTYPE_UINT16,
         .layout = {
-            .buffers[0].stride = sizeof(struct passthru_vertex),
+            .buffers[0].stride = sizeof(PassThruVertex),
             .attrs = {
                 [ATTR_passthru_position].format = SG_VERTEXFORMAT_FLOAT2,
                 [ATTR_passthru_texcoord].format = SG_VERTEXFORMAT_FLOAT2
@@ -240,10 +240,6 @@ static void frame(void) {
     }
 }
 
-static void event(const sapp_event *event) {
-    sapp_input_event(event);
-}
-
 static void cleanup(void) {
     if (state.scene_current)
         state.scene_current->exit();
@@ -257,7 +253,7 @@ sapp_desc sokol_main(int argc, char* argv[]) {
         .window_title = "rpg",
         .init_cb = init,
         .frame_cb = frame,
-        .event_cb = event,
+        .event_cb = sapp_input_event,
         .cleanup_cb = cleanup
     };
 }

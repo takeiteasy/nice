@@ -6,70 +6,62 @@
 //
 
 #include "scene.hh"
-#include "map.hh"
+#include "sokol/sokol_app.h"
+#include "sokol/sokol_gfx.h"
 #include "sokol/util/sokol_debugtext.h"
 #include "sokol_input.h"
-#include "flecs.h"
-#include <thread>
+#include "chunk_manager.hh"
 
 static struct {
-    flecs::world *ecs;
-    Map *map;
     Camera *camera;
     Texture *tilemap;
-    bool dragging;
+    ChunkManager *manager;
+    bool camera_dragging = false;
 } state;
 
 void test_enter(void) {
-    state.ecs = new flecs::world();
-    state.ecs->set_target_fps(60);
-    state.ecs->set_threads(std::thread::hardware_concurrency());
     state.camera = new Camera();
-    // state.camera->set_position(glm::vec2(CHUNK_WIDTH * TILE_WIDTH * .5f, CHUNK_HEIGHT * TILE_HEIGHT * .5f));
     state.tilemap = new Texture("assets/tilemap.exploded.png");
-    assert(state.tilemap->is_valid());
-    state.map = new Map(state.ecs, state.camera, state.tilemap);
-    state.dragging = false;
+    state.manager = new ChunkManager(state.camera, state.tilemap);
 }
 
 void test_exit(void) {
-    delete state.map;
-    delete state.camera;
+    delete state.manager;
     delete state.tilemap;
-    delete state.ecs;
+    delete state.camera;
 }
 
 void test_step(void) {
-    if ((sapp_was_button_pressed(SAPP_MOUSEBUTTON_LEFT) && sapp_modifier_equals(SAPP_MODIFIER_SHIFT)) && !state.dragging)
-        state.dragging = true;
-    if (sapp_was_button_released(SAPP_MOUSEBUTTON_LEFT) && state.dragging)
-        state.dragging = false;
-    if (state.dragging)
-        state.map->camera()->move_by(glm::vec2(-sapp_mouse_delta_x(), -sapp_mouse_delta_y()) * (1.f / state.map->camera()->zoom()));
+    if ((sapp_was_button_pressed(SAPP_MOUSEBUTTON_LEFT) && sapp_modifier_equals(SAPP_MODIFIER_SHIFT)) && !state.camera_dragging)
+        state.camera_dragging = true;
+    if (sapp_was_button_released(SAPP_MOUSEBUTTON_LEFT) && state.camera_dragging)
+        state.camera_dragging = false;
+    if (state.camera_dragging)
+        state.camera->move_by(glm::vec2(-sapp_mouse_delta_x(), -sapp_mouse_delta_y()) * (1.f / state.camera->zoom()));
 
     if (sapp_was_scrolled() && sapp_modifier_equals(SAPP_MODIFIER_SHIFT))
-        state.map->camera()->zoom_by(sapp_scroll_y() * .1f);
-    
-    if (!state.ecs->progress())
-        sapp_quit();
+        state.camera->zoom_by(sapp_scroll_y() * .1f);
 
     sdtx_home();
     sdtx_printf("fps:    %.2f\n", 1.f / sapp_frame_duration());
-    sdtx_printf("pos:    (%.2f, %.2f)\n", state.map->camera()->position().x, state.map->camera()->position().y);
-    sdtx_printf("zoom:   (%.2f)\n", state.map->camera()->zoom());
-    sdtx_printf("drag:   %s\n", state.dragging ? "true" : "false");
+    sdtx_printf("pos:    (%.2f, %.2f)\n", state.camera->position().x, state.camera->position().y);
+    sdtx_printf("zoom:   (%.2f)\n", state.camera->zoom());
+    sdtx_printf("drag:   %s\n", state.camera_dragging ? "true" : "false");
     glm::vec2 mouse_pos = glm::vec2(sapp_mouse_x(), sapp_mouse_y());
     sdtx_printf("mouse:  (%.2f, %.2f)\n", mouse_pos.x, mouse_pos.y);
-    glm::vec2 mouse_world = state.map->camera()->screen_to_world(mouse_pos);
+    glm::vec2 mouse_world = state.camera->screen_to_world(mouse_pos);
     sdtx_printf("world:  (%.2f, %.2f)\n", mouse_world.x, mouse_world.y);
-    glm::vec2 mouse_chunk = state.map->camera()->world_to_chunk(mouse_world);
+    glm::vec2 mouse_chunk = state.camera->world_to_chunk(mouse_world);
     sdtx_printf("chunk:  (%d, %d)\n", (int)mouse_chunk.x, (int)mouse_chunk.y);
-    glm::vec2 mouse_tile = state.map->camera()->world_to_tile(mouse_world);
+    glm::vec2 mouse_tile = state.camera->world_to_tile(mouse_world);
     sdtx_printf("tile:   (%d, %d)\n", (int)mouse_tile.x, (int)mouse_tile.y);
-    Rect bounds = state.map->camera()->bounds();
+    Rect bounds = state.camera->bounds();
     sdtx_printf("camera: (%d, %d, %d, %d)\n", bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h);
-    bounds = state.map->camera()->max_bounds();
+    bounds = state.camera->max_bounds();
     sdtx_printf("camera: (%d, %d, %d, %d)\n", bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h);
 
-    state.map->update();
+    state.manager->update_chunks();
+    state.manager->scan_for_chunks();
+    state.manager->release_chunks();
+    state.manager->draw_chunks();
 }

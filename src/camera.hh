@@ -32,7 +32,8 @@ struct Rect {
 class Camera {
     glm::vec2 _position = glm::vec2(0.f);
     float _zoom = 1.f;
-    float _rotation = 0.f;
+    glm::mat4 _mvp;
+    bool _dirty = true;
 
     Rect _bounds(float zoom) {
         float visible_width = framebuffer_width() / zoom;
@@ -47,24 +48,22 @@ class Camera {
         };
     }
 
-    template<typename T> T _clamp(T value) {
+    template<typename T> T _clamp_zoom(T value) {
         return (value < MIN_ZOOM) ? MIN_ZOOM : (value > MAX_ZOOM) ? MAX_ZOOM : value;
     }
 
 public:
-    bool dirty = true;
-
-    Camera(): _position(0.f), _zoom(1.f), _rotation(0.f), dirty(true) {}
-    Camera(glm::vec2 _position, float _zoom = 1.f, float _rotation = 0.f): _position(_position), _zoom(_zoom), _rotation(_rotation), dirty(true) {}
+    Camera(): _position(0.f), _zoom(1.f), _dirty(true) {}
+    Camera(glm::vec2 _position, float _zoom = 1.f): _position(_position), _zoom(_zoom), _dirty(true) {}
 
     void set_position(glm::vec2 pos) {
         _position = pos;
-        dirty = true;
+        _dirty = true;
     }
 
     void move_by(glm::vec2 offset) {
         _position += offset;
-        dirty = true;
+        _dirty = true;
     }
 
     glm::vec2 position() const {
@@ -72,47 +71,40 @@ public:
     }
 
     void set_zoom(float z) {
-        _zoom = _clamp(z);
-        dirty = true;
+        _zoom = _clamp_zoom(z);
+        _dirty = true;
     }
 
     void zoom_by(float z) {
-        _zoom = _clamp(_zoom + z);
-        dirty = true;
+        _zoom = _clamp_zoom(_zoom + z);
+        _dirty = true;
     }
 
     float zoom() const {
         return _zoom;
     }
 
-    void set_rotation(float r) {
-        _rotation = r;
-        dirty = true;
+    bool is_dirty() {
+        return _dirty;
     }
 
-    void rotate_by(float r) {
-        _rotation += r;
-        dirty = true;
-    }
-
-    float rotation() const {
-        return _rotation;
-    }
-
-    glm::mat4 matrix() const {
-        int w = framebuffer_width();
-        int h = framebuffer_height();
-        glm::mat4 projection = glm::ortho(0.f, (float)w, (float)h, 0.f, -1.f, 1.f);
-        glm::mat4 view = glm::mat4(1.f);
-        float hw = (float)w / 2.f;
-        float hh = (float)h / 2.f;
-        // Apply camera transformations: translate to center, scale for zoom, rotate, then translate to position
-        view = glm::translate(view, glm::vec3(hw, hh, 0.f));
-        view = glm::scale(view, glm::vec3(_zoom, _zoom, 1.f));
-        view = glm::rotate(view, glm::radians(_rotation), glm::vec3(0.f, 0.f, 1.f));
-        view = glm::translate(view, glm::vec3(-_position, 0.f));
-        view = glm::translate(view, glm::vec3(-hw, -hh, 0.f));
-        return projection * view;
+    glm::mat4 matrix() {
+        if (_dirty) {
+            int w = framebuffer_width();
+            int h = framebuffer_height();
+            glm::mat4 projection = glm::ortho(0.f, (float)w, (float)h, 0.f, -1.f, 1.f);
+            glm::mat4 view = glm::mat4(1.f);
+            float hw = (float)w / 2.f;
+            float hh = (float)h / 2.f;
+            // Apply camera transformations: translate to center, scale for zoom, rotate, then translate to position
+            view = glm::translate(view, glm::vec3(hw, hh, 0.f));
+            view = glm::scale(view, glm::vec3(_zoom, _zoom, 1.f));
+            view = glm::translate(view, glm::vec3(-_position, 0.f));
+            view = glm::translate(view, glm::vec3(-hw, -hh, 0.f));
+            _mvp =  projection * view;
+            _dirty = false;
+        }
+        return _mvp;
     }
 
     glm::vec2 world_to_screen(glm::vec2 world_pos) const {

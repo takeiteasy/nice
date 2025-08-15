@@ -29,8 +29,8 @@ class VertexBatch {
     Texture *_texture = nullptr;
     sg_pipeline _pipeline = {SG_INVALID_ID};
     sg_bindings _bind = {SG_INVALID_ID};
-    int _capacity;
-    int _count = 0;
+    size_t _capacity;
+    size_t _count = 0;
     std::unique_ptr<T[]> _vertices;
 
     void resize(int new_capacity) {
@@ -114,7 +114,7 @@ public:
     }
 
 public:
-    void add_vertices(const T* vertices, int count) {
+    void add_vertices(const T* vertices, size_t count) {
         if (_count + count > _capacity) {
             if (Dynamic)
                 while (_count + count > _capacity)
@@ -131,15 +131,23 @@ public:
             resize(new_capacity);
     }
 
-    int count() const { return _count; }
-    int capacity() const { return _capacity; }
+    size_t count() const { return _count; }
+    size_t capacity() const { return _capacity; }
     bool empty() const { return _count == 0; }
     bool full() const { return Dynamic ? false : _count >= _capacity; }
-    void clear() { _count = 0; }
     const T* data() const { return _vertices.get(); }
     T* data() { return _vertices.get(); }
 
-    bool is_valid() const {
+    void clear() {
+        _count = 0;
+        if (Dynamic) {
+            _capacity = InitialCapacity;
+            _vertices = std::make_unique<T[]>(_capacity);
+        } else
+            std::memset(_vertices.get(), 0, sizeof(T) * _capacity);
+    }
+
+    bool is_ready() const {
         return sg_query_buffer_state(_bind.vertex_buffers[0]) == SG_RESOURCESTATE_VALID;
     }
 
@@ -167,7 +175,7 @@ public:
     }
 
     void flush(bool empty_after=false) {
-        if (!is_valid())
+        if (!is_ready())
             throw std::runtime_error("VertexBatch is not built");
         if (sg_query_pipeline_state(_pipeline) == SG_RESOURCESTATE_VALID)
             sg_apply_pipeline(_pipeline);

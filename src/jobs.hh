@@ -1,5 +1,5 @@
 //
-//  job.hh
+//  jobs.hh
 //  rpg
 //
 //  Created by George Watson on 04/08/2025.
@@ -10,16 +10,20 @@
 #include <iostream>
 #include <vector>
 #include <queue>
-#include <thread>
-#include <mutex>
-#include <condition_variable>
+#include <deque>
 #include <functional>
 #include <future>
 #include <atomic>
+#include <chrono>
+#include <mutex>
+#include <condition_variable>
+#include <thread>
+#include <unordered_set>
+#include <shared_mutex>
 
 template<typename T>
 class JobQueue {
-    std::queue<T> _queue;
+    std::deque<T> _queue;
     mutable std::mutex _queue_mutex;
     std::condition_variable _condition;
     std::atomic<bool> _stop{false};
@@ -39,7 +43,7 @@ public:
                     return;
                     
                 T item = std::move(this->_queue.front());
-                this->_queue.pop();
+                this->_queue.pop_front();
                 lock.unlock(); // Release lock before processing
                 
                 this->_processor(item);
@@ -64,13 +68,25 @@ public:
     void push(T item) {
         {
             std::lock_guard<std::mutex> lock(_queue_mutex);
-            _queue.push(std::move(item));
+            _queue.push_back(std::move(item));
+        }
+        _condition.notify_one();
+    }
+
+    void push_front(T item) {
+        {
+            std::lock_guard<std::mutex> lock(_queue_mutex);
+            _queue.push_front(std::move(item));
         }
         _condition.notify_one();
     }
 
     void enqueue(T item) {
         push(std::move(item));
+    }
+
+    void enqueue_priority(T item) {
+        push_front(std::move(item));
     }
 
     void stop() {
@@ -155,5 +171,59 @@ public:
         condition.notify_all();
         for (std::thread &worker : workers)
             worker.join();
+    }
+};
+
+template<typename T>
+class ThreadSafeSet {
+    std::unordered_set<T> _set;
+    mutable std::shared_mutex _mutex;
+
+public:
+    bool contains(const T& value) const {
+        std::shared_lock<std::shared_mutex> lock(_mutex);
+        return _set.find(value) != _set.end();
+    }
+
+    bool insert(const T& value) {
+        std::unique_lock<std::shared_mutex> lock(_mutex);
+        return _set.insert(value).second;
+    }
+
+    bool erase(const T& value) {
+        std::unique_lock<std::shared_mutex> lock(_mutex);
+        return _set.erase(value) > 0;
+    }
+
+    size_t size() const {
+        std::shared_lock<std::shared_mutex> lock(_mutex);
+        return _set.size();
+    }
+
+    bool empty() const {
+        std::shared_lock<std::shared_mutex> lock(_mutex);
+        return _set.empty();
+    }
+
+    // For cases where you need to check multiple sets atomically
+    std::shared_lock<std::shared_mutex> get_shared_lock() const {
+        return std::shared_lock<std::shared_mutex>(_mutex);
+    }
+
+    std::unique_lock<std::shared_mutex> get_unique_lock() const {
+        return std::unique_lock<std::shared_mutex>(_mutex);
+    }
+
+    // Unsafe methods - caller must hold appropriate lock
+    bool contains_unsafe(const T& value) const {
+        return _set.find(value) != _set.end();
+    }
+
+    bool insert_unsafe(const T& value) {
+        return _set.insert(value).second;
+    }
+
+    bool erase_unsafe(const T& value) {
+        return _set.erase(value) > 0;
     }
 };
