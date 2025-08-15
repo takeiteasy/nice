@@ -1,5 +1,5 @@
 //
-//  chunk_manager.hh
+//  chunk_factory.hh
 //  rpg
 //
 //  Created by George Watson on 14/08/2025.
@@ -13,7 +13,7 @@
 #include <iostream>
 #include "fmt/format.h"
 
-class ChunkManager {
+class ChunkFactory {
     std::unordered_map<uint64_t, Chunk*> _chunks;
     mutable std::shared_mutex _chunks_lock;
     JobQueue<std::pair<int, int>> _create_chunk_queue;
@@ -80,7 +80,7 @@ class ChunkManager {
     }
 
 public:
-    ChunkManager(Camera *camera, Texture *tilemap): _camera(camera), _tilemap(tilemap),
+    ChunkFactory(Camera *camera, Texture *tilemap): _camera(camera), _tilemap(tilemap),
     _create_chunk_queue([&](std::pair<int, int> coords) {
         auto [x, y] = coords;
         uint64_t idx = Chunk::id(x, y);
@@ -131,7 +131,7 @@ public:
         _pipeline = sg_make_pipeline(&desc);
     }
 
-    ~ChunkManager() {
+    ~ChunkFactory() {
         if (sg_query_shader_state(_shader) == SG_RESOURCESTATE_VALID)
             sg_destroy_shader(_shader);
         if (sg_query_pipeline_state(_pipeline) == SG_RESOURCESTATE_VALID)

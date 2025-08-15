@@ -12,10 +12,10 @@
 @vs sprite_vs
 layout(location=0) in vec2 position;
 layout(location=1) in vec2 texcoord;
-layout(location=2) in vec4 color;
 
 layout(binding=0) uniform sprite_vs_params {
     mat4 mvp;
+    vec4 color;
 };
 
 out vec2 uv;

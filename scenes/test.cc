@@ -10,19 +10,20 @@
 #include "sokol/sokol_gfx.h"
 #include "sokol/util/sokol_debugtext.h"
 #include "sokol_input.h"
-#include "chunk_manager.hh"
+#include "chunk_factory.hh"
+#include "robot_factory.hh"
 
 static struct {
     Camera *camera;
     Texture *tilemap;
-    ChunkManager *manager;
+    ChunkFactory *manager;
     bool camera_dragging = false;
 } state;
 
 void test_enter(void) {
     state.camera = new Camera();
     state.tilemap = new Texture("assets/tilemap.exploded.png");
-    state.manager = new ChunkManager(state.camera, state.tilemap);
+    state.manager = new ChunkFactory(state.camera, state.tilemap);
 }
 
 void test_exit(void) {

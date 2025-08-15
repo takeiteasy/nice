@@ -170,8 +170,12 @@ public:
         _batch.set_texture(texture);
     };
 
-    std::string name() const {
+    static std::string name(int _x, int _y) {
         return fmt::format("Chunk({},{})", _x, _y);
+    }
+
+    std::string name() const {
+        return Chunk::name(_x, _y);
     }
 
     static uint64_t id(int _x, int _y) {

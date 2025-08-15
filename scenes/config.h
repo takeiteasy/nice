@@ -27,3 +27,9 @@
 
 #define MAX_ZOOM 2.f
 #define MIN_ZOOM .2f
+
+#define ROBOT_WIDTH 8
+#define ROBOT_HEIGHT 8
+#define ROBOT_ORIGINAL_WIDTH 8
+#define ROBOT_ORIGINAL_HEIGHT 8
+#define ROBOT_PADDING 4

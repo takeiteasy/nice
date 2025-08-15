@@ -23,7 +23,7 @@ def explode(image_path, tile_width, tile_height, padding, out_path):
     cols = width // tile_width
     new_width = (cols * tile_width) + ((cols + 1) * padding)
     new_height = (rows * tile_height) + ((rows + 1) * padding)
-    outimg = Image.new(size=(new_width, new_height), mode="RGB")
+    outimg = Image.new(size=(new_width, new_height), mode="RGBA")
     for y in range(rows):
         for x in range(cols):
             rect = (x * tile_width, y * tile_height, (x + 1) * tile_width, (y + 1) * tile_height)
@@ -50,4 +50,4 @@ if __name__ == "__main__":
     if not args.out:
         p = args.image.split(".")
         args.out = ".".join(p[:-1]) + ".padded." + p[-1]
-    split_image(args.image, args.width, args.height, args.padding, args.out)
+    explode(args.image, args.width, args.height, args.padding, args.out)
