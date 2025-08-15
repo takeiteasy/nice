@@ -27,7 +27,7 @@ class ChunkManager {
     sg_shader _shader;
     sg_pipeline _pipeline;
 
-    void ensure_chunk(int x, int y) {
+    void ensure_chunk(int x, int y, bool priority) {
         uint64_t idx = Chunk::id(x, y);
         
         // Check if chunk already exists or is being processed
@@ -46,7 +46,10 @@ class ChunkManager {
         if (!_chunks_being_created.insert(idx))
             return; // Another thread already marked it
 
-        _create_chunk_queue.enqueue({x, y});
+        if (priority)
+            _create_chunk_queue.enqueue_priority({x, y});
+        else
+            _create_chunk_queue.enqueue({x, y});
     }
 
     void update_chunk(Chunk *chunk, const Rect &camera_bounds, const Rect &max_bounds) {
@@ -161,15 +164,18 @@ public:
     }
 
     void scan_for_chunks() {
-        Rect bounds = _camera->max_bounds();
-        glm::vec2 tl = glm::vec2(bounds.x, bounds.y);
-        glm::vec2 br = glm::vec2(bounds.x + bounds.w, bounds.y + bounds.h);
+        Rect max_bounds = _camera->max_bounds();
+        Rect bounds = _camera->bounds();
+        glm::vec2 tl = glm::vec2(max_bounds.x, max_bounds.y);
+        glm::vec2 br = glm::vec2(max_bounds.x + max_bounds.w, max_bounds.y + max_bounds.h);
         glm::vec2 tl_chunk = _camera->world_to_chunk(tl);
         glm::vec2 br_chunk = _camera->world_to_chunk(br);
-        for (int y = (int)br_chunk.y; y >= (int)tl_chunk.y; y--)
-            for (int x = (int)br_chunk.x; x >= (int)tl_chunk.x; x--)
-                if (Chunk::bounds(x, y).intersects(bounds))
-                    ensure_chunk(x, y);
+        for (int y = (int)tl_chunk.y; y <= (int)br_chunk.y; y++)
+            for (int x = (int)tl_chunk.x; x <= (int)br_chunk.x; x++) {
+                Rect chunk_bounds = Chunk::bounds(x, y);
+                if (chunk_bounds.intersects(max_bounds))
+                    ensure_chunk(x, y, chunk_bounds.intersects(bounds));
+            }
     }
 
     void release_chunks() {

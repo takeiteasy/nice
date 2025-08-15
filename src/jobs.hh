@@ -10,6 +10,7 @@
 #include <iostream>
 #include <vector>
 #include <queue>
+#include <deque>
 #include <functional>
 #include <future>
 #include <atomic>
@@ -22,7 +23,7 @@
 
 template<typename T>
 class JobQueue {
-    std::queue<T> _queue;
+    std::deque<T> _queue;
     mutable std::mutex _queue_mutex;
     std::condition_variable _condition;
     std::atomic<bool> _stop{false};
@@ -42,7 +43,7 @@ public:
                     return;
                     
                 T item = std::move(this->_queue.front());
-                this->_queue.pop();
+                this->_queue.pop_front();
                 lock.unlock(); // Release lock before processing
                 
                 this->_processor(item);
@@ -67,13 +68,25 @@ public:
     void push(T item) {
         {
             std::lock_guard<std::mutex> lock(_queue_mutex);
-            _queue.push(std::move(item));
+            _queue.push_back(std::move(item));
+        }
+        _condition.notify_one();
+    }
+
+    void push_front(T item) {
+        {
+            std::lock_guard<std::mutex> lock(_queue_mutex);
+            _queue.push_front(std::move(item));
         }
         _condition.notify_one();
     }
 
     void enqueue(T item) {
         push(std::move(item));
+    }
+
+    void enqueue_priority(T item) {
+        push_front(std::move(item));
     }
 
     void stop() {
