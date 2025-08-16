@@ -21,20 +21,21 @@ class Robot {
     glm::vec2 _position;
     glm::vec2 _target;
     glm::vec4 _color = glm::vec4(1.f, 1.f, 1.f, 1.f);
-    Rect _clip = {};
+    Rect _clip = {0, 0, TILE_ORIGINAL_WIDTH, TILE_ORIGINAL_HEIGHT};
 
 public:
+    Robot(const glm::vec2& position): _position(position), _target(position) {
+        Texture *texture = $ASSETS.get<Texture>("robot");
+        _texture_width = texture->width();
+        _texture_height = texture->height();
+    }
+
     void update() {
         if (glm::length(_target - _position) < .1f)
             _position = _target;
         else
             _position += glm::normalize(_target - _position) * .1f;
     }
-
-    glm::vec2 position() const { return _position; }
-    void set_position(const glm::vec2& position) { _position = position; }
-    glm::vec2 target() const { return _target; }
-    void set_target(const glm::vec2& target) { _target = target; }
 
     RobotVertex* draw(Camera *camera) const {
         if (camera->bounds().contains(_position)) // change to bounds
@@ -74,4 +75,13 @@ public:
         }
         return v;
     }
+
+    glm::vec2 position() const { return _position; }
+    void set_position(const glm::vec2& position) { _position = position; }
+    glm::vec2 target() const { return _target; }
+    void set_target(const glm::vec2& target) { _target = target; }
+    glm::vec4 color() const { return _color; }
+    void set_color(const glm::vec4& color) { _color = color; }
+    Rect clip() const { return _clip; }
+    void set_clip(const Rect& clip) { _clip = clip; }
 };

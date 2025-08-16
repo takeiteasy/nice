@@ -16,13 +16,7 @@
 #include "glm/vec2.hpp"
 #include "glm/vec4.hpp"
 
-struct SpriteVertex {
-    glm::vec2 position;
-    glm::vec2 texcoord;
-    glm::vec4 color;
-};
-
-template <typename T=SpriteVertex, int InitialCapacity=16, bool Dynamic=true>
+template <typename T, int InitialCapacity=16, bool Dynamic=true>
 class VertexBatch {
     static_assert(InitialCapacity > 0, "InitialCapacity must be greater than 0");
 
@@ -180,7 +174,7 @@ public:
         if (sg_query_pipeline_state(_pipeline) == SG_RESOURCESTATE_VALID)
             sg_apply_pipeline(_pipeline);
         sg_apply_bindings(&_bind);
-        sg_draw(0, _count, 1);
+        sg_draw(0, (int)_count, 1);
         if (empty_after)
             _count = 0;
     }

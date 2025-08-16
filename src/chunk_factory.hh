@@ -7,11 +7,13 @@
 
 #pragma once
 
+#include "assets.hh"
 #include "chunk.hh"
 #include "jobs.hh"
 #include <unordered_map>
 #include <iostream>
 #include "fmt/format.h"
+#include "robot_factory.hh"
 
 class ChunkFactory {
     std::unordered_map<uint64_t, Chunk*> _chunks;
@@ -26,6 +28,8 @@ class ChunkFactory {
     Texture *_tilemap;
     sg_shader _shader;
     sg_pipeline _pipeline;
+
+    RobotFactory *_robot_factory;
 
     void ensure_chunk(int x, int y, bool priority) {
         uint64_t idx = Chunk::id(x, y);
@@ -80,7 +84,7 @@ class ChunkFactory {
     }
 
 public:
-    ChunkFactory(Camera *camera, Texture *tilemap): _camera(camera), _tilemap(tilemap),
+    ChunkFactory(Camera *camera): _camera(camera),
     _create_chunk_queue([&](std::pair<int, int> coords) {
         auto [x, y] = coords;
         uint64_t idx = Chunk::id(x, y);
@@ -129,6 +133,9 @@ public:
             .colors[0].pixel_format = SG_PIXELFORMAT_RGBA8
         };
         _pipeline = sg_make_pipeline(&desc);
+        _tilemap = $ASSETS.get<Texture>("tilemap");
+
+        _robot_factory = new RobotFactory(_camera);
     }
 
     ~ChunkFactory() {

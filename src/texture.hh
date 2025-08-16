@@ -7,17 +7,32 @@
 
 #pragma once
 
+#include "assets.hh"
 #include "sokol/sokol_gfx.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #include <string>
 
-class Texture {
+class Texture: public Asset<Texture> {
     int _width, _height;
     sg_image image;
     sg_sampler sampler;
 
-    bool from_file(const std::string& path) {
+public:
+    int width() const {
+        return _width;
+    }
+
+    int height() const {
+        return _height;
+    }
+
+    void bind(sg_bindings& bindings) const {
+        bindings.images[0] = image;
+        bindings.samplers[0] = sampler;
+    }
+
+    bool load(const std::string& path) override {
         int num_channels;
         const int desired_channels = 4;
         stbi_uc* pixels = stbi_load(path.c_str(), &_width, &_height, &num_channels, desired_channels);
@@ -42,37 +57,19 @@ class Texture {
         sampler = sg_make_sampler(&sdesc);
         stbi_image_free(pixels);
         return sg_query_image_state(image) == SG_RESOURCESTATE_VALID &&
-               sg_query_sampler_state(sampler) == SG_RESOURCESTATE_VALID;
+        sg_query_sampler_state(sampler) == SG_RESOURCESTATE_VALID;
     }
 
-public:
-    Texture() : _width(0), _height(0), image({SG_INVALID_ID}), sampler({SG_INVALID_ID}) {}
-
-    Texture(const std::string& path) {
-        assert(from_file(path));
-    }
-
-    ~Texture() {
+    void unload() override {
+        if (!sg_isvalid())
+            return;
         if (sg_query_image_state(image) == SG_RESOURCESTATE_VALID)
             sg_destroy_image(image);
         if (sg_query_sampler_state(sampler) == SG_RESOURCESTATE_VALID)
             sg_destroy_sampler(sampler);
     }
 
-    int width() const {
-        return _width;
-    }
-
-    int height() const {
-        return _height;
-    }
-
-    void bind(sg_bindings& bindings) const {
-        bindings.images[0] = image;
-        bindings.samplers[0] = sampler;
-    }
-
-    bool is_valid() const {
+    bool is_valid() const override {
         return sg_query_image_state(image) == SG_RESOURCESTATE_VALID &&
                sg_query_sampler_state(sampler) == SG_RESOURCESTATE_VALID;
     }

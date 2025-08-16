@@ -28,6 +28,7 @@
 #include "sokol_input.h"
 #include "glm/vec2.hpp"
 #include "passthru.glsl.h"
+#include "assets.hh"
 
 #ifndef DEFAULT_WINDOW_WIDTH
 #define DEFAULT_WINDOW_WIDTH 640
@@ -243,6 +244,7 @@ static void frame(void) {
 static void cleanup(void) {
     if (state.scene_current)
         state.scene_current->exit();
+    $ASSETS.clear();
     sg_shutdown();
 }
 

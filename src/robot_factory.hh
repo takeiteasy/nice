@@ -10,7 +10,7 @@
 #include "robot.hh"
 #include "batch.hh"
 #include "glm/vec4.hpp"
-#include "sprite.glsl.h"
+#include "robot.glsl.h"
 
 typedef VertexBatch<RobotVertex> RobotVertexBatch;
 
@@ -20,20 +20,19 @@ class RobotFactory {
 
     RobotVertexBatch _batch;
     Camera *_camera;
-    Texture *_tilemap;
     sg_shader _shader;
     sg_pipeline _pipeline;
 
 public:
-    RobotFactory(Camera *camera, Texture *tilemap): _camera(camera), _tilemap(tilemap) {
-        _shader = sg_make_shader(sprite_shader_desc(sg_query_backend()));
+    RobotFactory(Camera *camera): _camera(camera) {
+        _shader = sg_make_shader(robot_shader_desc(sg_query_backend()));
         sg_pipeline_desc desc = {
             .shader = _shader,
             .layout = {
                 .buffers[0].stride = sizeof(RobotVertex),
                 .attrs = {
-                    [ATTR_sprite_position].format = SG_VERTEXFORMAT_FLOAT2,
-                    [ATTR_sprite_texcoord].format = SG_VERTEXFORMAT_FLOAT2
+                    [ATTR_robot_position].format = SG_VERTEXFORMAT_FLOAT2,
+                    [ATTR_robot_texcoord].format = SG_VERTEXFORMAT_FLOAT2
                 }
             },
             .depth = {
@@ -46,7 +45,7 @@ public:
         };
         _pipeline = sg_make_pipeline(&desc);
         _batch.set_pipeline(_pipeline);
-        _batch.set_texture(_tilemap);
+        _batch.set_texture($ASSETS.get<Texture>("robot"));
     }
 
     ~RobotFactory() {
@@ -61,11 +60,8 @@ public:
 
     void add_robots(std::vector<glm::vec2> positions) {
         std::lock_guard<std::shared_mutex> lock(_robot_mutex);
-        for (const auto& pos : positions) {
-            Robot* robot = new Robot();
-            robot->set_position(pos);
-            robot->set_target(pos);
-        }
+        for (const auto& pos : positions)
+            _robots.push_back(new Robot(pos));
     }
 
     void update_robots() {

@@ -170,65 +170,6 @@ public:
         _batch.set_texture(texture);
     };
 
-    static std::string name(int _x, int _y) {
-        return fmt::format("Chunk({},{})", _x, _y);
-    }
-
-    std::string name() const {
-        return Chunk::name(_x, _y);
-    }
-
-    static uint64_t id(int _x, int _y) {
-#define _INDEX(I) (abs((I) * 2) - ((I) > 0 ? 1 : 0))
-        int x = _INDEX(_x), y = _INDEX(_y);
-        return x >= y ? x * x + x + y : x + y * y;
-    }
-
-    uint64_t id() const {
-        return Chunk::id(_x, _y);
-    }
-
-    static Rect bounds(int _x, int _y) {
-        return {
-            .x = _x * CHUNK_WIDTH * TILE_WIDTH,
-            .y = _y * CHUNK_HEIGHT * TILE_HEIGHT,
-            .w = CHUNK_WIDTH * TILE_WIDTH,
-            .h = CHUNK_HEIGHT * TILE_HEIGHT
-        };
-    }
-
-    Rect bounds() const {
-        return Chunk::bounds(_x, _y);
-    }
-
-    int x() const {
-        return _x;
-    }
-
-    int y() const {
-        return _y;
-    }
-
-    bool is_filled() const {
-        return _is_filled.load();
-    }
-
-    bool is_built() const {
-        return _is_built.load();
-    }
-
-    bool is_ready() const {
-        return is_filled() && is_built();
-    }
-
-    ChunkVisibility visibility() const {
-        return _visibility.load();
-    }
-
-    void set_visibility(ChunkVisibility visibility) {
-        _visibility.store(visibility);
-    }
-
     bool fill() {
         if (is_filled())
             return false;
@@ -269,7 +210,7 @@ public:
                 // Calculate world position for this tile
                 float tile_x = x * TILE_WIDTH;
                 float tile_y = y * TILE_HEIGHT;
-                
+
                 glm::vec2 _positions[] = {
                     {tile_x, tile_y},                           // Top-left
                     {tile_x + TILE_WIDTH, tile_y},              // Top-right
@@ -433,11 +374,41 @@ public:
                                             0.f));
             _rebuild_mvp = false;
         }
-        
+
         std::lock_guard<std::shared_mutex> lock(_chunk_mutex);
         vs_params_t vs_params = { .mvp = _mvp };
         sg_range params = SG_RANGE(vs_params);
         sg_apply_uniforms(UB_vs_params, &params);
         _batch.flush();
     }
+    
+    static std::string name(int _x, int _y) {
+        return fmt::format("Chunk({},{})", _x, _y);
+    }
+
+    static uint64_t id(int _x, int _y) {
+#define _INDEX(I) (abs((I) * 2) - ((I) > 0 ? 1 : 0))
+        int x = _INDEX(_x), y = _INDEX(_y);
+        return x >= y ? x * x + x + y : x + y * y;
+    }
+
+    static Rect bounds(int _x, int _y) {
+        return {
+            .x = _x * CHUNK_WIDTH * TILE_WIDTH,
+            .y = _y * CHUNK_HEIGHT * TILE_HEIGHT,
+            .w = CHUNK_WIDTH * TILE_WIDTH,
+            .h = CHUNK_HEIGHT * TILE_HEIGHT
+        };
+    }
+
+    std::string name() const { return Chunk::name(_x, _y); }
+    uint64_t id() const { return Chunk::id(_x, _y); }
+    Rect bounds() const { return Chunk::bounds(_x, _y); }
+    int x() const { return _x; }
+    int y() const { return _y; }
+    bool is_filled() const { return _is_filled.load(); }
+    bool is_built() const { return _is_built.load(); }
+    bool is_ready() const { return is_filled() && is_built(); }
+    ChunkVisibility visibility() const { return _visibility.load(); }
+    void set_visibility(ChunkVisibility visibility) { _visibility.store(visibility); }
 };
