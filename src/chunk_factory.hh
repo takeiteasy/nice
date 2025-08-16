@@ -71,16 +71,11 @@ class ChunkFactory {
                                      chunk->x(), chunk->y(),
                                      chunk_visibility_to_string(last_visibility),
                                      chunk_visibility_to_string(new_visibility));
-            switch (new_visibility) {
-                case ChunkVisibility::OutOfSign:
-                    _chunks_being_destroyed.insert(chunk->id());
-                    break;
-                case ChunkVisibility::Visible:
-                    break;
-                case ChunkVisibility::Occluded:
-                    break;
-            }
+            if (new_visibility == ChunkVisibility::OutOfSign)
+                _chunks_being_destroyed.insert(chunk->id());
         }
+        if (new_visibility != ChunkVisibility::OutOfSign)
+            _robot_factory->update_robots();
     }
 
 public:
@@ -133,9 +128,10 @@ public:
             .colors[0].pixel_format = SG_PIXELFORMAT_RGBA8
         };
         _pipeline = sg_make_pipeline(&desc);
-        _tilemap = $ASSETS.get<Texture>("tilemap");
+        _tilemap = $Assets.get<Texture>("tilemap");
 
         _robot_factory = new RobotFactory(_camera);
+        _robot_factory->add_robots({{0, 0}});
     }
 
     ~ChunkFactory() {
@@ -215,10 +211,16 @@ public:
 
     void draw_chunks() {
         std::shared_lock<std::shared_mutex> lock(_chunks_lock);
+
+        // Draw chunks first
         sg_apply_pipeline(_pipeline);
         bool force_update_mvp = _camera->is_dirty();
         for (const auto& [id, chunk] : _chunks)
             if (chunk != nullptr && !_chunks_being_destroyed.contains(id))
                 chunk->draw(_camera, force_update_mvp);
+
+        // Draw robots after chunks
+        sg_apply_pipeline(_pipeline);
+        _robot_factory->draw_robots(_camera->matrix());
     }
 };

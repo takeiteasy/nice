@@ -244,7 +244,7 @@ static void frame(void) {
 static void cleanup(void) {
     if (state.scene_current)
         state.scene_current->exit();
-    $ASSETS.clear();
+    $Assets.clear();
     sg_shutdown();
 }
 

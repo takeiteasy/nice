@@ -21,13 +21,12 @@ class VertexBatch {
     static_assert(InitialCapacity > 0, "InitialCapacity must be greater than 0");
 
     Texture *_texture = nullptr;
-    sg_pipeline _pipeline = {SG_INVALID_ID};
     sg_bindings _bind = {SG_INVALID_ID};
     size_t _capacity;
     size_t _count = 0;
     std::unique_ptr<T[]> _vertices;
 
-    void resize(int new_capacity) {
+    void resize(size_t new_capacity) {
         auto new_vertices = std::make_unique<T[]>(new_capacity);
         std::copy(_vertices.get(), _vertices.get() + _count, new_vertices.get());
         _vertices = std::move(new_vertices);
@@ -35,7 +34,7 @@ class VertexBatch {
     }
 
 public:
-    VertexBatch(const sg_pipeline& pipeline={SG_INVALID_ID}, Texture *texture=nullptr): _pipeline(pipeline), _texture(texture) {
+    VertexBatch(Texture *texture=nullptr): _texture(texture) {
         _capacity = InitialCapacity;
         _vertices = std::make_unique<T[]>(_capacity);
     }
@@ -44,13 +43,11 @@ public:
     VertexBatch& operator=(const VertexBatch&) = delete;
 
     VertexBatch(VertexBatch&& other) noexcept 
-        : _pipeline(other._pipeline)
-        , _bind(other._bind)
+        : _bind(other._bind)
         , _capacity(other._capacity)
         , _count(other._count)
         , _vertices(std::move(other._vertices))
     {
-        other._pipeline = {SG_INVALID_ID};
         other._bind = {};
         other._capacity = 0;
         other._count = 0;
@@ -60,16 +57,12 @@ public:
         if (this != &other) {
             if (sg_query_buffer_state(_bind.vertex_buffers[0]) == SG_RESOURCESTATE_VALID)
                 sg_destroy_buffer(_bind.vertex_buffers[0]);
-            if (sg_query_pipeline_state(_pipeline) == SG_RESOURCESTATE_VALID)
-                sg_destroy_pipeline(_pipeline);
 
-            _pipeline = other._pipeline;
             _bind = other._bind;
             _capacity = other._capacity;
             _count = other._count;
             _vertices = std::move(other._vertices);
 
-            other._pipeline = {SG_INVALID_ID};
             other._bind = {};
             other._capacity = 0;
             other._count = 0;
@@ -82,33 +75,25 @@ public:
             sg_destroy_buffer(_bind.vertex_buffers[0]);
     }
 
-    void set_pipeline(const sg_pipeline& pipeline) {
-        _pipeline = pipeline;
-    }
-
-    void set_pipeline(const sg_pipeline_desc& desc) {
-        if (sg_query_pipeline_state(_pipeline) == SG_RESOURCESTATE_VALID)
-            sg_destroy_pipeline(_pipeline);
-        _pipeline = sg_make_pipeline(&desc);
-        assert(sg_query_pipeline_state(_pipeline) == SG_RESOURCESTATE_VALID);
-    }
-
     void set_texture(Texture* texture) {
         _texture = texture;
     }
 
-    void add(const T& vertex) {
-        if (_count >= _capacity) {
+    void add_vertices_at(const T* vertices, size_t count, size_t index) {
+        if (index > _count)
+            throw std::out_of_range("Index out of range");
+        if (_count + count > _capacity) {
             if (Dynamic)
-                resize(_capacity * 2);
+                while (_count + count > _capacity)
+                    resize(_capacity * 2);
             else
                 throw std::runtime_error("VertexBatch would exceed fixed size");
         }
-        _vertices[_count++] = vertex;
+        std::copy(_vertices.get() + index, _vertices.get() + _count, _vertices.get() + index + count);
+        _count += count;
     }
 
-public:
-    void add_vertices(const T* vertices, size_t count) {
+    void append_vertices(const T* vertices, size_t count) {
         if (_count + count > _capacity) {
             if (Dynamic)
                 while (_count + count > _capacity)
@@ -120,17 +105,10 @@ public:
         _count += count;
     }
 
-    void reserve(int new_capacity) {
+    void reserve(size_t new_capacity) {
         if (new_capacity > _capacity)
             resize(new_capacity);
     }
-
-    size_t count() const { return _count; }
-    size_t capacity() const { return _capacity; }
-    bool empty() const { return _count == 0; }
-    bool full() const { return Dynamic ? false : _count >= _capacity; }
-    const T* data() const { return _vertices.get(); }
-    T* data() { return _vertices.get(); }
 
     void clear() {
         _count = 0;
@@ -171,11 +149,14 @@ public:
     void flush(bool empty_after=false) {
         if (!is_ready())
             throw std::runtime_error("VertexBatch is not built");
-        if (sg_query_pipeline_state(_pipeline) == SG_RESOURCESTATE_VALID)
-            sg_apply_pipeline(_pipeline);
         sg_apply_bindings(&_bind);
         sg_draw(0, (int)_count, 1);
         if (empty_after)
-            _count = 0;
+            clear();
     }
+    
+    size_t count() const { return _count; }
+    size_t capacity() const { return _capacity; }
+    bool empty() const { return _count == 0; }
+    bool full() const { return Dynamic ? false : _count >= _capacity; }
 };

@@ -15,14 +15,14 @@
 
 static struct {
     Camera *camera;
-    Texture *tilemap;
     ChunkFactory *manager;
     bool camera_dragging = false;
 } state;
 
 void test_enter(void) {
     state.camera = new Camera();
-    state.tilemap = $ASSETS.load<Texture>("tilemap", "assets/tilemap.exploded.png");
+    $Assets.load<Texture>("tilemap", "assets/tilemap.exploded.png");
+    $Assets.load<Texture>("robot", "assets/man.exploded.png");
     state.manager = new ChunkFactory(state.camera);
 }
 

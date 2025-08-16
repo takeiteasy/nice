@@ -117,4 +117,4 @@ public:
     }
 };
 
-#define $ASSETS Assets::instance()
+#define $Assets Assets::instance()

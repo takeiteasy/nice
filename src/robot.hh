@@ -25,7 +25,7 @@ class Robot {
 
 public:
     Robot(const glm::vec2& position): _position(position), _target(position) {
-        Texture *texture = $ASSETS.get<Texture>("robot");
+        Texture *texture = $Assets.get<Texture>("robot");
         _texture_width = texture->width();
         _texture_height = texture->height();
     }
