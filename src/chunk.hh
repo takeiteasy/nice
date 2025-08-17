@@ -11,6 +11,7 @@
 #include "uuid.hh"
 #include "fmt/format.h"
 #include "camera.hh"
+#include "ore.hh"
 #include <shared_mutex>
 #include <random>
 #include "basic.glsl.h"
