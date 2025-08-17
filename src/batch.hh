@@ -114,13 +114,20 @@ public:
             return false;
 
         size_t required_size = sizeof(T) * _count;
-        if (sg_query_buffer_state(_bind.vertex_buffers[0]) != SG_RESOURCESTATE_VALID) {
-            sg_buffer_desc desc = {
-                .usage.stream_update = true,
-                .size = sizeof(T) * _capacity
-            };
-            _bind.vertex_buffers[0] = sg_make_buffer(&desc);
+        size_t required_buffer_size = sizeof(T) * _capacity;
+        
+        // Always recreate the buffer to ensure it's the right size
+        // This is safer and handles dynamic resizing properly
+        if (sg_query_buffer_state(_bind.vertex_buffers[0]) == SG_RESOURCESTATE_VALID) {
+            sg_destroy_buffer(_bind.vertex_buffers[0]);
         }
+        
+        sg_buffer_desc desc = {
+            .usage.stream_update = true,
+            .size = required_buffer_size
+        };
+        _bind.vertex_buffers[0] = sg_make_buffer(&desc);
+        
         sg_range data = {
             .ptr = _vertices.get(),
             .size = required_size

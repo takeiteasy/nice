@@ -12,10 +12,7 @@
 #include "jobs.hh"
 #include "glm/vec4.hpp"
 #include "basic.glsl.h"
-
-// TODO: Move RobotVertexBatch to chunk_factory
-//       collect vertices from robot_factory->draw
-//       and draw singular batch for all robots
+#include "fmt/format.h"
 
 typedef VertexBatch<RobotVertex> RobotVertexBatch;
 
@@ -43,8 +40,9 @@ public:
         std::lock_guard<std::shared_mutex> lock(_robot_map_mutex);
         for (const auto& pos : positions) {
             std::lock_guard<std::shared_mutex> lock(_robot_mutex_map[chunk_id]);
-            _robot_map[chunk_id].push_back(new Robot(pos));
+            _robot_map[chunk_id].push_back(new Robot(pos, chunk_id));
         }
+        std::cout << fmt::format("Added {} robots to chunk {}\n", positions.size(), chunk_id);
     }
 
     void update_robots(uint64_t chunk_id) {
@@ -60,20 +58,37 @@ public:
         
         // Check if chunk exists in robot map
         if (_robot_map.find(chunk_id) == _robot_map.end() || _robot_map[chunk_id].empty()) {
-            if (count) *count = 0;
+            if (count)
+                *count = 0;
             return nullptr;
         }
         
-        size_t _count = _robot_map[chunk_id].size() * 6;
+        // First pass: count valid robots
+        size_t valid_robot_count = 0;
+        for (Robot* robot : _robot_map[chunk_id]) {
+            if (robot)
+                valid_robot_count++;
+        }
+        
+        if (valid_robot_count == 0) {
+            if (count)
+                *count = 0;
+            return nullptr;
+        }
+        
+        size_t _count = valid_robot_count * 6;
         RobotVertex *result = new RobotVertex[_count];
+        size_t vertex_index = 0;
+        
         for (size_t i = 0; i < _robot_map[chunk_id].size(); ++i) {
             std::lock_guard<std::shared_mutex> lock_map(_robot_mutex_map[chunk_id]);
             Robot *robot = _robot_map[chunk_id][i];
-            if (robot) {  // Safety check for null robots
-                RobotVertex *vertices = robot->vertices(_camera);
-                std::memcpy(&result[i * 6], vertices, sizeof(RobotVertex) * 6);
-                delete[] vertices;
-            }
+            if (!robot)
+                continue;
+            RobotVertex *vertices = robot->vertices(_camera);
+            std::memcpy(&result[vertex_index], vertices, sizeof(RobotVertex) * 6);
+            delete[] vertices;
+            vertex_index += 6;
         }
         if (count)
             *count = _count;

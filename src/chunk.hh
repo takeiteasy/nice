@@ -392,15 +392,34 @@ public:
         sg_apply_uniforms(UB_vs_params, &params);
         _batch.flush();
     }
-    
-    static std::string name(int _x, int _y) {
-        return fmt::format("Chunk({},{})", _x, _y);
-    }
 
     static uint64_t id(int _x, int _y) {
+        // Map (x,y) coordinates to a unique ID
 #define _INDEX(I) (abs((I) * 2) - ((I) > 0 ? 1 : 0))
         int x = _INDEX(_x), y = _INDEX(_y);
         return x >= y ? x * x + x + y : x + y * y;
+    }
+
+    static std::pair<int, int> unindex(uint64_t id_value) {
+        // First, we need to find which (x,y) pair in the _INDEX space maps to this id
+        // The formula is: id = x >= y ? x*x + x + y : x + y*y
+        // We need to reverse this process
+        // Find the "diagonal" we're on (similar to Cantor pairing function)
+        uint64_t w = static_cast<uint64_t>(floor(sqrt(static_cast<double>(id_value))));
+        uint64_t t = w * w;
+        int ix, iy;
+        if (id_value < t + w) {
+            // We're in the lower triangle: x + y*y = id_value, where y = w
+            ix = static_cast<int>(id_value - t);
+            iy = static_cast<int>(w);
+        } else {
+            // We're in the upper triangle: x*x + x + y = id_value, where x = w
+            ix = static_cast<int>(w);
+            iy = static_cast<int>(id_value - t - w);
+        }
+        // Now convert from _INDEX space back to regular coordinates
+#define _UNINDEX(I) ((I) == 0 ? 0 : ((I) % 2 == 1) ? ((I) + 1) / 2 : -((I) / 2))
+        return {_UNINDEX(ix), _UNINDEX(iy)};
     }
 
     static Rect bounds(int _x, int _y) {
@@ -412,7 +431,6 @@ public:
         };
     }
 
-    std::string name() const { return Chunk::name(_x, _y); }
     uint64_t id() const { return Chunk::id(_x, _y); }
     Rect bounds() const { return Chunk::bounds(_x, _y); }
     int x() const { return _x; }

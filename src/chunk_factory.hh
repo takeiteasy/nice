@@ -98,6 +98,7 @@ public:
         }
         
         chunk->fill();
+        _robot_factory->add_robots(idx, chunk->poisson(5));
         std::cout << fmt::format("Chunk at ({}, {}) finished filling\n", x, y);
 
         {
@@ -130,14 +131,22 @@ public:
                 .write_enabled = true
             },
             .cull_mode = SG_CULLMODE_BACK,
-            .colors[0].pixel_format = SG_PIXELFORMAT_RGBA8
+            .colors[0] = {
+                .pixel_format = SG_PIXELFORMAT_RGBA8,
+                .blend = {
+                    .enabled = true,
+                    .src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
+                    .dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+                    .src_factor_alpha = SG_BLENDFACTOR_ONE,
+                    .dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA
+                }
+            }
         };
         _pipeline = sg_make_pipeline(&desc);
         _tilemap = $Assets.get<Texture>("tilemap");
 
         _robot_batch.set_texture($Assets.get<Texture>("robot"));
         _robot_factory = new RobotFactory(_camera);
-        _robot_factory->add_robots(Chunk::id(0, 0), {{0, 0}});
     }
 
     ~ChunkFactory() {

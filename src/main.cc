@@ -147,6 +147,8 @@ static void init(void) {
     };
     sdtx_setup(&dtx_desc);
 
+    stm_setup();
+
     sapp_input_init();
 
     state.shader = sg_make_shader(passthru_shader_desc(sg_query_backend()));
