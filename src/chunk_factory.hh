@@ -15,6 +15,8 @@
 #include "fmt/format.h"
 #include "robot_factory.hh"
 
+typedef VertexBatch<RobotVertex> RobotVertexBatch;
+
 class ChunkFactory {
     std::unordered_map<uint64_t, Chunk*> _chunks;
     mutable std::shared_mutex _chunks_lock;
@@ -30,6 +32,7 @@ class ChunkFactory {
     sg_pipeline _pipeline;
 
     RobotFactory *_robot_factory;
+    RobotVertexBatch _robot_batch;
 
     void ensure_chunk(int x, int y, bool priority) {
         uint64_t idx = Chunk::id(x, y);
@@ -75,7 +78,7 @@ class ChunkFactory {
                 _chunks_being_destroyed.insert(chunk->id());
         }
         if (new_visibility != ChunkVisibility::OutOfSign)
-            _robot_factory->update_robots();
+            _robot_factory->update_robots(Chunk::id(chunk->x(), chunk->y()));
     }
 
 public:
@@ -130,8 +133,9 @@ public:
         _pipeline = sg_make_pipeline(&desc);
         _tilemap = $Assets.get<Texture>("tilemap");
 
+        _robot_batch.set_texture($Assets.get<Texture>("robot"));
         _robot_factory = new RobotFactory(_camera);
-        _robot_factory->add_robots({{0, 0}});
+        _robot_factory->add_robots(Chunk::id(0, 0), {{0, 0}});
     }
 
     ~ChunkFactory() {
@@ -216,11 +220,20 @@ public:
         sg_apply_pipeline(_pipeline);
         bool force_update_mvp = _camera->is_dirty();
         for (const auto& [id, chunk] : _chunks)
-            if (chunk != nullptr && !_chunks_being_destroyed.contains(id))
+            if (chunk != nullptr && !_chunks_being_destroyed.contains(id)) {
                 chunk->draw(_camera, force_update_mvp);
+                size_t vertex_count;
+                RobotVertex *vertices = _robot_factory->vertices(chunk->id(), &vertex_count);
+                _robot_batch.add_vertices(vertices, vertex_count);
+                delete[] vertices;
+            }
 
-        // Draw robots after chunks
-        sg_apply_pipeline(_pipeline);
-        _robot_factory->draw_robots(_camera->matrix());
+        if (_robot_batch.build()) {
+            sg_apply_pipeline(_pipeline);
+            vs_params_t vs_params = { .mvp = _camera->matrix() };
+            sg_range params = SG_RANGE(vs_params);
+            sg_apply_uniforms(UB_vs_params, &params);
+            _robot_batch.flush(true);
+        }
     }
 };

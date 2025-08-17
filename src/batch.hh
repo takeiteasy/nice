@@ -79,21 +79,7 @@ public:
         _texture = texture;
     }
 
-    void add_vertices_at(const T* vertices, size_t count, size_t index) {
-        if (index > _count)
-            throw std::out_of_range("Index out of range");
-        if (_count + count > _capacity) {
-            if (Dynamic)
-                while (_count + count > _capacity)
-                    resize(_capacity * 2);
-            else
-                throw std::runtime_error("VertexBatch would exceed fixed size");
-        }
-        std::copy(_vertices.get() + index, _vertices.get() + _count, _vertices.get() + index + count);
-        _count += count;
-    }
-
-    void append_vertices(const T* vertices, size_t count) {
+    void add_vertices(const T* vertices, size_t count) {
         if (_count + count > _capacity) {
             if (Dynamic)
                 while (_count + count > _capacity)

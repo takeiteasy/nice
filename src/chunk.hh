@@ -246,7 +246,7 @@ public:
             return false;
         std::unique_lock<std::shared_mutex> lock(_chunk_mutex);
         ChunkVertex *_vertices = vertices();
-        _batch.append_vertices(_vertices, CHUNK_SIZE * 6);
+        _batch.add_vertices(_vertices, CHUNK_SIZE * 6);
         lock.unlock();
         _batch.build();
         delete[] _vertices;

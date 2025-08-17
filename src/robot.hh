@@ -37,10 +37,7 @@ public:
             _position += glm::normalize(_target - _position) * .1f;
     }
 
-    RobotVertex* draw(Camera *camera) const {
-        if (camera->bounds().contains(_position)) // change to bounds
-            return nullptr;
-
+    RobotVertex* vertices(Camera *camera) const {
         Rect src = {
             static_cast<int>((_clip.x * ROBOT_ORIGINAL_WIDTH) + ((_clip.x + 1) * ROBOT_PADDING)),
             static_cast<int>((_clip.y * ROBOT_ORIGINAL_HEIGHT) + ((_clip.y + 1) * ROBOT_PADDING)),
