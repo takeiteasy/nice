@@ -204,26 +204,4 @@ public:
         std::shared_lock<std::shared_mutex> lock(_mutex);
         return _set.empty();
     }
-
-    // For cases where you need to check multiple sets atomically
-    std::shared_lock<std::shared_mutex> get_shared_lock() const {
-        return std::shared_lock<std::shared_mutex>(_mutex);
-    }
-
-    std::unique_lock<std::shared_mutex> get_unique_lock() const {
-        return std::unique_lock<std::shared_mutex>(_mutex);
-    }
-
-    // Unsafe methods - caller must hold appropriate lock
-    bool contains_unsafe(const T& value) const {
-        return _set.find(value) != _set.end();
-    }
-
-    bool insert_unsafe(const T& value) {
-        return _set.insert(value).second;
-    }
-
-    bool erase_unsafe(const T& value) {
-        return _set.erase(value) > 0;
-    }
 };

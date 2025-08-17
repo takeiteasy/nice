@@ -57,14 +57,23 @@ public:
 
     RobotVertex* vertices(uint64_t chunk_id, size_t *count) {
         std::lock_guard<std::shared_mutex> map_lock(_robot_map_mutex);
+        
+        // Check if chunk exists in robot map
+        if (_robot_map.find(chunk_id) == _robot_map.end() || _robot_map[chunk_id].empty()) {
+            if (count) *count = 0;
+            return nullptr;
+        }
+        
         size_t _count = _robot_map[chunk_id].size() * 6;
         RobotVertex *result = new RobotVertex[_count];
         for (size_t i = 0; i < _robot_map[chunk_id].size(); ++i) {
             std::lock_guard<std::shared_mutex> lock_map(_robot_mutex_map[chunk_id]);
             Robot *robot = _robot_map[chunk_id][i];
-            RobotVertex *vertices = robot->vertices(_camera);
-            std::memcpy(&result[i * 6], vertices, sizeof(RobotVertex) * 6);
-            delete[] vertices;
+            if (robot) {  // Safety check for null robots
+                RobotVertex *vertices = robot->vertices(_camera);
+                std::memcpy(&result[i * 6], vertices, sizeof(RobotVertex) * 6);
+                delete[] vertices;
+            }
         }
         if (count)
             *count = _count;

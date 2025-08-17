@@ -74,8 +74,10 @@ class ChunkFactory {
                                      chunk->x(), chunk->y(),
                                      chunk_visibility_to_string(last_visibility),
                                      chunk_visibility_to_string(new_visibility));
-            if (new_visibility == ChunkVisibility::OutOfSign)
+            if (new_visibility == ChunkVisibility::OutOfSign) {
                 _chunks_being_destroyed.insert(chunk->id());
+                chunk->mark_destroyed();
+            }
         }
         if (new_visibility != ChunkVisibility::OutOfSign)
             _robot_factory->update_robots(Chunk::id(chunk->x(), chunk->y()));
@@ -214,19 +216,32 @@ public:
     }
 
     void draw_chunks() {
-        std::shared_lock<std::shared_mutex> lock(_chunks_lock);
+        // Collect valid chunks without holding the lock for too long
+        std::vector<std::pair<uint64_t, Chunk*>> valid_chunks;
+        {
+            std::shared_lock<std::shared_mutex> lock(_chunks_lock);
+            valid_chunks.reserve(_chunks.size());
+            for (const auto& [id, chunk] : _chunks)
+                if (chunk != nullptr && !_chunks_being_destroyed.contains(id))
+                    valid_chunks.emplace_back(id, chunk);
+        }
 
         // Draw chunks first
         sg_apply_pipeline(_pipeline);
         bool force_update_mvp = _camera->is_dirty();
-        for (const auto& [id, chunk] : _chunks)
-            if (chunk != nullptr && !_chunks_being_destroyed.contains(id)) {
-                chunk->draw(_camera, force_update_mvp);
-                size_t vertex_count;
-                RobotVertex *vertices = _robot_factory->vertices(chunk->id(), &vertex_count);
+        for (const auto& [id, chunk] : valid_chunks) {
+            // Double-check chunk is still valid (avoid race condition)
+            if (_chunks_being_destroyed.contains(id))
+                continue;
+                
+            chunk->draw(_camera, force_update_mvp);
+            size_t vertex_count;
+            RobotVertex *vertices = _robot_factory->vertices(id, &vertex_count);
+            if (vertices && vertex_count > 0) {
                 _robot_batch.add_vertices(vertices, vertex_count);
                 delete[] vertices;
             }
+        }
 
         if (_robot_batch.build()) {
             sg_apply_pipeline(_pipeline);

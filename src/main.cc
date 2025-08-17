@@ -173,7 +173,7 @@ static void init(void) {
     state.pass_action = (sg_pass_action) {
         .colors[0] = {
             .load_action = SG_LOADACTION_CLEAR,
-            .clear_value = { .1f, .1f, .1f, .1f }
+            .clear_value = { .9f, .9f, .9f, 1.f }
         }
     };
 

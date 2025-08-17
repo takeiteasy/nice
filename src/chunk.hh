@@ -105,6 +105,7 @@ class Chunk {
     ChunkVertexBatch _batch;
     std::atomic<bool> _is_filled = false;
     std::atomic<bool> _is_built = false;
+    std::atomic<bool> _is_destroyed = false;
     std::atomic<ChunkVisibility> _visibility = ChunkVisibility::OutOfSign;
     glm::mat4 _mvp;
     bool _rebuild_mvp = true;
@@ -192,8 +193,17 @@ public:
         return true;
     }
 
-    ChunkVertex* vertices() {
-        ChunkVertex *vertices = new ChunkVertex[CHUNK_SIZE * 6];
+    std::pair<ChunkVertex*, size_t> vertices() {
+        // First, count solid tiles to allocate the correct amount of memory
+        size_t solid_count = 0;
+        for (int x = 0; x < CHUNK_WIDTH; x++)
+            for (int y = 0; y < CHUNK_HEIGHT; y++)
+                if (_tiles[x][y].solid)
+                    solid_count++;
+
+        ChunkVertex *vertices = new ChunkVertex[solid_count * 6];
+        size_t vertex_index = 0;
+        
         for (int x = 0; x < CHUNK_WIDTH; x++)
             for (int y = 0; y < CHUNK_HEIGHT; y++) {
                 Tile *tile = &_tiles[x][y];
@@ -233,20 +243,21 @@ public:
 
                 static uint16_t _indices[] = {0, 1, 2, 2, 3, 0};
                 for (int i = 0; i < 6; i++) {
-                    ChunkVertex *v = &vertices[(y * CHUNK_WIDTH + x) * 6 + i];
+                    ChunkVertex *v = &vertices[vertex_index + i];
                     v->position = _positions[_indices[i]];
                     v->texcoord = _texcoords[_indices[i]];
                 }
+                vertex_index += 6;
             }
-        return vertices;
+        return {vertices, solid_count * 6};
     }
 
     bool build() {
         if (!is_filled())
             return false;
         std::unique_lock<std::shared_mutex> lock(_chunk_mutex);
-        ChunkVertex *_vertices = vertices();
-        _batch.add_vertices(_vertices, CHUNK_SIZE * 6);
+        auto [_vertices, vertex_count] = vertices();
+        _batch.add_vertices(_vertices, vertex_count);
         lock.unlock();
         _batch.build();
         delete[] _vertices;
@@ -408,7 +419,9 @@ public:
     int y() const { return _y; }
     bool is_filled() const { return _is_filled.load(); }
     bool is_built() const { return _is_built.load(); }
-    bool is_ready() const { return is_filled() && is_built(); }
+    bool is_ready() const { return is_filled() && is_built() && !is_destroyed(); }
+    bool is_destroyed() const { return _is_destroyed.load(); }
+    void mark_destroyed() { _is_destroyed.store(true); }
     ChunkVisibility visibility() const { return _visibility.load(); }
     void set_visibility(ChunkVisibility visibility) { _visibility.store(visibility); }
 };
