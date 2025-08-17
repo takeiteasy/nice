@@ -21,8 +21,6 @@ static struct {
 
 void test_enter(void) {
     state.camera = new Camera();
-    $Assets.load<Texture>("tilemap", "assets/tilemap.exploded.png");
-    $Assets.load<Texture>("robot", "assets/man.exploded.png");
     state.manager = new ChunkFactory(state.camera);
 }
 

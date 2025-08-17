@@ -76,40 +76,21 @@ public:
         return *_instance;
     }
 
-    template<typename T, typename... Args>
-    T* load(const std::string& key, const std::string& path, Args&&... args) {
+    template<typename T, bool ensure, typename... Args>
+    std::optional<T*> get(const std::string& key, Args&&... args) {
         std::lock_guard<std::mutex> lock(_map_lock);
-
-        // Check if already exists
         auto it = _assets.find(key);
         if (it != _assets.end())
-            if (auto* asset = dynamic_cast<T*>(it->second.get())) {
-                if (!asset->is_valid())
-                    asset->load(path);  // Pass path to load
-                return asset;
-            }
-
-        // Create new asset
+            if (auto* asset = dynamic_cast<T*>(it->second.get()))
+                return std::optional<T*>(asset);
+        if (!ensure)
+            return std::nullopt;
         auto asset = std::make_unique<T>(std::forward<Args>(args)...);
         T* result = asset.get();
-        result->load(path);  // Pass path to load
+        result->load(key);  // Pass path to load
         _assets[key] = std::move(asset);
-        return result;
-    }
-
-    template<typename T> T* get(const std::string& key) const {
-        std::lock_guard<std::mutex> lock(_map_lock);
-        auto it = _assets.find(key);
-        if (it != _assets.end())
-            return dynamic_cast<T*>(it->second.get());
-        return nullptr;
-    }
-
-    bool has(const std::string& key) const {
-        std::lock_guard<std::mutex> lock(_map_lock);
-        auto it = _assets.find(key);
-        return it != _assets.end() && it->second->is_valid();
-    }
+        return std::optional<T*>(result);
+    };
 
     void clear() {
         std::lock_guard<std::mutex> lock(_map_lock);

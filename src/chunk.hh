@@ -8,6 +8,7 @@
 #pragma once
 
 #include "batch.hh"
+#include "uuid.hh"
 #include "fmt/format.h"
 #include "camera.hh"
 #include <shared_mutex>
@@ -87,18 +88,7 @@ enum class ChunkVisibility {
     Occluded
 };
 
-static inline std::string chunk_visibility_to_string(ChunkVisibility visibility) {
-    switch (visibility) {
-        case ChunkVisibility::OutOfSign:
-            return "None";
-        case ChunkVisibility::Visible:
-            return "Visible";
-        case ChunkVisibility::Occluded:
-            return "Occluded";
-    }
-}
-
-class Chunk {
+class Chunk: public UUID<Chunk> {
     int _x, _y, _texture_width, _texture_height;
     Tile _tiles[CHUNK_WIDTH][CHUNK_HEIGHT];
     mutable std::shared_mutex _chunk_mutex;
@@ -391,6 +381,17 @@ public:
         sg_range params = SG_RANGE(vs_params);
         sg_apply_uniforms(UB_vs_params, &params);
         _batch.flush();
+    }
+
+    static inline std::string visibility_to_string(ChunkVisibility visibility) {
+        switch (visibility) {
+            case ChunkVisibility::OutOfSign:
+                return "None";
+            case ChunkVisibility::Visible:
+                return "Visible";
+            case ChunkVisibility::Occluded:
+                return "Occluded";
+        }
     }
 
     static uint64_t id(int _x, int _y) {

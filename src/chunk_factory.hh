@@ -30,6 +30,7 @@ class ChunkFactory {
     Texture *_tilemap;
     sg_shader _shader;
     sg_pipeline _pipeline;
+    sg_pipeline _robot_pipeline;
 
     RobotFactory *_robot_factory;
     RobotVertexBatch _robot_batch;
@@ -72,8 +73,8 @@ class ChunkFactory {
         if (new_visibility != last_visibility) {
             std::cout << fmt::format("Chunk at ({}, {}) visibility changed from {} to {}\n",
                                      chunk->x(), chunk->y(),
-                                     chunk_visibility_to_string(last_visibility),
-                                     chunk_visibility_to_string(new_visibility));
+                                     Chunk::visibility_to_string(last_visibility),
+                                     Chunk::visibility_to_string(new_visibility));
             if (new_visibility == ChunkVisibility::OutOfSign) {
                 _chunks_being_destroyed.insert(chunk->id());
                 chunk->mark_destroyed();
@@ -81,6 +82,8 @@ class ChunkFactory {
         }
         if (new_visibility != ChunkVisibility::OutOfSign)
             _robot_factory->update_robots(Chunk::id(chunk->x(), chunk->y()));
+        // TODO: Add timer to Occulded chunks, if not visible for x seconds mark for deletion
+        //       If chunk becomes visible again it will save time reloading it
     }
 
 public:
@@ -98,7 +101,6 @@ public:
         }
         
         chunk->fill();
-        _robot_factory->add_robots(idx, chunk->poisson(5));
         std::cout << fmt::format("Chunk at ({}, {}) finished filling\n", x, y);
 
         {
@@ -131,22 +133,30 @@ public:
                 .write_enabled = true
             },
             .cull_mode = SG_CULLMODE_BACK,
-            .colors[0] = {
-                .pixel_format = SG_PIXELFORMAT_RGBA8,
-                .blend = {
-                    .enabled = true,
-                    .src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
-                    .dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
-                    .src_factor_alpha = SG_BLENDFACTOR_ONE,
-                    .dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA
-                }
-            }
+            .colors[0].pixel_format = SG_PIXELFORMAT_RGBA8
         };
         _pipeline = sg_make_pipeline(&desc);
-        _tilemap = $Assets.get<Texture>("tilemap");
+        desc.colors[0] = {
+            .pixel_format = SG_PIXELFORMAT_RGBA8,
+            .blend = {
+                .enabled = true,
+                .src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
+                .dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+                .src_factor_alpha = SG_BLENDFACTOR_ONE,
+                .dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA
+            }
+        };
+        _robot_pipeline = sg_make_pipeline(&desc);
+        auto tilemap = $Assets.get<Texture, true>("assets/tilemap.exploded.png");
+        if (!tilemap.has_value())
+            throw std::runtime_error("Failed to load tilemap texture");
+        _tilemap = tilemap.value();
 
-        _robot_batch.set_texture($Assets.get<Texture>("robot"));
-        _robot_factory = new RobotFactory(_camera);
+        auto robot_texture = $Assets.get<Texture, true>("assets/robot.exploded.png");
+        if (!robot_texture.has_value())
+            throw std::runtime_error("Failed to load robot texture");
+        _robot_batch.set_texture(robot_texture.value());
+        _robot_factory = new RobotFactory(_camera, robot_texture.value());
     }
 
     ~ChunkFactory() {
@@ -211,6 +221,7 @@ public:
                     chunks_to_delete.push_back(chunk);
                     chunks_to_destroy.push_back(chunk_id);
                     it = _chunks.erase(it);
+                    _robot_factory->delete_robots(chunk_id);
                 } else
                     ++it;
             }
@@ -253,7 +264,7 @@ public:
         }
 
         if (_robot_batch.build()) {
-            sg_apply_pipeline(_pipeline);
+            sg_apply_pipeline(_robot_pipeline);
             vs_params_t vs_params = { .mvp = _camera->matrix() };
             sg_range params = SG_RANGE(vs_params);
             sg_apply_uniforms(UB_vs_params, &params);

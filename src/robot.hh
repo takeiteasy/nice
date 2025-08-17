@@ -12,6 +12,7 @@
 #include "camera.hh"
 #include "sokol/sokol_time.h"
 #include "chunk.hh"
+#include "uuid.hh"
 
 struct RobotVertex {
     glm::vec2 position;
@@ -29,24 +30,7 @@ enum class Direction {
     SouthEast
 };
 
-static inline float to_degrees(float radians) {
-    return radians * (180.0f / M_PI);
-}
-
-static inline float to_radians(float degrees) {
-    return degrees * (M_PI / 180.0f);
-}
-
-static inline Direction bearing(glm::vec2 from, glm::vec2 to) {
-    float l1 = to_radians(from.x);
-    float l2 = to_radians(to.x);
-    float dl = to_radians(to.y - from.y);
-    return static_cast<Direction>(((((static_cast<int> (to_degrees(std::atan2(std::sin(dl) * std::cos(l2),
-                                                                              std::cos(l1) * std::sin(l2) -
-                                                                              (std::sin(l1) * std::cos(l2) * std::cos(dl))))) + 360) % 360) + 180) % 360) / 45);
-}
-
-class Robot {
+class Robot: public UUID<Robot> {
     int _texture_width, _texture_height;
     glm::vec2 _position;
     glm::vec2 _target;
@@ -57,11 +41,25 @@ class Robot {
     uint64_t _last_update_time = 0;
     uint64_t _chunk_id;
 
+    static inline float to_degrees(float radians) {
+        return radians * (180.0f / M_PI);
+    }
+
+    static inline float to_radians(float degrees) {
+        return degrees * (M_PI / 180.0f);
+    }
+
+    static inline Direction bearing(glm::vec2 from, glm::vec2 to) {
+        float l1 = to_radians(from.x);
+        float l2 = to_radians(to.x);
+        float dl = to_radians(to.y - from.y);
+        return static_cast<Direction>(((((static_cast<int> (to_degrees(std::atan2(std::sin(dl) * std::cos(l2),
+                                                                                  std::cos(l1) * std::sin(l2) -
+                                                                                  (std::sin(l1) * std::cos(l2) * std::cos(dl))))) + 360) % 360) + 180) % 360) / 45);
+    }
+
 public:
-    Robot(const glm::vec2& position, uint64_t chunk_id): _chunk_id(chunk_id) {
-        Texture *texture = $Assets.get<Texture>("robot");
-        _texture_width = texture->width();
-        _texture_height = texture->height();
+    Robot(const glm::vec2& position, uint64_t chunk_id, int texture_width, int texture_height): _chunk_id(chunk_id), _texture_width(texture_width), _texture_height(texture_height) {
         auto [chunk_x, chunk_y] = Chunk::unindex(chunk_id);
         _position = Camera::chunk_tile_to_world({chunk_x, chunk_y}, position);
         _target = _position;
