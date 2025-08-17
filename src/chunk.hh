@@ -11,7 +11,7 @@
 #include "uuid.hh"
 #include "fmt/format.h"
 #include "camera.hh"
-#include "ore.hh"
+#include "ore_manager.hh"
 #include <shared_mutex>
 #include <random>
 #include "basic.glsl.h"
@@ -99,7 +99,9 @@ class Chunk: public UUID<Chunk> {
     std::atomic<bool> _is_destroyed = false;
     std::atomic<ChunkVisibility> _visibility = ChunkVisibility::OutOfSign;
     glm::mat4 _mvp;
+    Camera *_camera;
     bool _rebuild_mvp = true;
+    OreManager *_ore_manager;
 
     static void cellular_automata(int width, int height, int fill_chance, int smooth_iterations, int survive, int starve, uint8_t* result) {
         memset(result, 0, width * height * sizeof(uint8_t));
@@ -158,9 +160,14 @@ class Chunk: public UUID<Chunk> {
     }
 
 public:
-    Chunk(int x, int y, Texture *texture): _x(x), _y(y), _texture_width(texture->width()), _texture_height(texture->height()) {
+    Chunk(int x, int y, Camera *camera, Texture *texture): _x(x), _y(y), _camera(camera), _texture_width(texture->width()), _texture_height(texture->height()) {
+        _ore_manager = new OreManager(camera, x, y);
         _batch.set_texture(texture);
     };
+
+    ~Chunk() {
+        delete _ore_manager;
+    }
 
     bool fill() {
         if (is_filled())
@@ -179,6 +186,24 @@ public:
         for (int y = 0; y < CHUNK_HEIGHT; y++)
             for (int x = 0; x < CHUNK_WIDTH; x++)
                 _tiles[x][y].bitmask = _tiles[x][y].solid ? tile_bitmask(this, x, y, 1) : 0;
+
+        // TODO: Run this in a separate thread
+        std::random_device seed;
+        std::mt19937 gen{seed()};
+        std::uniform_int_distribution<> ro{1, static_cast<int>(OreType::COUNT) - 1};
+        // TODO: Check if tile is an edge and reject, ore overlaps wall sprite
+        std::vector<glm::vec2> ore_positions = poisson<30, true, false>(5);
+        std::vector<OreType> ore_types;
+        ore_types.reserve(ore_positions.size());
+        for (int i = 0; i < ore_positions.size(); i++)
+            ore_types.push_back(static_cast<OreType>(ro(gen)));
+
+        std::vector<std::pair<OreType, glm::vec2>> ores;
+        ores.reserve(ore_positions.size());
+        for (size_t i = 0; i < ore_positions.size(); ++i)
+            ores.emplace_back(ore_types[i], ore_positions[i]);
+        _ore_manager->add_ores(ores);
+        _ore_manager->build();
 
         _is_filled.store(true);
         return true;
@@ -213,10 +238,10 @@ public:
                 float tile_y = y * TILE_HEIGHT;
 
                 glm::vec2 _positions[] = {
-                    {tile_x, tile_y},                           // Top-left
-                    {tile_x + TILE_WIDTH, tile_y},              // Top-right
+                    {tile_x, tile_y},                            // Top-left
+                    {tile_x + TILE_WIDTH, tile_y},               // Top-right
                     {tile_x + TILE_WIDTH, tile_y + TILE_HEIGHT}, // Bottom-right
-                    {tile_x, tile_y + TILE_HEIGHT},             // Bottom-left
+                    {tile_x, tile_y + TILE_HEIGHT},              // Bottom-left
                 };
 
                 float iw = 1.f / _texture_width;
@@ -256,7 +281,9 @@ public:
         return true;
     }
 
-    std::vector<glm::vec2> poisson(float r, int k=5, int offset_x=0, int offset_y=0, int max_width=CHUNK_WIDTH, int max_height=CHUNK_HEIGHT, int max_tries=CHUNK_SIZE / 4, bool invert=false) {
+    // TODO: Replace manual solid check with custom function callback
+    template<int K=30, bool Invert=false, bool Lock=true>
+    std::vector<glm::vec2> poisson(float r, int offset_x=0, int offset_y=0, int max_width=CHUNK_WIDTH, int max_height=CHUNK_HEIGHT, int max_tries=CHUNK_SIZE / 4) {
         float cell_size = r / std::sqrt(2.0f);
         int grid_width = static_cast<int>(std::ceil(CHUNK_WIDTH / cell_size));
         int grid_height = static_cast<int>(std::ceil(CHUNK_HEIGHT / cell_size));
@@ -290,7 +317,9 @@ public:
         std::random_device rd;
         std::mt19937 gen(rd());
         std::uniform_real_distribution<float> random_dis(0.0f, 1.0f);
-        std::shared_lock<std::shared_mutex> lock(_chunk_mutex);
+        std::optional<std::shared_lock<std::shared_mutex>> lock;
+        if (Lock)
+            lock.emplace(_chunk_mutex);
         int tries = 0;
         glm::vec2 p;
         while (tries++ < max_tries) {
@@ -301,7 +330,7 @@ public:
             int tile_x = static_cast<int>(p.x);
             int tile_y = static_cast<int>(p.y);
             if (tile_x >= 0 && tile_x < CHUNK_WIDTH && tile_y >= 0 && tile_y < CHUNK_HEIGHT &&
-                static_cast<bool>(_tiles[tile_x][tile_y].solid) == invert)
+                static_cast<bool>(_tiles[tile_x][tile_y].solid) == Invert)
                 break;
         }
         if (tries >= max_tries)
@@ -318,7 +347,7 @@ public:
             queue[qi] = queue.back();
             queue.pop_back();
 
-            for (int i = 0; i < k; i++) {
+            for (int i = 0; i < K; i++) {
                 float alpha = 2.0f * M_PI * random_dis(gen);
                 float d = r * std::sqrt(3.0f * random_dis(gen) + 1.0f);
                 float px = point.x + d * std::cos(alpha);
@@ -336,7 +365,7 @@ public:
                 // Check if tile is solid
                 int tile_x = static_cast<int>(px);
                 int tile_y = static_cast<int>(py);
-                if (static_cast<bool>(_tiles[tile_x][tile_y].solid) != invert)
+                if (static_cast<bool>(_tiles[tile_x][tile_y].solid) != Invert)
                     continue;
 
                 glm::vec2 new_point = glm::vec2(px, py);
@@ -349,7 +378,8 @@ public:
                 grid[gx][gy] = new glm::vec2(new_point);
             }
         }
-        lock.unlock();
+        if (Lock && lock.has_value())
+            lock.value().unlock();
 
         std::vector<glm::vec2> points;
         for (int x = 0; x < grid_width; x++)
@@ -365,12 +395,12 @@ public:
         return points;
     }
 
-    void draw(Camera *camera, bool force_update = false) {
+    void draw(bool force_update = false) {
         if (!is_ready())
             return;
 
         if (_rebuild_mvp || force_update) {
-            _mvp = glm::translate(camera->matrix(),
+            _mvp = glm::translate(_camera->matrix(),
                                   glm::vec3(_x * CHUNK_WIDTH * TILE_WIDTH,
                                             _y * CHUNK_HEIGHT * TILE_HEIGHT,
                                             0.f));
@@ -382,6 +412,12 @@ public:
         sg_range params = SG_RANGE(vs_params);
         sg_apply_uniforms(UB_vs_params, &params);
         _batch.flush();
+    }
+
+    void draw_ores() {
+        if (_ore_manager->is_dirty())
+            _ore_manager->build();
+        _ore_manager->draw();
     }
 
     static inline std::string visibility_to_string(ChunkVisibility visibility) {

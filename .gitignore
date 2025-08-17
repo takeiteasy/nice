@@ -6,3 +6,4 @@ bin/
 *.xcodeproj/
 .vscode/
 compile_commands.json
+tools/.venv

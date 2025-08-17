@@ -24,9 +24,7 @@ namespace uuid::v4 {
             std::uniform_int_distribution<int> dist{0, 256}; //Limits of the interval
 
             for (int index = 0; index < 16; ++index)
-            {
-                uuid._data[index] = (unsigned char)dist(engine);
-            }
+                uuid._data[index] = (uint8_t)dist(engine);
 
             uuid._data[6] = ((uuid._data[6] & 0x0f) | 0x40); // Version 4
             uuid._data[8] = ((uuid._data[8] & 0x3f) | 0x80); // Variant is 10
@@ -35,8 +33,7 @@ namespace uuid::v4 {
         }
 
         // Returns UUID as formatted string
-        std::string String()
-        {
+        std::string String() {
             // Formats to "0065e7d7-418c-4da4-b4d6-b54b6cf7466a"
             char buffer[256] = {0};
             std::snprintf(buffer, 255,
@@ -52,29 +49,34 @@ namespace uuid::v4 {
             return uuid;
         }
 
+        const uint8_t *data() const {
+            return _data;
+        }
+
     private:
         UUID() {}
 
-        unsigned char _data[16] = {0};
+        uint8_t _data[16] = {0};
     };
 };
 
-typedef uuid::v4::UUID uuid_t;
+using uuid_v4 = uuid::v4::UUID;
+typedef uuid_v4 uuid_t;
 
 template <typename Derived>
 class UUID {
 private:
-    uuid::v4::UUID instance_uuid;
+    uuid_t instance_uuid;
 
 public:
-    UUID() : instance_uuid(uuid::v4::UUID::New()) {}
-    UUID(const UUID &other) : instance_uuid(uuid::v4::UUID::New()) {}
+    UUID() : instance_uuid(uuid_v4::New()) {}
+    UUID(const UUID &other) : instance_uuid(uuid_v4::New()) {}
     UUID(UUID &&other) noexcept : instance_uuid(std::move(other.instance_uuid)) {}
 
     // Assignment operators
     UUID &operator=(const UUID &other) {
         if (this != &other)
-            instance_uuid = uuid::v4::UUID::New();
+            instance_uuid = uuid_v4::New();
         return *this;
     }
 
@@ -82,6 +84,10 @@ public:
         if (this != &other)
             instance_uuid = std::move(other.instance_uuid);
         return *this;
+    }
+
+    bool operator==(const UUID &other) const {
+        return std::memcmp(instance_uuid.data(), other.instance_uuid.data(), 16 * sizeof(uint8_t)) == 0;
     }
 
     const uuid_t &uuid() const {

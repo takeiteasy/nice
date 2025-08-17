@@ -13,9 +13,6 @@
 #include <unordered_map>
 #include <iostream>
 #include "fmt/format.h"
-#include "robot_factory.hh"
-
-typedef VertexBatch<RobotVertex> RobotVertexBatch;
 
 class ChunkFactory {
     std::unordered_map<uint64_t, Chunk*> _chunks;
@@ -30,10 +27,7 @@ class ChunkFactory {
     Texture *_tilemap;
     sg_shader _shader;
     sg_pipeline _pipeline;
-    sg_pipeline _robot_pipeline;
-
-    RobotFactory *_robot_factory;
-    RobotVertexBatch _robot_batch;
+    sg_pipeline _ore_pipeline;
 
     void ensure_chunk(int x, int y, bool priority) {
         uint64_t idx = Chunk::id(x, y);
@@ -80,8 +74,6 @@ class ChunkFactory {
                 chunk->mark_destroyed();
             }
         }
-        if (new_visibility != ChunkVisibility::OutOfSign)
-            _robot_factory->update_robots(Chunk::id(chunk->x(), chunk->y()));
         // TODO: Add timer to Occulded chunks, if not visible for x seconds mark for deletion
         //       If chunk becomes visible again it will save time reloading it
     }
@@ -91,7 +83,7 @@ public:
     _create_chunk_queue([&](std::pair<int, int> coords) {
         auto [x, y] = coords;
         uint64_t idx = Chunk::id(x, y);
-        Chunk *chunk = new Chunk(x, y, _tilemap);
+        Chunk *chunk = new Chunk(x, y, _camera, _tilemap);
         
         {
             std::unique_lock<std::shared_mutex> lock(_chunks_lock);
@@ -146,17 +138,11 @@ public:
                 .dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA
             }
         };
-        _robot_pipeline = sg_make_pipeline(&desc);
+        _ore_pipeline = sg_make_pipeline(&desc);
         auto tilemap = $Assets.get<Texture, true>("assets/tilemap.exploded.png");
         if (!tilemap.has_value())
             throw std::runtime_error("Failed to load tilemap texture");
         _tilemap = tilemap.value();
-
-        auto robot_texture = $Assets.get<Texture, true>("assets/robot.exploded.png");
-        if (!robot_texture.has_value())
-            throw std::runtime_error("Failed to load robot texture");
-        _robot_batch.set_texture(robot_texture.value());
-        _robot_factory = new RobotFactory(_camera, robot_texture.value());
     }
 
     ~ChunkFactory() {
@@ -164,6 +150,8 @@ public:
             sg_destroy_shader(_shader);
         if (sg_query_pipeline_state(_pipeline) == SG_RESOURCESTATE_VALID)
             sg_destroy_pipeline(_pipeline);
+        if (sg_query_pipeline_state(_ore_pipeline) == SG_RESOURCESTATE_VALID)
+            sg_destroy_pipeline(_ore_pipeline);
         {
             std::unique_lock<std::shared_mutex> lock(_chunks_lock);
             for (auto& [id, chunk] : _chunks)
@@ -221,7 +209,6 @@ public:
                     chunks_to_delete.push_back(chunk);
                     chunks_to_destroy.push_back(chunk_id);
                     it = _chunks.erase(it);
-                    _robot_factory->delete_robots(chunk_id);
                 } else
                     ++it;
             }
@@ -253,22 +240,12 @@ public:
             // Double-check chunk is still valid (avoid race condition)
             if (_chunks_being_destroyed.contains(id))
                 continue;
-                
-            chunk->draw(_camera, force_update_mvp);
-            size_t vertex_count;
-            RobotVertex *vertices = _robot_factory->vertices(id, &vertex_count);
-            if (vertices && vertex_count > 0) {
-                _robot_batch.add_vertices(vertices, vertex_count);
-                delete[] vertices;
-            }
+            chunk->draw(force_update_mvp);
         }
 
-        if (_robot_batch.build()) {
-            sg_apply_pipeline(_robot_pipeline);
-            vs_params_t vs_params = { .mvp = _camera->matrix() };
-            sg_range params = SG_RANGE(vs_params);
-            sg_apply_uniforms(UB_vs_params, &params);
-            _robot_batch.flush(true);
-        }
+        // Draw ores
+        sg_apply_pipeline(_ore_pipeline);
+        for (const auto& [id, chunk] : valid_chunks)
+            chunk->draw_ores();
     }
 };

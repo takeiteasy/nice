@@ -43,7 +43,7 @@ void test_step(void) {
     sdtx_home();
     sdtx_printf("fps:    %.2f\n", 1.f / sapp_frame_duration());
     sdtx_printf("pos:    (%.2f, %.2f)\n", state.camera->position().x, state.camera->position().y);
-    sdtx_printf("zoom:   (%.2f)\n", state.camera->zoom());
+    sdtx_printf("zoom:   %.2f\n", state.camera->zoom());
     sdtx_printf("drag:   %s\n", state.camera_dragging ? "true" : "false");
     glm::vec2 mouse_pos = glm::vec2(sapp_mouse_x(), sapp_mouse_y());
     sdtx_printf("mouse:  (%.2f, %.2f)\n", mouse_pos.x, mouse_pos.y);
