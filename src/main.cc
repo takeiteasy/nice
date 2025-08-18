@@ -28,7 +28,7 @@
 #include "sokol_input.h"
 #include "glm/vec2.hpp"
 #include "passthru.glsl.h"
-#include "assets.hh"
+#include "asset_manager.hh"
 
 #ifndef DEFAULT_WINDOW_WIDTH
 #define DEFAULT_WINDOW_WIDTH 640

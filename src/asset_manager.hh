@@ -76,8 +76,8 @@ public:
         return *_instance;
     }
 
-    template<typename T, bool ensure, typename... Args>
-    std::optional<T*> get(const std::string& key, Args&&... args) {
+    template<typename T, typename... Args>
+    std::optional<T*> get(const std::string& key, bool ensure = true, Args&&... args) {
         std::lock_guard<std::mutex> lock(_map_lock);
         auto it = _assets.find(key);
         if (it != _assets.end())

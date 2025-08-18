@@ -1,9 +1,28 @@
-//
-//  uuid.hh
-//  rpg
-//
-//  Created by George Watson on 17/08/2025.
-//
+/* https://github.com/rkg82/uuid-v4/
+
+ MIT License
+
+ Copyright (c) 2020 radhakrishnan-rkg
+
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+
+ The above copyright notice and this permission notice shall be included in all
+ copies or substantial portions of the Software.
+
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ SOFTWARE.
+
+ */
 
 #pragma once
 
@@ -62,39 +81,3 @@ namespace uuid::v4 {
 
 using uuid_v4 = uuid::v4::UUID;
 typedef uuid_v4 uuid_t;
-
-template <typename Derived>
-class UUID {
-private:
-    uuid_t instance_uuid;
-
-public:
-    UUID() : instance_uuid(uuid_v4::New()) {}
-    UUID(const UUID &other) : instance_uuid(uuid_v4::New()) {}
-    UUID(UUID &&other) noexcept : instance_uuid(std::move(other.instance_uuid)) {}
-
-    // Assignment operators
-    UUID &operator=(const UUID &other) {
-        if (this != &other)
-            instance_uuid = uuid_v4::New();
-        return *this;
-    }
-
-    UUID &operator=(UUID &&other) noexcept {
-        if (this != &other)
-            instance_uuid = std::move(other.instance_uuid);
-        return *this;
-    }
-
-    bool operator==(const UUID &other) const {
-        return std::memcmp(instance_uuid.data(), other.instance_uuid.data(), 16 * sizeof(uint8_t)) == 0;
-    }
-
-    const uuid_t &uuid() const {
-        return instance_uuid;
-    }
-
-    std::string uuid_as_string() {
-        return instance_uuid.String();
-    }
-};
