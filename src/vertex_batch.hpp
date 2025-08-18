@@ -1,5 +1,5 @@
 //
-//  batch.hh
+//  vertex_batch.hpp
 //  rpg
 //
 //  Created by George Watson on 11/08/2025.
@@ -12,7 +12,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <memory>
-#include "texture.hh"
+#include "texture.hpp"
 #include "glm/vec2.hpp"
 #include "glm/vec4.hpp"
 

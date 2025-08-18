@@ -1,5 +1,5 @@
 //
-//  camera.hh
+//  camera.hpp
 //  rpg
 //
 //  Created by George Watson on 03/08/2025.
@@ -12,7 +12,7 @@
 #include "glm/mat4x4.hpp"
 #include "glm/gtc/matrix_transform.hpp"
 #include "sokol/sokol_app.h"
-#include "framebuffer.hh"
+#include "global.hpp"
 
 struct Rect {
     int x, y, w, h;

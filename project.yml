@@ -21,7 +21,7 @@ targets:
         - path: scenes/
         - path: deps/fmt
           includes:
-            - "*.cc"
+            - "*.cpp"
           excludes:
             - "fmt.cc"
         - path: deps/

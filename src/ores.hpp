@@ -1,5 +1,5 @@
 //
-//  ores.hh
+//  ores.hpp
 //  rpg
 //
 //  Created by George Watson on 17/08/2025.
@@ -8,10 +8,10 @@
 #pragma once
 
 #include "config.h"
-#include "asset_manager.hh"
-#include "batch.hh"
-#include "camera.hh"
-#include "game_object.hh"
+#include "asset_manager.hpp"
+#include "vertex_batch.hpp"
+#include "camera.hpp"
+#include "game_object.hpp"
 #include <shared_mutex>
 #include <iostream>
 #include <vector>
@@ -80,20 +80,24 @@ public:
         return ore_type_to_string(_type);
     }
 
-    BasicVertex* vertices() const override {
+    std::pair<BasicVertex*, size_t> vertices() override {
         int clip_y = static_cast<int>(ore_texcoords(_type).y);
         int tile_index = clip_y / ORE_ORIGINAL_HEIGHT;
-        return generate_quad(_position - (glm::vec2(TILE_WIDTH, TILE_HEIGHT) / 2.f),
-                             {ORE_WIDTH, ORE_HEIGHT},
-                             {0, static_cast<int>(clip_y + (tile_index * ORE_PADDING))},
-                             {ORE_ORIGINAL_WIDTH, ORE_ORIGINAL_HEIGHT},
-                             {_texture_width, _texture_height});
+        return {generate_quad(_position - (glm::vec2(TILE_WIDTH, TILE_HEIGHT) / 2.f),
+                              {ORE_WIDTH, ORE_HEIGHT},
+                              {0, static_cast<int>(clip_y + (tile_index * ORE_PADDING))},
+                              {ORE_ORIGINAL_WIDTH, ORE_ORIGINAL_HEIGHT},
+                              {_texture_width, _texture_height}),
+                6};
     }
 };
 
-class OreManager: public Factory<Ore> {
+// TODO: Make OreManager class, manage ores for all chunks and factories for each chunk
+// TODO: Make GameObjectFactoryManager class to inherit from
+
+class OreFactory: public GameObjectFactory<Ore> {
 public:
-    OreManager(Camera *camera, Texture *texture, int chunk_x, int chunk_y): Factory<Ore>(camera, texture, chunk_x, chunk_y) {}
+    OreFactory(Camera *camera, Texture *texture, int chunk_x, int chunk_y): GameObjectFactory<Ore>(camera, texture, chunk_x, chunk_y) {}
 
     void add_ores(const std::vector<std::pair<OreType, glm::vec2>>& ores) {
         if (ores.empty())

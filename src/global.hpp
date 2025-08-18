@@ -1,5 +1,5 @@
 //
-//  framebuffer.hh
+//  framebuffer.hpp
 //  rpg
 //
 //  Created by George Watson on 01/08/2025.

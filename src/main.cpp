@@ -15,7 +15,7 @@
  You should have received a copy of the GNU General Public License
  along with this program.  If not, see <https://www.gnu.org/licenses/>. */
 
-#include "scene.hh"
+#include "scene.hpp"
 #define SOKOL_IMPL
 #include "sokol/sokol_gfx.h"
 #include "sokol/sokol_app.h"
@@ -28,7 +28,7 @@
 #include "sokol_input.h"
 #include "glm/vec2.hpp"
 #include "passthru.glsl.h"
-#include "asset_manager.hh"
+#include "asset_manager.hpp"
 
 #ifndef DEFAULT_WINDOW_WIDTH
 #define DEFAULT_WINDOW_WIDTH 640

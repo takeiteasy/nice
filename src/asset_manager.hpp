@@ -1,5 +1,5 @@
 //
-//  assets.hh
+//  assets.hpp
 //  rpg
 //
 //  Created by George Watson on 16/08/2025.
@@ -13,6 +13,8 @@
 #include <unordered_map>
 #include <string>
 #include <optional>
+
+#define $Assets Assets::instance()
 
 class AssetBase {
 public:
@@ -97,5 +99,3 @@ public:
         _assets.clear();
     }
 };
-
-#define $Assets Assets::instance()

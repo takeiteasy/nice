@@ -1,5 +1,5 @@
 //
-//  chunks.hh
+//  chunks.hpp
 //  rpg
 //
 //  Created by George Watson on 14/08/2025.
@@ -7,14 +7,13 @@
 
 #pragma once
 
-#include "asset_manager.hh"
-#include "batch.hh"
+#include "asset_manager.hpp"
+#include "vertex_batch.hpp"
 #include "fmt/format.h"
-#include "camera.hh"
-#include "jobs.hh"
+#include "camera.hpp"
 #include <unordered_map>
 #include <iostream>
-#include "ores.hh"
+#include "ores.hpp"
 #include <shared_mutex>
 #include <random>
 #include "basic.glsl.h"
@@ -69,12 +68,7 @@ static const glm::vec2 Autotile3x3Simplified[256] = {
     [255] = {9, 2},
 };
 
-struct ChunkVertex {
-    glm::vec2 position;
-    glm::vec2 texcoord;
-};
-
-typedef VertexBatch<ChunkVertex, CHUNK_SIZE * 6, false> ChunkVertexBatch;
+typedef VertexBatch<BasicVertex, CHUNK_SIZE * 6, false> ChunkVertexBatch;
 
 union Tile {
     struct {
@@ -92,8 +86,8 @@ enum class ChunkVisibility {
     Occluded
 };
 
-class Chunk {
-    int _x, _y, _texture_width, _texture_height;
+class Chunk: GameObject<> {
+    int _x, _y;
     Tile _tiles[CHUNK_WIDTH][CHUNK_HEIGHT];
     mutable std::shared_mutex _chunk_mutex;
     ChunkVertexBatch _batch;
@@ -104,7 +98,7 @@ class Chunk {
     glm::mat4 _mvp;
     Camera *_camera;
     bool _rebuild_mvp = true;
-    OreManager *_ore_manager;
+    OreFactory *_ore_test_factory; // TODO: Remove
 
     static void cellular_automata(int width, int height, int fill_chance, int smooth_iterations, int survive, int starve, uint8_t* result) {
         memset(result, 0, width * height * sizeof(uint8_t));
@@ -163,16 +157,17 @@ class Chunk {
     }
 
 public:
-    Chunk(int x, int y, Camera *camera, Texture *texture): _x(x), _y(y), _camera(camera), _texture_width(texture->width()), _texture_height(texture->height()) {
-        auto ore_texture = $Assets.get<Texture>("assets/ores.exploded.png");
-        if (!ore_texture.has_value())
-            throw std::runtime_error(fmt::format("Failed to load ore texture for chunk at ({}, {})", x, y));
-        _ore_manager = new OreManager(camera, ore_texture.value(), x, y);
+    Chunk(int x, int y, Camera *camera, Texture *texture)
+        : GameObject<>({x * TILE_WIDTH, y * TILE_HEIGHT}, x, y, texture->width(), texture->height())
+        , _camera(camera)
+        , _x(x)
+        , _y(y) {
+        _ore_test_factory = new OreFactory(camera, $Assets.get<Texture>("assets/ores.exploded.png").value(), x, y);
         _batch.set_texture(texture);
     };
 
     ~Chunk() {
-        delete _ore_manager;
+        delete _ore_test_factory;
     }
 
     bool fill() {
@@ -193,7 +188,6 @@ public:
             for (int x = 0; x < CHUNK_WIDTH; x++)
                 _tiles[x][y].bitmask = _tiles[x][y].solid ? tile_bitmask(this, x, y, 1) : 0;
 
-        // TODO: Run this in a separate thread
         std::random_device seed;
         std::mt19937 gen{seed()};
         std::uniform_int_distribution<> ro{1, static_cast<int>(OreType::COUNT) - 1};
@@ -208,14 +202,14 @@ public:
         ores.reserve(ore_positions.size());
         for (size_t i = 0; i < ore_positions.size(); ++i)
             ores.emplace_back(ore_types[i], ore_positions[i]);
-        _ore_manager->add_ores(ores);
-        _ore_manager->build();
+        _ore_test_factory->add_ores(ores);
+        _ore_test_factory->build();
 
         _is_filled.store(true);
         return true;
     }
 
-    std::pair<ChunkVertex*, size_t> vertices() {
+    std::pair<BasicVertex*, size_t> vertices() override {
         // First, count solid tiles to allocate the correct amount of memory
         size_t solid_count = 0;
         for (int x = 0; x < CHUNK_WIDTH; x++)
@@ -223,52 +217,23 @@ public:
                 if (_tiles[x][y].solid)
                     solid_count++;
 
-        ChunkVertex *vertices = new ChunkVertex[solid_count * 6];
+        BasicVertex *vertices = new BasicVertex[solid_count * 6];
         size_t vertex_index = 0;
-        
         for (int x = 0; x < CHUNK_WIDTH; x++)
             for (int y = 0; y < CHUNK_HEIGHT; y++) {
                 Tile *tile = &_tiles[x][y];
                 if (!tile->solid)
                     continue;
-
                 glm::vec2 clip = Autotile3x3Simplified[tile->bitmask];
-                Rect src = {
-                    static_cast<int>((clip.x * TILE_ORIGINAL_WIDTH) + ((clip.x + 1) * TILE_PADDING)),
-                    static_cast<int>((clip.y * TILE_ORIGINAL_HEIGHT) + ((clip.y + 1) * TILE_PADDING)),
-                    TILE_ORIGINAL_WIDTH, TILE_ORIGINAL_HEIGHT
-                };
-
-                // Calculate world position for this tile
-                float tile_x = x * TILE_WIDTH;
-                float tile_y = y * TILE_HEIGHT;
-
-                glm::vec2 _positions[] = {
-                    {tile_x, tile_y},                            // Top-left
-                    {tile_x + TILE_WIDTH, tile_y},               // Top-right
-                    {tile_x + TILE_WIDTH, tile_y + TILE_HEIGHT}, // Bottom-right
-                    {tile_x, tile_y + TILE_HEIGHT},              // Bottom-left
-                };
-
-                float iw = 1.f / _texture_width;
-                float ih = 1.f / _texture_height;
-                float tl = src.x * iw;
-                float tt = src.y * ih;
-                float tr = (src.x + src.w) * iw;
-                float tb = (src.y + src.h) * ih;
-                glm::vec2 _texcoords[4] = {
-                    {tl, tt}, // top left
-                    {tr, tt}, // top right
-                    {tr, tb}, // bottom right
-                    {tl, tb}, // bottom left
-                };
-
-                static uint16_t _indices[] = {0, 1, 2, 2, 3, 0};
-                for (int i = 0; i < 6; i++) {
-                    ChunkVertex *v = &vertices[vertex_index + i];
-                    v->position = _positions[_indices[i]];
-                    v->texcoord = _texcoords[_indices[i]];
-                }
+                int clip_x = static_cast<int>((clip.x * TILE_ORIGINAL_WIDTH) + ((clip.x + 1) * TILE_PADDING));
+                int clip_y = static_cast<int>((clip.y * TILE_ORIGINAL_HEIGHT) + ((clip.y + 1) * TILE_PADDING));
+                BasicVertex *veritces = generate_quad({x * TILE_WIDTH, y * TILE_HEIGHT},
+                                                      {TILE_WIDTH, TILE_HEIGHT},
+                                                      {clip_x, clip_y},
+                                                      {TILE_ORIGINAL_WIDTH, TILE_ORIGINAL_HEIGHT},
+                                                      {_texture_width, _texture_height});
+                std::copy(veritces, veritces + 6, &vertices[vertex_index]);
+                delete[] veritces;
                 vertex_index += 6;
             }
         return {vertices, solid_count * 6};
@@ -421,9 +386,9 @@ public:
     }
 
     void draw_ores() {
-        if (_ore_manager->is_dirty())
-            _ore_manager->build();
-        _ore_manager->draw();
+        if (_ore_test_factory->is_dirty())
+            _ore_test_factory->build();
+        _ore_test_factory->draw();
     }
 
     static inline std::string visibility_to_string(ChunkVisibility visibility) {
@@ -486,240 +451,4 @@ public:
     void mark_destroyed() { _is_destroyed.store(true); }
     ChunkVisibility visibility() const { return _visibility.load(); }
     void set_visibility(ChunkVisibility visibility) { _visibility.store(visibility); }
-};
-
-class ChunkManager {
-    std::unordered_map<uint64_t, Chunk*> _chunks;
-    mutable std::shared_mutex _chunks_lock;
-    JobQueue<std::pair<int, int>> _create_chunk_queue;
-    ThreadSafeSet<uint64_t> _chunks_being_created;
-    JobQueue<Chunk*> _build_chunk_queue;
-    ThreadSafeSet<uint64_t> _chunks_being_built;
-    ThreadSafeSet<uint64_t> _chunks_being_destroyed;
-
-    Camera *_camera;
-    Texture *_tilemap;
-    sg_shader _shader;
-    sg_pipeline _pipeline;
-    sg_pipeline _ore_pipeline;
-
-    void ensure_chunk(int x, int y, bool priority) {
-        uint64_t idx = Chunk::id(x, y);
-
-        // Check if chunk already exists or is being processed
-        {
-            std::shared_lock<std::shared_mutex> chunks_lock(_chunks_lock);
-            if (_chunks.find(idx) != _chunks.end())
-                return;
-        }
-
-        // Check and insert atomically using ThreadSafeSet methods
-        if (_chunks_being_created.contains(idx) ||
-            _chunks_being_built.contains(idx))
-            return;
-
-        // Try to mark as being created
-        if (!_chunks_being_created.insert(idx))
-            return; // Another thread already marked it
-
-        if (priority)
-            _create_chunk_queue.enqueue_priority({x, y});
-        else
-            _create_chunk_queue.enqueue({x, y});
-    }
-
-    void update_chunk(Chunk *chunk, const Rect &camera_bounds, const Rect &max_bounds) {
-        if (!chunk->is_ready())
-            return;
-
-        ChunkVisibility last_visibility = chunk->visibility();
-        Rect chunk_bounds = chunk->bounds();
-        ChunkVisibility new_visibility = !max_bounds.intersects(chunk_bounds) ? ChunkVisibility::OutOfSign :
-                                         camera_bounds.intersects(chunk_bounds) ? ChunkVisibility::Visible :
-                                         ChunkVisibility::Occluded;
-        chunk->set_visibility(new_visibility);
-        if (new_visibility != last_visibility) {
-            std::cout << fmt::format("Chunk at ({}, {}) visibility changed from {} to {}\n",
-                                     chunk->x(), chunk->y(),
-                                     Chunk::visibility_to_string(last_visibility),
-                                     Chunk::visibility_to_string(new_visibility));
-            if (new_visibility == ChunkVisibility::OutOfSign) {
-                _chunks_being_destroyed.insert(chunk->id());
-                chunk->mark_destroyed();
-            }
-        }
-        // TODO: Add timer to Occulded chunks, if not visible for x seconds mark for deletion
-        //       If chunk becomes visible again it will save time reloading it
-    }
-
-public:
-    ChunkManager(Camera *camera): _camera(camera),
-    _create_chunk_queue([&](std::pair<int, int> coords) {
-        auto [x, y] = coords;
-        uint64_t idx = Chunk::id(x, y);
-        Chunk *chunk = new Chunk(x, y, _camera, _tilemap);
-
-        {
-            std::unique_lock<std::shared_mutex> lock(_chunks_lock);
-            std::cout << fmt::format("New chunk created at ({}, {})\n", x, y);
-            _chunks[idx] = chunk;
-            _chunks_being_created.erase(idx);  // Remove from being created set
-        }
-
-        chunk->fill();
-        std::cout << fmt::format("Chunk at ({}, {}) finished filling\n", x, y);
-
-        {
-            std::lock_guard<std::shared_mutex> lock(_chunks_lock);
-            _chunks_being_built.insert(idx);  // Mark as being built
-        }
-        _build_chunk_queue.enqueue(chunk);
-    }),
-    _build_chunk_queue([&](Chunk *chunk) {
-        chunk->build();
-        std::cout << fmt::format("Chunk at ({}, {}) finished building\n", chunk->x(), chunk->y());
-
-        // Remove from being built set after successful build
-        uint64_t idx = chunk->id();
-        _chunks_being_built.erase(idx);
-    }) {
-        _shader = sg_make_shader(basic_shader_desc(sg_query_backend()));
-        sg_pipeline_desc desc = {
-            .shader = _shader,
-            .layout = {
-                .buffers[0].stride = sizeof(ChunkVertex),
-                .attrs = {
-                    [ATTR_basic_position].format = SG_VERTEXFORMAT_FLOAT2,
-                    [ATTR_basic_texcoord].format = SG_VERTEXFORMAT_FLOAT2
-                }
-            },
-            .depth = {
-                .pixel_format = SG_PIXELFORMAT_DEPTH,
-                .compare = SG_COMPAREFUNC_LESS_EQUAL,
-                .write_enabled = true
-            },
-            .cull_mode = SG_CULLMODE_BACK,
-            .colors[0].pixel_format = SG_PIXELFORMAT_RGBA8
-        };
-        _pipeline = sg_make_pipeline(&desc);
-        desc.colors[0] = {
-            .pixel_format = SG_PIXELFORMAT_RGBA8,
-            .blend = {
-                .enabled = true,
-                .src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
-                .dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
-                .src_factor_alpha = SG_BLENDFACTOR_ONE,
-                .dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA
-            }
-        };
-        _ore_pipeline = sg_make_pipeline(&desc);
-        auto tilemap = $Assets.get<Texture>("assets/tilemap.exploded.png");
-        if (!tilemap.has_value())
-            throw std::runtime_error("Failed to load tilemap texture");
-        _tilemap = tilemap.value();
-    }
-
-    ~ChunkManager() {
-        if (sg_query_shader_state(_shader) == SG_RESOURCESTATE_VALID)
-            sg_destroy_shader(_shader);
-        if (sg_query_pipeline_state(_pipeline) == SG_RESOURCESTATE_VALID)
-            sg_destroy_pipeline(_pipeline);
-        if (sg_query_pipeline_state(_ore_pipeline) == SG_RESOURCESTATE_VALID)
-            sg_destroy_pipeline(_ore_pipeline);
-        {
-            std::unique_lock<std::shared_mutex> lock(_chunks_lock);
-            for (auto& [id, chunk] : _chunks)
-                if (chunk != nullptr)
-                    delete chunk;
-            _chunks.clear();
-        }
-    }
-
-    void update_chunks() {
-        Rect max_bounds = _camera->max_bounds();
-        Rect bounds = _camera->bounds();
-
-        // Collect chunks to update without holding the lock
-        std::vector<Chunk*> chunks_to_update;
-        {
-            std::shared_lock<std::shared_mutex> lock(_chunks_lock);
-            chunks_to_update.reserve(_chunks.size());
-            for (const auto& [id, chunk] : _chunks)
-                chunks_to_update.push_back(chunk);
-        }
-
-        // Update chunks without holding the lock
-        for (auto chunk : chunks_to_update)
-            update_chunk(chunk, bounds, max_bounds);
-    }
-
-    void scan_for_chunks() {
-        Rect max_bounds = _camera->max_bounds();
-        Rect bounds = _camera->bounds();
-        glm::vec2 tl = glm::vec2(max_bounds.x, max_bounds.y);
-        glm::vec2 br = glm::vec2(max_bounds.x + max_bounds.w, max_bounds.y + max_bounds.h);
-        glm::vec2 tl_chunk = _camera->world_to_chunk(tl);
-        glm::vec2 br_chunk = _camera->world_to_chunk(br);
-        for (int y = (int)tl_chunk.y; y <= (int)br_chunk.y; y++)
-            for (int x = (int)tl_chunk.x; x <= (int)br_chunk.x; x++) {
-                Rect chunk_bounds = Chunk::bounds(x, y);
-                if (chunk_bounds.intersects(max_bounds))
-                    ensure_chunk(x, y, chunk_bounds.intersects(bounds));
-            }
-    }
-
-    void release_chunks() {
-        std::vector<uint64_t> chunks_to_destroy;
-        std::vector<Chunk*> chunks_to_delete;
-        {
-            std::unique_lock<std::shared_mutex> lock(_chunks_lock);
-            // Iterate through chunks and check if they're marked for destruction
-            for (auto it = _chunks.begin(); it != _chunks.end();) {
-                uint64_t chunk_id = it->first;
-                Chunk* chunk = it->second;
-
-                if (_chunks_being_destroyed.contains(chunk_id)) {
-                    std::cout << fmt::format("Releasing chunk at ({}, {})\n", chunk->x(), chunk->y());
-                    chunks_to_delete.push_back(chunk);
-                    chunks_to_destroy.push_back(chunk_id);
-                    it = _chunks.erase(it);
-                } else
-                    ++it;
-            }
-        }
-
-        // Delete chunks outside of the lock
-        for (Chunk* chunk : chunks_to_delete)
-            delete chunk;
-        // Remove from destroyed set
-        for (uint64_t chunk_id : chunks_to_destroy)
-            _chunks_being_destroyed.erase(chunk_id);
-    }
-
-    void draw_chunks() {
-        // Collect valid chunks without holding the lock for too long
-        std::vector<std::pair<uint64_t, Chunk*>> valid_chunks;
-        {
-            std::shared_lock<std::shared_mutex> lock(_chunks_lock);
-            valid_chunks.reserve(_chunks.size());
-            for (const auto& [id, chunk] : _chunks)
-                if (chunk != nullptr && !_chunks_being_destroyed.contains(id))
-                    valid_chunks.emplace_back(id, chunk);
-        }
-
-        // Draw chunks first
-        sg_apply_pipeline(_pipeline);
-        bool force_update_mvp = _camera->is_dirty();
-        for (const auto& [id, chunk] : valid_chunks) {
-            // Double-check chunk is still valid (avoid race condition)
-            if (_chunks_being_destroyed.contains(id))
-                continue;
-            chunk->draw(force_update_mvp);
-        }
-
-        // Draw ores
-        sg_apply_pipeline(_ore_pipeline);
-        for (const auto& [id, chunk] : valid_chunks)
-            chunk->draw_ores();
-    }
 };

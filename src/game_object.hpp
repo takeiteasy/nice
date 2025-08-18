@@ -1,5 +1,5 @@
 //
-//  game_object.hh
+//  game_object.hpp
 //  rpg
 //
 //  Created by George Watson on 18/08/2025.
@@ -7,9 +7,9 @@
 
 #pragma once
 
-#include "batch.hh"
-#include "camera.hh"
-#include "texture.hh"
+#include "vertex_batch.hpp"
+#include "camera.hpp"
+#include "texture.hpp"
 #include "uuid.h"
 #include <vector>
 #include <shared_mutex>
@@ -99,13 +99,13 @@ public:
         return _uuid.String();
     }
 
-    virtual VT* vertices() const {
-        return nullptr;
+    virtual std::pair<VT*, size_t> vertices() {
+        return {nullptr, 0};
     }
 };
 
 template<typename T, typename VT=BasicVertex, int InitialCapacity=16, bool Dynamic=true>
-class Factory {
+class GameObjectFactory {
     static_assert(std::is_base_of_v<BasicVertex, VT> == true || std::is_same_v<VT, BasicVertex> == true);
     static_assert(std::is_base_of_v<GameObject<VT>, T> == true);
 
@@ -120,7 +120,7 @@ protected:
     std::atomic<bool> _dirty{false};
 
 public:
-    Factory(Camera *camera, Texture *texture, int chunk_x, int chunk_y): _camera(camera), _texture(texture), _chunk_x(chunk_x), _chunk_y(chunk_y) {
+    GameObjectFactory(Camera *camera, Texture *texture, int chunk_x, int chunk_y): _camera(camera), _texture(texture), _chunk_x(chunk_x), _chunk_y(chunk_y) {
         _batch.set_texture(texture);
     }
 
@@ -146,19 +146,23 @@ public:
         _dirty.store(true);
     }
 
-    void build() {
+    virtual bool build() {
         if (!_dirty.load())
-            return;
+            return false;
         std::lock_guard<std::shared_mutex> lock(_batch_mutex);
         _batch.clear();
         _batch.reserve(_objects.size() * 6);
         for (const auto& object : _objects) {
-            VT *vertices = object->vertices();
-            _batch.add_vertices(vertices, 6);
-            delete[] vertices;
+            auto [vertices, count] = object->vertices();
+            if (vertices != nullptr) {
+                if (count > 0)
+                    _batch.add_vertices(vertices, count);
+                delete[] vertices;
+            }
         }
         _batch.build();
         _dirty.store(false);
+        return true;
     }
 
     void draw() {

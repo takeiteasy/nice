@@ -5,13 +5,13 @@
 //  Created by George Watson on 24/07/2025.
 //
 
-#include "scene.hh"
-#include "asset_manager.hh"
+#include "scene.hpp"
+#include "asset_manager.hpp"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/util/sokol_debugtext.h"
 #include "sokol_input.h"
-#include "chunks.hh"
+#include "chunk_manager.hpp"
 
 static struct {
     Camera *camera;

@@ -1,5 +1,5 @@
 //
-//  texture.hh
+//  texture.hpp
 //  rpg
 //
 //  Created by George Watson on 03/08/2025.
@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "asset_manager.hh"
+#include "asset_manager.hpp"
 #include "sokol/sokol_gfx.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
