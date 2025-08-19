@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "asset_manager.hpp"
+#include "global.hpp"
 #include "vertex_batch.hpp"
 #include "fmt/format.h"
 #include "camera.hpp"
@@ -68,8 +68,6 @@ static const glm::vec2 Autotile3x3Simplified[256] = {
     [255] = {9, 2},
 };
 
-typedef VertexBatch<BasicVertex, CHUNK_SIZE * 6, false> ChunkVertexBatch;
-
 union Tile {
     struct {
         uint8_t bitmask;
@@ -90,7 +88,7 @@ class Chunk: GameObject<> {
     int _x, _y;
     Tile _tiles[CHUNK_WIDTH][CHUNK_HEIGHT];
     mutable std::shared_mutex _chunk_mutex;
-    ChunkVertexBatch _batch;
+    VertexBatch<BasicVertex, CHUNK_SIZE * 6, false> _batch;
     std::atomic<bool> _is_filled = false;
     std::atomic<bool> _is_built = false;
     std::atomic<bool> _is_destroyed = false;
@@ -98,7 +96,6 @@ class Chunk: GameObject<> {
     glm::mat4 _mvp;
     Camera *_camera;
     bool _rebuild_mvp = true;
-    OreFactory *_ore_test_factory; // TODO: Remove
 
     static void cellular_automata(int width, int height, int fill_chance, int smooth_iterations, int survive, int starve, uint8_t* result) {
         memset(result, 0, width * height * sizeof(uint8_t));
@@ -162,13 +159,8 @@ public:
         , _camera(camera)
         , _x(x)
         , _y(y) {
-        _ore_test_factory = new OreFactory(camera, $Assets.get<Texture>("assets/ores.exploded.png").value(), x, y);
         _batch.set_texture(texture);
     };
-
-    ~Chunk() {
-        delete _ore_test_factory;
-    }
 
     bool fill() {
         if (is_filled())
@@ -197,13 +189,6 @@ public:
         ore_types.reserve(ore_positions.size());
         for (int i = 0; i < ore_positions.size(); i++)
             ore_types.push_back(static_cast<OreType>(ro(gen)));
-
-        std::vector<std::pair<OreType, glm::vec2>> ores;
-        ores.reserve(ore_positions.size());
-        for (size_t i = 0; i < ore_positions.size(); ++i)
-            ores.emplace_back(ore_types[i], ore_positions[i]);
-        _ore_test_factory->add_ores(ores);
-        _ore_test_factory->build();
 
         _is_filled.store(true);
         return true;
@@ -385,12 +370,6 @@ public:
         _batch.flush();
     }
 
-    void draw_ores() {
-        if (_ore_test_factory->is_dirty())
-            _ore_test_factory->build();
-        _ore_test_factory->draw();
-    }
-
     static inline std::string visibility_to_string(ChunkVisibility visibility) {
         switch (visibility) {
             case ChunkVisibility::OutOfSign:
@@ -402,35 +381,6 @@ public:
         }
     }
 
-    static uint64_t id(int _x, int _y) {
-        // Map (x,y) coordinates to a unique ID
-#define _INDEX(I) (abs((I) * 2) - ((I) > 0 ? 1 : 0))
-        int x = _INDEX(_x), y = _INDEX(_y);
-        return x >= y ? x * x + x + y : x + y * y;
-    }
-
-    static std::pair<int, int> unindex(uint64_t id_value) {
-        // First, we need to find which (x,y) pair in the _INDEX space maps to this id
-        // The formula is: id = x >= y ? x*x + x + y : x + y*y
-        // We need to reverse this process
-        // Find the "diagonal" we're on (similar to Cantor pairing function)
-        uint64_t w = static_cast<uint64_t>(floor(sqrt(static_cast<double>(id_value))));
-        uint64_t t = w * w;
-        int ix, iy;
-        if (id_value < t + w) {
-            // We're in the lower triangle: x + y*y = id_value, where y = w
-            ix = static_cast<int>(id_value - t);
-            iy = static_cast<int>(w);
-        } else {
-            // We're in the upper triangle: x*x + x + y = id_value, where x = w
-            ix = static_cast<int>(w);
-            iy = static_cast<int>(id_value - t - w);
-        }
-        // Now convert from _INDEX space back to regular coordinates
-#define _UNINDEX(I) ((I) == 0 ? 0 : ((I) % 2 == 1) ? ((I) + 1) / 2 : -((I) / 2))
-        return {_UNINDEX(ix), _UNINDEX(iy)};
-    }
-
     static Rect bounds(int _x, int _y) {
         return {
             .x = _x * CHUNK_WIDTH * TILE_WIDTH,
@@ -440,7 +390,7 @@ public:
         };
     }
 
-    uint64_t id() const { return Chunk::id(_x, _y); }
+    uint64_t id() const { return index(_x, _y); }
     Rect bounds() const { return Chunk::bounds(_x, _y); }
     int x() const { return _x; }
     int y() const { return _y; }

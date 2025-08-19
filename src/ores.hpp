@@ -7,8 +7,7 @@
 
 #pragma once
 
-#include "config.h"
-#include "asset_manager.hpp"
+#include "global.hpp"
 #include "vertex_batch.hpp"
 #include "camera.hpp"
 #include "game_object.hpp"
@@ -92,12 +91,9 @@ public:
     }
 };
 
-// TODO: Make OreManager class, manage ores for all chunks and factories for each chunk
-// TODO: Make GameObjectFactoryManager class to inherit from
-
-class OreFactory: public GameObjectFactory<Ore> {
+class OreFactory: public ObjectFactory<Ore> {
 public:
-    OreFactory(Camera *camera, Texture *texture, int chunk_x, int chunk_y): GameObjectFactory<Ore>(camera, texture, chunk_x, chunk_y) {}
+    OreFactory(Camera *camera, Texture *texture, int chunk_x, int chunk_y): ObjectFactory<Ore>(camera, texture, chunk_x, chunk_y) {}
 
     void add_ores(const std::vector<std::pair<OreType, glm::vec2>>& ores) {
         if (ores.empty())
@@ -108,4 +104,13 @@ public:
         std::cout << fmt::format("Added {} ores to chunk ({}, {})\n", ores.size(), _chunk_x, _chunk_y);
         _dirty.store(true);
     }
+};
+
+class OreManager: public FactoryManager<Ore, OreFactory> {
+public:
+    OreManager(Camera *camera, Texture *texture)
+        : FactoryManager<Ore, OreFactory>([camera, texture](uint64_t id) -> OreFactory* {
+            auto [x, y] = unindex(id);
+            return new OreFactory(camera, texture, x, y);
+        }) {}
 };

@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "config.h"
+#include "global.hpp"
 
 struct scene {
     const char *name;

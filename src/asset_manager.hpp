@@ -12,7 +12,6 @@
 #include <memory>
 #include <unordered_map>
 #include <string>
-#include <optional>
 
 #define $Assets Assets::instance()
 
@@ -79,19 +78,19 @@ public:
     }
 
     template<typename T, typename... Args>
-    std::optional<T*> get(const std::string& key, bool ensure = true, Args&&... args) {
+    T* get(const std::string& key, bool ensure = true, Args&&... args) {
         std::lock_guard<std::mutex> lock(_map_lock);
         auto it = _assets.find(key);
         if (it != _assets.end())
             if (auto* asset = dynamic_cast<T*>(it->second.get()))
-                return std::optional<T*>(asset);
+                return asset;
         if (!ensure)
-            return std::nullopt;
+            return nullptr;
         auto asset = std::make_unique<T>(std::forward<Args>(args)...);
         T* result = asset.get();
         result->load(key);  // Pass path to load
         _assets[key] = std::move(asset);
-        return std::optional<T*>(result);
+        return result;
     };
 
     void clear() {

@@ -28,7 +28,6 @@
 #include "sokol_input.h"
 #include "glm/vec2.hpp"
 #include "passthru.glsl.h"
-#include "asset_manager.hpp"
 
 #ifndef DEFAULT_WINDOW_WIDTH
 #define DEFAULT_WINDOW_WIDTH 640
@@ -127,6 +126,37 @@ void framebuffer_resize(int width, int height) {
     };
     state.bind.images[IMG_tex] = state.color;
     state.bind.samplers[SMP_smp] = state.sampler;
+}
+
+uint64_t index(int _x, int _y) {
+    // Map (x,y) coordinates to a unique ID
+#define _INDEX(I) (abs((I) * 2) - ((I) > 0 ? 1 : 0))
+    int x = _INDEX(_x), y = _INDEX(_y);
+    return x >= y ? x * x + x + y : x + y * y;
+#undef _INDEX
+}
+
+std::pair<int, int> unindex(uint64_t id_value) {
+    // First, we need to find which (x,y) pair in the _INDEX space maps to this id
+    // The formula is: id = x >= y ? x*x + x + y : x + y*y
+    // We need to reverse this process
+    // Find the "diagonal" we're on (similar to Cantor pairing function)
+    uint64_t w = static_cast<uint64_t>(floor(sqrt(static_cast<double>(id_value))));
+    uint64_t t = w * w;
+    int ix, iy;
+    if (id_value < t + w) {
+        // We're in the lower triangle: x + y*y = id_value, where y = w
+        ix = static_cast<int>(id_value - t);
+        iy = static_cast<int>(w);
+    } else {
+        // We're in the upper triangle: x*x + x + y = id_value, where x = w
+        ix = static_cast<int>(w);
+        iy = static_cast<int>(id_value - t - w);
+    }
+    // Now convert from _INDEX space back to regular coordinates
+#define _UNINDEX(I) ((I) == 0 ? 0 : ((I) % 2 == 1) ? ((I) + 1) / 2 : -((I) / 2))
+    return {_UNINDEX(ix), _UNINDEX(iy)};
+#undef _UNINDEX
 }
 
 struct PassThruVertex {

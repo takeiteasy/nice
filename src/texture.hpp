@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "asset_manager.hpp"
+#include "global.hpp"
 #include "sokol/sokol_gfx.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"

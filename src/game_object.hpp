@@ -11,8 +11,11 @@
 #include "camera.hpp"
 #include "texture.hpp"
 #include "uuid.h"
+#include "jobs.hpp"
 #include <vector>
 #include <shared_mutex>
+#include <functional>
+#include <unordered_map>
 #include "basic.glsl.h"
 
 struct BasicVertex {
@@ -105,7 +108,7 @@ public:
 };
 
 template<typename T, typename VT=BasicVertex, int InitialCapacity=16, bool Dynamic=true>
-class GameObjectFactory {
+class ObjectFactory {
     static_assert(std::is_base_of_v<BasicVertex, VT> == true || std::is_same_v<VT, BasicVertex> == true);
     static_assert(std::is_base_of_v<GameObject<VT>, T> == true);
 
@@ -120,7 +123,7 @@ protected:
     std::atomic<bool> _dirty{false};
 
 public:
-    GameObjectFactory(Camera *camera, Texture *texture, int chunk_x, int chunk_y): _camera(camera), _texture(texture), _chunk_x(chunk_x), _chunk_y(chunk_y) {
+    ObjectFactory(Camera *camera, Texture *texture, int chunk_x, int chunk_y): _camera(camera), _texture(texture), _chunk_x(chunk_x), _chunk_y(chunk_y) {
         _batch.set_texture(texture);
     }
 
@@ -173,5 +176,89 @@ public:
         sg_range params = SG_RANGE(vs_params);
         sg_apply_uniforms(UB_vs_params, &params);
         _batch.flush();
+    }
+};
+
+template<typename T, typename FT>
+class FactoryManager {
+    static_assert(std::is_base_of_v<ObjectFactory<T>, FT> == true);
+    using FactoryCreator = std::function<FT*(uint64_t)>;
+
+    std::unordered_map<uint64_t, FT*> _factories;
+    mutable std::shared_mutex _factories_mutex;
+    FactoryCreator _factory_creator;
+
+    JobPool _job_pool;
+    ThreadSafeSet<uint64_t> _build_set;
+    ThreadSafeSet<uint64_t> _remove_set;
+    JobQueue<std::pair<uint64_t, FT*>> _build_queue;
+    JobQueue<uint64_t> _remove_queue;
+
+public:
+    FactoryManager(FactoryCreator factory_creator)
+        : _factory_creator(std::move(factory_creator))
+        , _job_pool(std::thread::hardware_concurrency())
+        , _build_queue([&](std::pair<uint64_t, FT*> factory_pair) {
+            auto [id, factory] = factory_pair;
+            if (factory->is_dirty())
+                factory->build();
+            _build_set.erase(id);
+        })
+        , _remove_queue([&](uint64_t id) {
+            std::lock_guard<std::shared_mutex> lock(_factories_mutex);
+            auto it = _factories.find(id);
+            if (it != _factories.end()) {
+                delete it->second;
+                _factories.erase(it);
+            }
+            _remove_set.erase(id);
+        }){}
+
+    ~FactoryManager() {
+        clear();
+    }
+
+    FT* get(uint64_t id, bool ensure = true) {
+        std::lock_guard<std::shared_mutex> lock(_factories_mutex);
+        auto it = _factories.find(id);
+        if (it != _factories.end())
+            return it->second;
+        if (!ensure)
+            return nullptr;
+        auto factory = _factory_creator(id);
+        _factories[id] = factory;
+        return factory;
+    }
+
+    void clear() {
+        std::lock_guard<std::shared_mutex> lock(_factories_mutex);
+        for (auto& [_, factory] : _factories)
+            delete factory;
+        _factories.clear();
+    }
+    
+    void build(uint64_t id) {
+        std::shared_lock<std::shared_mutex> lock(_factories_mutex);
+        auto it = _factories.find(id);
+        if (it != _factories.end())
+            if (it->second->is_dirty() && !_build_set.contains(id)) {
+                _build_set.insert(id);
+                _build_queue.push({id, it->second});
+            }
+    }
+
+    void remove(uint64_t id) {
+        std::shared_lock<std::shared_mutex> lock(_factories_mutex);
+        if (_factories.find(id) != _factories.end() && !_remove_set.contains(id)) {
+            _remove_set.insert(id);
+            _remove_queue.push(id);
+        }
+    }
+
+    void draw(uint64_t id) const {
+        std::shared_lock<std::shared_mutex> lock(_factories_mutex);
+        auto it = _factories.find(id);
+        if (it != _factories.end())
+            it->second->draw();
     }
 };

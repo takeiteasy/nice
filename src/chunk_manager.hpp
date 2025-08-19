@@ -10,6 +10,7 @@
 #include "chunk.hpp"
 #include "camera.hpp"
 #include "jobs.hpp"
+#include "ores.hpp"
 #include "texture.hpp"
 #include "fmt/format.h"
 #include <unordered_map>
@@ -29,10 +30,12 @@ class ChunkManager {
     Texture *_tilemap;
     sg_shader _shader;
     sg_pipeline _pipeline;
+
     sg_pipeline _ore_pipeline;
+    OreManager *_ore_manager;
 
     void ensure_chunk(int x, int y, bool priority) {
-        uint64_t idx = Chunk::id(x, y);
+        uint64_t idx = index(x, y);
 
         // Check if chunk already exists or is being processed
         {
@@ -84,7 +87,7 @@ public:
     ChunkManager(Camera *camera): _camera(camera),
     _create_chunk_queue([&](std::pair<int, int> coords) {
         auto [x, y] = coords;
-        uint64_t idx = Chunk::id(x, y);
+        uint64_t idx = index(x, y);
         Chunk *chunk = new Chunk(x, y, _camera, _tilemap);
 
         {
@@ -140,11 +143,10 @@ public:
                 .dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA
             }
         };
+        _tilemap = $Assets.get<Texture>("assets/tilemap.exploded.png");
+
         _ore_pipeline = sg_make_pipeline(&desc);
-        auto tilemap = $Assets.get<Texture>("assets/tilemap.exploded.png");
-        if (!tilemap.has_value())
-            throw std::runtime_error("Failed to load tilemap texture");
-        _tilemap = tilemap.value();
+        _ore_manager = new OreManager(_camera, $Assets.get<Texture>("assets/ores.png"));
     }
 
     ~ChunkManager() {
@@ -152,8 +154,6 @@ public:
             sg_destroy_shader(_shader);
         if (sg_query_pipeline_state(_pipeline) == SG_RESOURCESTATE_VALID)
             sg_destroy_pipeline(_pipeline);
-        if (sg_query_pipeline_state(_ore_pipeline) == SG_RESOURCESTATE_VALID)
-            sg_destroy_pipeline(_ore_pipeline);
         {
             std::unique_lock<std::shared_mutex> lock(_chunks_lock);
             for (auto& [id, chunk] : _chunks)
@@ -161,6 +161,9 @@ public:
                     delete chunk;
             _chunks.clear();
         }
+        if (sg_query_pipeline_state(_ore_pipeline) == SG_RESOURCESTATE_VALID)
+            sg_destroy_pipeline(_ore_pipeline);
+        delete _ore_manager;
     }
 
     void update_chunks() {
@@ -244,10 +247,5 @@ public:
                 continue;
             chunk->draw(force_update_mvp);
         }
-
-        // Draw ores
-        sg_apply_pipeline(_ore_pipeline);
-        for (const auto& [id, chunk] : valid_chunks)
-            chunk->draw_ores();
     }
 };
