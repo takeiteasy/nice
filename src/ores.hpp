@@ -10,7 +10,7 @@
 #include "global.hpp"
 #include "vertex_batch.hpp"
 #include "camera.hpp"
-#include "game_object.hpp"
+#include "entity.hpp"
 #include <shared_mutex>
 #include <iostream>
 #include <vector>
@@ -30,7 +30,7 @@ enum class OreType {
     COUNT
 };
 
-class Ore: GameObject<> {
+class Ore: Entity<> {
     OreType _type;
 
     static inline std::string ore_type_to_string(OreType type) {
@@ -66,7 +66,7 @@ class Ore: GameObject<> {
     }
 
 public:
-    Ore(OreType type, glm::vec2 position, int chunk_x, int chunk_y, int texture_width, int texture_height): _type(type), GameObject<>(position, chunk_x, chunk_y, texture_width, texture_height) {
+    Ore(OreType type, glm::vec2 position, int chunk_x, int chunk_y, int texture_width, int texture_height): _type(type), Entity<>(position, chunk_x, chunk_y, texture_width, texture_height) {
         if (type < OreType::Clay || type >= OreType::COUNT)
             throw std::invalid_argument("Invalid OreType");
     }
@@ -91,9 +91,10 @@ public:
     }
 };
 
-class OreFactory: public ObjectFactory<Ore> {
+class OreFactory: public EntityFactory<Ore> {
 public:
-    OreFactory(Camera *camera, Texture *texture, int chunk_x, int chunk_y): ObjectFactory<Ore>(camera, texture, chunk_x, chunk_y) {}
+    OreFactory(ChunkManager *cm, Camera *camera, Texture *texture, int chunk_x, int chunk_y)
+        : EntityFactory<Ore>(cm, camera, texture, chunk_x, chunk_y) {}
 
     void add_ores(const std::vector<std::pair<OreType, glm::vec2>>& ores) {
         if (ores.empty())
@@ -106,11 +107,11 @@ public:
     }
 };
 
-class OreManager: public FactoryManager<Ore, OreFactory> {
+class OreManager: public EntityFactoryManager<Ore, OreFactory> {
 public:
-    OreManager(Camera *camera, Texture *texture)
-        : FactoryManager<Ore, OreFactory>([camera, texture](uint64_t id) -> OreFactory* {
+    OreManager(ChunkManager *manager, Camera *camera, Texture *texture)
+        : EntityFactoryManager<Ore, OreFactory>(manager, [manager, camera, texture](uint64_t id) -> OreFactory* {
             auto [x, y] = unindex(id);
-            return new OreFactory(camera, texture, x, y);
+            return new OreFactory(manager, camera, texture, x, y);
         }) {}
 };

@@ -146,7 +146,7 @@ public:
         _tilemap = $Assets.get<Texture>("assets/tilemap.exploded.png");
 
         _ore_pipeline = sg_make_pipeline(&desc);
-        _ore_manager = new OreManager(_camera, $Assets.get<Texture>("assets/ores.png"));
+        _ore_manager = new OreManager(this, _camera, $Assets.get<Texture>("assets/ores.exploded.png"));
     }
 
     ~ChunkManager() {

@@ -1,5 +1,5 @@
 //
-//  settings.hpp
+//  settings_manager.hpp
 //  rpg
 //
 //  Created by George Watson on 19/08/2025.
@@ -13,6 +13,8 @@
 #include <string>
 #include <typeinfo>
 #include <stdexcept>
+#include <vector>
+#include <type_traits>
 
 #define $Settings Settings::instance()
 

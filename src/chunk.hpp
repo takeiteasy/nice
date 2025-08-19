@@ -9,14 +9,11 @@
 
 #include "global.hpp"
 #include "vertex_batch.hpp"
-#include "fmt/format.h"
 #include "camera.hpp"
+#include "entity.hpp"
 #include <unordered_map>
-#include <iostream>
-#include "ores.hpp"
 #include <shared_mutex>
 #include <random>
-#include "basic.glsl.h"
 
 static const glm::vec2 Autotile3x3Simplified[256] = {
     [0] = {0, 3},
@@ -84,7 +81,7 @@ enum class ChunkVisibility {
     Occluded
 };
 
-class Chunk: GameObject<> {
+class Chunk: Entity<> {
     int _x, _y;
     Tile _tiles[CHUNK_WIDTH][CHUNK_HEIGHT];
     mutable std::shared_mutex _chunk_mutex;
@@ -155,7 +152,7 @@ class Chunk: GameObject<> {
 
 public:
     Chunk(int x, int y, Camera *camera, Texture *texture)
-        : GameObject<>({x * TILE_WIDTH, y * TILE_HEIGHT}, x, y, texture->width(), texture->height())
+        : Entity<>({x * TILE_WIDTH, y * TILE_HEIGHT}, x, y, texture->width(), texture->height())
         , _camera(camera)
         , _x(x)
         , _y(y) {
@@ -179,16 +176,6 @@ public:
         for (int y = 0; y < CHUNK_HEIGHT; y++)
             for (int x = 0; x < CHUNK_WIDTH; x++)
                 _tiles[x][y].bitmask = _tiles[x][y].solid ? tile_bitmask(this, x, y, 1) : 0;
-
-        std::random_device seed;
-        std::mt19937 gen{seed()};
-        std::uniform_int_distribution<> ro{1, static_cast<int>(OreType::COUNT) - 1};
-        // TODO: Check if tile is an edge and reject, ore overlaps wall sprite
-        std::vector<glm::vec2> ore_positions = poisson<30, true, false>(5);
-        std::vector<OreType> ore_types;
-        ore_types.reserve(ore_positions.size());
-        for (int i = 0; i < ore_positions.size(); i++)
-            ore_types.push_back(static_cast<OreType>(ro(gen)));
 
         _is_filled.store(true);
         return true;

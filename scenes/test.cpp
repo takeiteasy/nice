@@ -6,7 +6,6 @@
 //
 
 #include "scene.hpp"
-#include "asset_manager.hpp"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/util/sokol_debugtext.h"

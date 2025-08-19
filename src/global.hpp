@@ -9,7 +9,7 @@
 
 #include "config.h"
 #include "asset_manager.hpp"
-#include "settings.hpp"
+#include "settings_manager.hpp"
 
 int framebuffer_width(void);
 int framebuffer_height(void);

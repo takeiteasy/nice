@@ -24,7 +24,7 @@ struct BasicVertex {
 };
 
 template<typename VT=BasicVertex>
-class GameObject {
+class Entity {
     static_assert(std::is_base_of_v<BasicVertex, VT> == true || std::is_same_v<VT, BasicVertex> == true);
     uuid_t _uuid;
 
@@ -73,24 +73,24 @@ protected:
     }
 
 public:
-    GameObject(glm::vec2 position, int chunk_x, int chunk_y, int texture_width, int texture_height): _uuid(uuid_v4::New()), _position(Camera::chunk_tile_to_world({chunk_x, chunk_y}, position)), _texture_width(texture_width), _texture_height(texture_height) {}
-    GameObject(const GameObject &other): _uuid(uuid_v4::New()) {}
-    GameObject(GameObject &&other) noexcept : _uuid(std::move(other._uuid)) {}
+    Entity(glm::vec2 position, int chunk_x, int chunk_y, int texture_width, int texture_height): _uuid(uuid_v4::New()), _position(Camera::chunk_tile_to_world({chunk_x, chunk_y}, position)), _texture_width(texture_width), _texture_height(texture_height) {}
+    Entity(const Entity &other): _uuid(uuid_v4::New()) {}
+    Entity(Entity &&other) noexcept : _uuid(std::move(other._uuid)) {}
 
     // Assignment operators
-    GameObject &operator=(const GameObject &other) {
+    Entity &operator=(const Entity &other) {
         if (this != &other)
             _uuid = uuid_v4::New();
         return *this;
     }
 
-    GameObject &operator=(GameObject &&other) noexcept {
+    Entity &operator=(Entity &&other) noexcept {
         if (this != &other)
             _uuid = std::move(other._uuid);
         return *this;
     }
 
-    bool operator==(const GameObject &other) const {
+    bool operator==(const Entity &other) const {
         return std::memcmp(_uuid.data(), other._uuid.data(), 16 * sizeof(uint8_t)) == 0;
     }
 
@@ -107,13 +107,16 @@ public:
     }
 };
 
+class ChunkManager;
+
 template<typename T, typename VT=BasicVertex, int InitialCapacity=16, bool Dynamic=true>
-class ObjectFactory {
+class EntityFactory {
     static_assert(std::is_base_of_v<BasicVertex, VT> == true || std::is_same_v<VT, BasicVertex> == true);
-    static_assert(std::is_base_of_v<GameObject<VT>, T> == true);
+    static_assert(std::is_base_of_v<Entity<VT>, T> == true);
 
 protected:
     int _chunk_x, _chunk_y;
+    ChunkManager *_chunks;
     Camera *_camera;
     Texture *_texture;
     std::vector<T*> _objects;
@@ -123,7 +126,12 @@ protected:
     std::atomic<bool> _dirty{false};
 
 public:
-    ObjectFactory(Camera *camera, Texture *texture, int chunk_x, int chunk_y): _camera(camera), _texture(texture), _chunk_x(chunk_x), _chunk_y(chunk_y) {
+    EntityFactory(ChunkManager *manager, Camera *camera, Texture *texture, int chunk_x, int chunk_y)
+        : _chunks(manager)
+        , _camera(camera)
+        , _texture(texture)
+        , _chunk_x(chunk_x)
+        , _chunk_y(chunk_y) {
         _batch.set_texture(texture);
     }
 
@@ -180,13 +188,14 @@ public:
 };
 
 template<typename T, typename FT>
-class FactoryManager {
-    static_assert(std::is_base_of_v<ObjectFactory<T>, FT> == true);
+class EntityFactoryManager {
+    static_assert(std::is_base_of_v<EntityFactory<T>, FT> == true);
     using FactoryCreator = std::function<FT*(uint64_t)>;
 
     std::unordered_map<uint64_t, FT*> _factories;
     mutable std::shared_mutex _factories_mutex;
     FactoryCreator _factory_creator;
+    ChunkManager *_chunks;
 
     JobPool _job_pool;
     ThreadSafeSet<uint64_t> _build_set;
@@ -195,8 +204,9 @@ class FactoryManager {
     JobQueue<uint64_t> _remove_queue;
 
 public:
-    FactoryManager(FactoryCreator factory_creator)
-        : _factory_creator(std::move(factory_creator))
+    EntityFactoryManager(ChunkManager *manager, FactoryCreator factory_creator)
+        : _chunks(manager)
+        , _factory_creator(std::move(factory_creator))
         , _job_pool(std::thread::hardware_concurrency())
         , _build_queue([&](std::pair<uint64_t, FT*> factory_pair) {
             auto [id, factory] = factory_pair;
@@ -214,7 +224,7 @@ public:
             _remove_set.erase(id);
         }){}
 
-    ~FactoryManager() {
+    ~EntityFactoryManager() {
         clear();
     }
 
