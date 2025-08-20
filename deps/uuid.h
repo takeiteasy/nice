@@ -80,4 +80,3 @@ namespace uuid::v4 {
 };
 
 using uuid_v4 = uuid::v4::UUID;
-typedef uuid_v4 uuid_t;

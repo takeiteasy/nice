@@ -32,10 +32,10 @@ public:
         bindings.samplers[0] = sampler;
     }
 
-    bool load(const std::string& path) override {
+    bool load(const unsigned char *data, size_t data_size) override {
         int num_channels;
         const int desired_channels = 4;
-        stbi_uc* pixels = stbi_load(path.c_str(), &_width, &_height, &num_channels, desired_channels);
+        stbi_uc *pixels = stbi_load_from_memory(data, (int)data_size, &_width, &_height, &num_channels, desired_channels);
         if (!pixels)
             return false;
         sg_image_desc idesc = {

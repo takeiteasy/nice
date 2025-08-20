@@ -15,6 +15,7 @@
  You should have received a copy of the GNU General Public License
  along with this program.  If not, see <https://www.gnu.org/licenses/>. */
 
+#define ZIP_IMPLEMENTATION
 #include "scene.hpp"
 #define SOKOL_IMPL
 #include "sokol/sokol_gfx.h"

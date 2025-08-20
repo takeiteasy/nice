@@ -13,6 +13,12 @@
 #define ZIP_H
 #include <stdio.h>
 #include <stdbool.h>
+#ifdef _WIN32
+#include <io.h>      // for _ftruncate
+#define ftruncate _ftruncate
+#else
+#include <unistd.h>  // for ftruncate
+#endif
 
 typedef struct zip zip;
 
@@ -43,7 +49,16 @@ void zip_close(zip*);
 // -----------------------------------------------------------------------------
 
 #ifdef ZIP_IMPLEMENTATION
-#pragma once
+
+// Suppress "Possible misuse comma" diagnostic for this implementation
+#ifdef __clang__
+    #pragma clang diagnostic push
+    #pragma clang diagnostic ignored "-Wcomma"
+#elif defined(__GNUC__)
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wcomma"
+#endif
+
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -1647,22 +1662,23 @@ unsigned deflate_encode(const void *in, unsigned inlen, void *out, unsigned outl
                 bytes = pComp->m_outbuffer[1] - pComp->m_outbuffer[0];
             }
         }
-        MZ_REALLOC(pComp, 0);
+        (void)MZ_REALLOC(pComp, 0);
     }
     return (unsigned)bytes;
 }
+
 unsigned deflate_bounds(unsigned inlen, unsigned flags) {
     return (unsigned)MZ_MAX(128 + (inlen * 110) / 100, 128 + inlen + ((inlen / (31 * 1024)) + 1) * 5);
 }
 
 static unsigned COMPRESS(const void *in, unsigned inlen, void *out, unsigned outlen, unsigned flags /*[0..1]*/) {
-    return ( flags > 10 ? mem_encode : deflate_encode )(in, inlen, out, outlen, flags);
+    return deflate_encode(in, inlen, out, outlen, flags);
 }
 static unsigned DECOMPRESS(const void *in, unsigned inlen, void *out, unsigned outlen, unsigned flags) {
-    return ( flags ? mem_decode : deflate_decode )(in, inlen, out, outlen);
+    return deflate_decode(in, inlen, out, outlen);
 }
 static unsigned BOUNDS(unsigned inlen, unsigned flags) {
-    return ( flags > 10 ? mem_bounds : deflate_bounds )(inlen, flags);
+    return deflate_bounds(inlen, flags);
 }
 
 #pragma pack(push, 1)
@@ -1751,7 +1767,6 @@ int jzReadEndRecord(FILE *fp, JZEndRecord *endRecord) {
 
     memcpy(endRecord, er, sizeof(JZEndRecord));
 
-    JZEndRecord *e = endRecord;
     PRINTF("end)\n\tsignature: 0x%X\n", e->signature ); // 0x06054b50
     PRINTF("\tdiskNumber: %d\n", e->diskNumber ); // unsupported
     PRINTF("\tcentralDirectoryDiskNumber: %d\n", e->centralDirectoryDiskNumber ); // unsupported
@@ -1872,10 +1887,10 @@ int jzReadData(FILE *fp, JZGlobalFileHeader *header, void *out) {
         unsigned inlen = header->compressedSize;
         void *in = REALLOC(0, inlen);
         if(in == NULL) return ERR(JZ_ERRNO, "Could not allocate mem for decompress");
-        unsigned read = fread(in, 1, inlen, fp);
+        unsigned read = (int)fread(in, 1, inlen, fp);
         if(read != inlen) return ERR(JZ_ERRNO, "Could not read file"); // TODO: more robust read loop
         unsigned ret = DECOMPRESS(in, inlen, out, outlen, level);
-        REALLOC(in, 0);
+        (void)REALLOC(in, 0);
         if(!ret) return ERR(JZ_ERRNO, "Could not decompress");
     } else {
         return JZ_ERRNO;
@@ -1896,16 +1911,18 @@ int jzReadData(FILE *fp, JZGlobalFileHeader *header, void *out) {
 
 // end of junzip.c ---
 
-struct zip {
-    FILE *in, *out;
-    struct zip_entry {
+typedef struct zip_entry {
     JZGlobalFileHeader header;
     char timestamp[20];
     char *filename;
     uint64_t offset;
     void *extra;
     char *comment;
-    } *entries;
+} zip_entry;
+
+struct zip {
+    FILE *in, *out;
+    zip_entry *entries;
     unsigned count;
 };
 
@@ -1924,11 +1941,11 @@ uint32_t zip__crc32(uint32_t crc, const void *data, size_t n_bytes) {
 }
 
 int zip__callback(FILE *fp, int idx, JZGlobalFileHeader *header, char *filename, void *extra, char *comment, void *user_data) {
-    zip *z = user_data;
+    zip *z = (zip*)user_data;
     unsigned index = z->count;
-    z->entries = REALLOC(z->entries, (++z->count) * sizeof(struct zip_entry) );
+    z->entries = (zip_entry*)REALLOC(z->entries, (++z->count) * sizeof(zip_entry) );
 
-    struct zip_entry *e = &z->entries[index];
+    zip_entry *e = &z->entries[index];
     e->header = *header;
     e->filename = STRDUP(filename);
     e->offset = ftell(fp);
@@ -1981,7 +1998,7 @@ unsigned zip_size(zip *z, unsigned index) {
 }
 
 unsigned zip_offset(zip *z, unsigned index) {
-    return z->in && index < z->count ? z->entries[index].offset : 0;
+    return z->in && index < z->count ? (int)z->entries[index].offset : 0;
 }
 
 unsigned zip_codec(zip *z, unsigned index) {
@@ -2009,7 +2026,7 @@ void *zip_extract(zip *z, unsigned index) { // must free()
         unsigned outlen = (unsigned)z->entries[index].header.uncompressedSize;
         void *out = (char*)REALLOC(0, outlen);
         unsigned ret = zip_extract_data(z, index, out, outlen);
-        return ret ? out : (REALLOC(out, 0), out = 0);
+        return ret ? out : ((void)REALLOC(out, 0), out = 0);
     }
     return NULL;
 }
@@ -2019,14 +2036,14 @@ bool zip_extract_file(zip* z, unsigned index, FILE *out) {
     if( !data ) return false;
     unsigned datalen = (unsigned)z->entries[index].header.uncompressedSize;
     bool ok = fwrite(data, 1, datalen, out) == datalen;
-    REALLOC( data, 0 );
+    (void)REALLOC( data, 0 );
     return ok;
 }
 
 bool zip_test(zip *z, unsigned index) {
     void *ret = zip_extract(z, index);
     bool ok = !!ret;
-    REALLOC(ret, 0);
+    (void)REALLOC(ret, 0);
     return ok;
 }
 
@@ -2047,10 +2064,10 @@ bool zip_append_file(zip *z, const char *entryname, FILE *in, unsigned compress_
     if(ferror(in)) return ERR(false, "Error while calculating CRC, skipping store.");
 
     unsigned index = z->count;
-    z->entries = REALLOC(z->entries, (++z->count) * sizeof(struct zip_entry));
+    z->entries = (zip_entry*)REALLOC(z->entries, (++z->count) * sizeof(zip_entry));
     if(z->entries == NULL) return ERR(false, "Failed to allocate new entry!");
 
-    struct zip_entry *e = &z->entries[index], zero = {0};
+    zip_entry *e = &z->entries[index], zero = {0};
     *e = zero;
     e->filename = STRDUP(entryname);
 
@@ -2061,45 +2078,55 @@ bool zip_append_file(zip *z, const char *entryname, FILE *in, unsigned compress_
     e->header.lastModFileTime = JZTIME(timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
     e->header.lastModFileDate = JZDATE(timeinfo->tm_year+1900,timeinfo->tm_mon+1,timeinfo->tm_mday);
     e->header.crc32 = crc;
-    e->header.uncompressedSize = ftell(in);
+    e->header.uncompressedSize = (uint32_t)ftell(in);
     e->header.fileNameLength = strlen(entryname);
     e->header.extraFieldLength = 0;
     e->header.fileCommentLength = 0;
     e->header.diskNumberStart = 0;
     e->header.internalFileAttributes = 0;
     e->header.externalFileAttributes = 0x20; // whatever this is
-    e->header.relativeOffsetOflocalHeader = ftell(z->out);
+    e->header.relativeOffsetOflocalHeader = (uint32_t)ftell(z->out);
 
-    if(!compress_level) goto dont_compress;
+    // Declare variables before any goto statements to fix C++ compatibility
+    unsigned dataSize = e->header.uncompressedSize;
+    unsigned compSize = BOUNDS(e->header.uncompressedSize, compress_level);
+    void *comp = 0;
+    void *data = 0;
+    size_t bytes = 0;
+    uint16_t cl = 0;
+
+    if(!compress_level)
+        goto dont_compress;
 
     // Read whole file and and use compress(). Simple but won't handle GB files well.
-    unsigned dataSize = e->header.uncompressedSize, compSize = BOUNDS(e->header.uncompressedSize, compress_level);
-    void *comp = 0, *data = 0;
-
     comp = REALLOC(0, compSize);
-    if(comp == NULL) goto cant_compress;
+    if(comp == NULL)
+        goto cant_compress;
 
     data = REALLOC(0, dataSize);
-    if(data == NULL) goto cant_compress;
+    if(data == NULL)
+        goto cant_compress;
 
     fseek(in, 0, SEEK_SET); // rewind
-    size_t bytes = fread(data, 1, dataSize, in);
+    bytes = fread(data, 1, dataSize, in);
     if(bytes != dataSize) {
         return ERR(false, "Failed to read file in full (%lu vs. %ld bytes)", (unsigned long)bytes, dataSize);
     }
 
     compSize = COMPRESS(data, (unsigned)dataSize, comp, (unsigned)compSize, compress_level);
-    if(!compSize) goto cant_compress;
-    if(compSize >= (dataSize * 0.98) ) goto dont_compress;
+    if(!compSize)
+        goto cant_compress;
+    if(compSize >= (dataSize * 0.98) )
+        goto dont_compress;
 
-    uint16_t cl = 8 | (compress_level > 10 ? compress_level << 8 : 0);
+    cl = 8 | (compress_level > 10 ? compress_level << 8 : 0);
     e->header.compressedSize = compSize;
     e->header.compressionMethod = cl;
     goto common;
 
 cant_compress:
 dont_compress:;
-    e->header.compressedSize = ftell(in);
+    e->header.compressedSize = (uint32_t)ftell(in);
     e->header.compressionMethod = 0; // store method
 
 common:;
@@ -2122,8 +2149,8 @@ common:;
         }
     }
 
-    REALLOC(comp, 0);
-    REALLOC(data, 0);
+    (void)REALLOC(comp, 0);
+    (void)REALLOC(data, 0);
     return true;
 }
 
@@ -2134,9 +2161,13 @@ zip* zip_open(const char *file, const char *mode /*r,w,a*/) {
     int exists = (stat(file, &buffer) == 0);
     if( mode[0] == 'a' && !exists ) mode = "wb";
     FILE *fp = fopen(file, mode[0] == 'w' ? "wb" : mode[0] == 'a' ? "a+b" : "rb");
-    if( !fp ) return ERR(NULL, "cannot open file for %s mode", mode);
+    if( !fp )
+        return (zip*)ERR(NULL, "cannot open file for %s mode", mode);
     zip zero = {0}, *z = (zip*)REALLOC(0, sizeof(zip));
-    if( !z ) return ERR(NULL, "out of mem"); else *z = zero;
+    if( !z )
+        return (zip*)ERR(NULL, "out of mem");
+    else
+        *z = zero;
     if( mode[0] == 'w' ) {
         z->out = fp;
         return z;
@@ -2146,12 +2177,12 @@ zip* zip_open(const char *file, const char *mode /*r,w,a*/) {
 
         JZEndRecord jzEndRecord = {0};
         if(jzReadEndRecord(fp, &jzEndRecord) != JZ_OK) {
-            REALLOC(z, 0);
-            return ERR(NULL, "Couldn't read ZIP file end record.");
+            (void)REALLOC(z, 0);
+            return (zip*)ERR(NULL, "Couldn't read ZIP file end record.");
         }
         if(jzReadCentralDirectory(fp, &jzEndRecord, zip__callback, z) != JZ_OK) {
-            REALLOC(z, 0);
-            return ERR(NULL, "Couldn't read ZIP file central directory.");
+            (void)REALLOC(z, 0);
+            return (zip*)ERR(NULL, "Couldn't read ZIP file central directory.");
         }
         if( mode[0] == 'a' ) {
 
@@ -2160,9 +2191,9 @@ zip* zip_open(const char *file, const char *mode /*r,w,a*/) {
             int fd = fileno(fp);
             if( fd != -1 ) {
                 #ifdef _WIN32
-                    int ok = 0 == _chsize_s( fd, resize );
+                    _chsize_s( fd, resize );
                 #else
-                    int ok = 0 == ftruncate( fd, (off_t)resize );
+                    ftruncate( fd, (off_t)resize );
                 #endif
                 fflush(fp);
                 fseek( fp, 0L, SEEK_END );
@@ -2173,8 +2204,8 @@ zip* zip_open(const char *file, const char *mode /*r,w,a*/) {
         }
         return z;
     }
-    REALLOC(z, 0);
-    return ERR(NULL, "Unknown open mode %s", mode);
+    (void)REALLOC(z, 0);
+    return (zip*)ERR(NULL, "Unknown open mode %s", mode);
 }
 
 void zip_close(zip* z) {
@@ -2186,17 +2217,17 @@ void zip_close(zip* z) {
         end.centralDirectoryDiskNumber = 0;
         end.numEntriesThisDisk = z->count;
         end.numEntries = z->count;
-        end.centralDirectoryOffset = ftell(z->out);
+        end.centralDirectoryOffset = (uint32_t)ftell(z->out);
         // flush global directory: global file+filename each
         for(unsigned i = 0; i < z->count; i++) {
-            struct zip_entry *h = &z->entries[i];
+            zip_entry *h = &z->entries[i];
             JZGlobalFileHeader *g = &h->header;
             fwrite(g, 1, sizeof(JZGlobalFileHeader), z->out);
             fwrite(h->filename, 1, g->fileNameLength, z->out);
             fwrite(h->extra, 1, g->extraFieldLength, z->out);
             fwrite(h->comment, 1, g->fileCommentLength, z->out);
         }
-        end.centralDirectorySize = ftell(z->out) - end.centralDirectoryOffset;
+        end.centralDirectorySize = (uint32_t)ftell(z->out) - end.centralDirectoryOffset;
         end.zipCommentLength = 0;
 
         // flush end record
@@ -2206,12 +2237,19 @@ void zip_close(zip* z) {
     if( z->in ) fclose(z->in);
     // clean up
     for(unsigned i = 0; i < z->count; ++i ) {
-        REALLOC(z->entries[i].filename, 0);
-        if(z->entries[i].extra)   REALLOC(z->entries[i].extra, 0);
-        if(z->entries[i].comment) REALLOC(z->entries[i].comment, 0);
+        (void)REALLOC(z->entries[i].filename, 0);
+        if(z->entries[i].extra)   (void)REALLOC(z->entries[i].extra, 0);
+        if(z->entries[i].comment) (void)REALLOC(z->entries[i].comment, 0);
     }
-    if(z->entries) REALLOC(z->entries, 0);
-    zip zero = {0}; *z = zero; REALLOC(z, 0);
+    if(z->entries) (void)REALLOC(z->entries, 0);
+    zip zero = {0}; *z = zero; (void)REALLOC(z, 0);
 }
+
+// Restore diagnostic settings
+#ifdef __clang__
+    #pragma clang diagnostic pop
+#elif defined(__GNUC__)
+    #pragma GCC diagnostic pop
+#endif
 
 #endif // ZIP_IMPLEMENTATION

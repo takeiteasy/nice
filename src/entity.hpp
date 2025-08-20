@@ -26,7 +26,7 @@ struct BasicVertex {
 template<typename VT=BasicVertex>
 class Entity {
     static_assert(std::is_base_of_v<BasicVertex, VT> == true || std::is_same_v<VT, BasicVertex> == true);
-    uuid_t _uuid;
+    uuid_v4 _uuid;
 
 protected:
     glm::vec2 _position;
@@ -94,7 +94,7 @@ public:
         return std::memcmp(_uuid.data(), other._uuid.data(), 16 * sizeof(uint8_t)) == 0;
     }
 
-    const uuid_t &uuid() const {
+    const uuid_v4 &uuid() const {
         return _uuid;
     }
 

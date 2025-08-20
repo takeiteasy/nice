@@ -105,6 +105,9 @@ public:
             _chunks_being_built.insert(idx);  // Mark as being built
         }
         _build_chunk_queue.enqueue(chunk);
+
+        // TODO: Place ore
+        // TODO: Queue ore for build
     }),
     _build_chunk_queue([&](Chunk *chunk) {
         chunk->build();
@@ -143,10 +146,10 @@ public:
                 .dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA
             }
         };
-        _tilemap = $Assets.get<Texture>("assets/tilemap.exploded.png");
+        _tilemap = $Assets.get<Texture>("tilemap.exploded.png");
 
         _ore_pipeline = sg_make_pipeline(&desc);
-        _ore_manager = new OreManager(this, _camera, $Assets.get<Texture>("assets/ores.exploded.png"));
+        _ore_manager = new OreManager(this, _camera, $Assets.get<Texture>("ores.exploded.png"));
     }
 
     ~ChunkManager() {
@@ -223,8 +226,10 @@ public:
         for (Chunk* chunk : chunks_to_delete)
             delete chunk;
         // Remove from destroyed set
-        for (uint64_t chunk_id : chunks_to_destroy)
+        for (uint64_t chunk_id : chunks_to_destroy) {
             _chunks_being_destroyed.erase(chunk_id);
+            _ore_manager->remove(chunk_id);
+        }
     }
 
     void draw_chunks() {
@@ -238,14 +243,15 @@ public:
                     valid_chunks.emplace_back(id, chunk);
         }
 
-        // Draw chunks first
-        sg_apply_pipeline(_pipeline);
         bool force_update_mvp = _camera->is_dirty();
         for (const auto& [id, chunk] : valid_chunks) {
             // Double-check chunk is still valid (avoid race condition)
             if (_chunks_being_destroyed.contains(id))
                 continue;
+            sg_apply_pipeline(_pipeline);
             chunk->draw(force_update_mvp);
+            sg_apply_pipeline(_ore_pipeline);
+            _ore_manager->draw(chunk->id());
         }
     }
 };

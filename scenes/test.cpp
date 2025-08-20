@@ -19,6 +19,7 @@ static struct {
 } state;
 
 void test_enter(void) {
+    $Assets.set_archive("assets/assets.zip");
     state.camera = new Camera();
     state.manager = new ChunkManager(state.camera);
 }
