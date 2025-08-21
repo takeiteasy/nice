@@ -107,11 +107,36 @@ public:
     }
 };
 
-class OreManager: public EntityFactoryManager<Ore, OreFactory> {
+using OreManagerType = EntityFactoryManager<Ore, OreFactory>;
+class OreManager: public OreManagerType {
 public:
     OreManager(ChunkManager *manager, Camera *camera, Texture *texture)
         : EntityFactoryManager<Ore, OreFactory>(manager, [manager, camera, texture](uint64_t id) -> OreFactory* {
             auto [x, y] = unindex(id);
             return new OreFactory(manager, camera, texture, x, y);
         }) {}
+
+    void add_ores(uint64_t chunk_id, const std::vector<glm::vec2>& positions) {
+        static std::random_device seed;
+        static std::mt19937 gen{seed()};
+        std::uniform_int_distribution<> ro{1, static_cast<int>(OreType::COUNT) - 1};
+
+        std::vector<OreType> ore_types;
+        ore_types.reserve(positions.size());
+        for (int i = 0; i < positions.size(); i++)
+            ore_types.push_back(static_cast<OreType>(ro(gen)));
+
+        std::vector<std::pair<OreType, glm::vec2>> ores;
+        ores.reserve(positions.size());
+        for (size_t i = 0; i < positions.size(); ++i)
+            ores.emplace_back(ore_types[i], positions[i]);
+
+        get(chunk_id)->add_ores(ores);
+    }
+
+    void build(uint64_t id) override {
+        OreManagerType::build(id);
+        auto [x, y] = unindex(id);
+        std::cout << fmt::format("Ore factory for chunk ({}, {}) finished building\n", x, y);
+    }
 };

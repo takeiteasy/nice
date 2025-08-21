@@ -25,6 +25,7 @@ class ChunkManager {
     JobQueue<Chunk*> _build_chunk_queue;
     ThreadSafeSet<uint64_t> _chunks_being_built;
     ThreadSafeSet<uint64_t> _chunks_being_destroyed;
+    JobQueue<Chunk*> _fill_chunk_queue;
 
     Camera *_camera;
     Texture *_tilemap;
@@ -105,9 +106,14 @@ public:
             _chunks_being_built.insert(idx);  // Mark as being built
         }
         _build_chunk_queue.enqueue(chunk);
-
-        // TODO: Place ore
-        // TODO: Queue ore for build
+        _fill_chunk_queue.enqueue(chunk);
+    }),
+    _fill_chunk_queue([&](Chunk *chunk) {
+        std::vector<glm::vec2> positions = chunk->poisson(5, 30, true, true);
+        std::cout << fmt::format("Chunk at ({}, {}) filling with {} ores\n", chunk->x(), chunk->y(), positions.size());
+        uint64_t id = chunk->id();
+        _ore_manager->add_ores(id, positions);
+        _ore_manager->build(id);
     }),
     _build_chunk_queue([&](Chunk *chunk) {
         chunk->build();

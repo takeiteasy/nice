@@ -135,13 +135,13 @@ public:
         _batch.set_texture(texture);
     }
 
-    void add_object(T *object) {
+    virtual void add_object(T *object) {
         std::lock_guard<std::shared_mutex> lock(_objects_mutex);
         _objects.push_back(object);
         _dirty.store(true);
     }
 
-    void add_objects(const std::vector<T*>& objects) {
+    virtual void add_objects(const std::vector<T*>& objects) {
         if (objects.empty())
             return;
         std::lock_guard<std::shared_mutex> lock(_objects_mutex);
@@ -149,11 +149,11 @@ public:
         _dirty.store(true);
     }
 
-    bool is_dirty() const {
+    virtual bool is_dirty() const {
         return _dirty.load();
     }
 
-    void mark_dirty() {
+    virtual void mark_dirty() {
         _dirty.store(true);
     }
 
@@ -176,7 +176,7 @@ public:
         return true;
     }
 
-    void draw() {
+    virtual void draw() {
         std::shared_lock<std::shared_mutex> lock(_batch_mutex);
         if (_batch.empty() || !_batch.is_ready())
             return;
@@ -224,11 +224,11 @@ public:
             _remove_set.erase(id);
         }){}
 
-    ~EntityFactoryManager() {
+    virtual  ~EntityFactoryManager() {
         clear();
     }
 
-    FT* get(uint64_t id, bool ensure = true) {
+    virtual FT* get(uint64_t id, bool ensure = true) {
         std::lock_guard<std::shared_mutex> lock(_factories_mutex);
         auto it = _factories.find(id);
         if (it != _factories.end())
@@ -240,14 +240,28 @@ public:
         return factory;
     }
 
-    void clear() {
+    virtual void add_object(uint64_t id, T* object) {
+        std::lock_guard<std::shared_mutex> lock(_factories_mutex);
+        auto it = _factories.find(id);
+        if (it != _factories.end())
+            it->second->add_object(object);
+    }
+
+    virtual void add_objects(uint64_t id, const std::vector<T*>& objects) {
+        std::lock_guard<std::shared_mutex> lock(_factories_mutex);
+        auto it = _factories.find(id);
+        if (it != _factories.end())
+            it->second->add_objects(objects);
+    }
+
+    virtual void clear() {
         std::lock_guard<std::shared_mutex> lock(_factories_mutex);
         for (auto& [_, factory] : _factories)
             delete factory;
         _factories.clear();
     }
     
-    void build(uint64_t id) {
+    virtual void build(uint64_t id) {
         std::shared_lock<std::shared_mutex> lock(_factories_mutex);
         auto it = _factories.find(id);
         if (it != _factories.end())
@@ -257,7 +271,7 @@ public:
             }
     }
 
-    void remove(uint64_t id) {
+    virtual void remove(uint64_t id) {
         std::shared_lock<std::shared_mutex> lock(_factories_mutex);
         if (_factories.find(id) != _factories.end() && !_remove_set.contains(id)) {
             _remove_set.insert(id);
@@ -265,7 +279,7 @@ public:
         }
     }
 
-    void draw(uint64_t id) const {
+    virtual void draw(uint64_t id) const {
         std::shared_lock<std::shared_mutex> lock(_factories_mutex);
         auto it = _factories.find(id);
         if (it != _factories.end())

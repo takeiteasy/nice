@@ -224,9 +224,7 @@ public:
         return true;
     }
 
-    // TODO: Replace manual solid check with custom function callback
-    template<int K=30, bool Invert=false, bool Lock=true>
-    std::vector<glm::vec2> poisson(float r, int offset_x=0, int offset_y=0, int max_width=CHUNK_WIDTH, int max_height=CHUNK_HEIGHT, int max_tries=CHUNK_SIZE / 4) {
+    std::vector<glm::vec2> poisson(float r, int k=30, bool invert=false, bool lock = true, int max_tries=CHUNK_SIZE / 4, Rect region={0, 0, CHUNK_WIDTH, CHUNK_HEIGHT}) {
         float cell_size = r / std::sqrt(2.0f);
         int grid_width = static_cast<int>(std::ceil(CHUNK_WIDTH / cell_size));
         int grid_height = static_cast<int>(std::ceil(CHUNK_HEIGHT / cell_size));
@@ -250,30 +248,30 @@ public:
         };
 
         // Calculate the actual region bounds
-        int region_width = std::min(max_width, CHUNK_WIDTH - offset_x);
-        int region_height = std::min(max_height, CHUNK_HEIGHT - offset_y);
+        int region_width = std::min(region.w, CHUNK_WIDTH - region.x);
+        int region_height = std::min(region.h, CHUNK_HEIGHT - region.y);
 
         // Ensure the region is valid
-        if (region_width <= 0 || region_height <= 0 ||  offset_x >= CHUNK_WIDTH || offset_y >= CHUNK_HEIGHT)
+        if (region_width <= 0 || region_height <= 0 ||  region.x >= CHUNK_WIDTH || region.x >= CHUNK_HEIGHT)
             return {};
 
         std::random_device rd;
         std::mt19937 gen(rd());
         std::uniform_real_distribution<float> random_dis(0.0f, 1.0f);
-        std::optional<std::shared_lock<std::shared_mutex>> lock;
-        if (Lock)
-            lock.emplace(_chunk_mutex);
+        std::optional<std::shared_lock<std::shared_mutex>> _lock;
+        if (lock)
+            _lock.emplace(_chunk_mutex);
         int tries = 0;
         glm::vec2 p;
         while (tries++ < max_tries) {
-            float px = offset_x + region_width * random_dis(gen);
-            float py = offset_y + region_height * random_dis(gen);
+            float px = region.x + region_width * random_dis(gen);
+            float py = region.y + region_height * random_dis(gen);
             p = glm::vec2(px, py);
 
             int tile_x = static_cast<int>(p.x);
             int tile_y = static_cast<int>(p.y);
             if (tile_x >= 0 && tile_x < CHUNK_WIDTH && tile_y >= 0 && tile_y < CHUNK_HEIGHT &&
-                static_cast<bool>(_tiles[tile_x][tile_y].solid) == Invert)
+                static_cast<bool>(_tiles[tile_x][tile_y].solid) == invert)
                 break;
         }
         if (tries >= max_tries)
@@ -290,15 +288,15 @@ public:
             queue[qi] = queue.back();
             queue.pop_back();
 
-            for (int i = 0; i < K; i++) {
+            for (int i = 0; i < k; i++) {
                 float alpha = 2.0f * M_PI * random_dis(gen);
                 float d = r * std::sqrt(3.0f * random_dis(gen) + 1.0f);
                 float px = point.x + d * std::cos(alpha);
                 float py = point.y + d * std::sin(alpha);
 
                 // Check if point is within the specified region bounds
-                if (!(offset_x <= px && px < offset_x + region_width &&
-                      offset_y <= py && py < offset_y + region_height))
+                if (!(region.x <= px && px < region.x + region_width &&
+                      region.y <= py && py < region.y + region_height))
                     continue;
 
                 // Check if point is within chunk bounds
@@ -308,7 +306,7 @@ public:
                 // Check if tile is solid
                 int tile_x = static_cast<int>(px);
                 int tile_y = static_cast<int>(py);
-                if (static_cast<bool>(_tiles[tile_x][tile_y].solid) != Invert)
+                if (static_cast<bool>(_tiles[tile_x][tile_y].solid) != invert)
                     continue;
 
                 glm::vec2 new_point = glm::vec2(px, py);
@@ -321,8 +319,8 @@ public:
                 grid[gx][gy] = new glm::vec2(new_point);
             }
         }
-        if (Lock && lock.has_value())
-            lock.value().unlock();
+        if (lock && _lock.has_value())
+            _lock.value().unlock();
 
         std::vector<glm::vec2> points;
         for (int x = 0; x < grid_width; x++)
@@ -330,8 +328,8 @@ public:
                 if (grid[x][y] != nullptr) {
                     // Only include points that are within the specified region
                     glm::vec2 point = *grid[x][y];
-                    if (point.x >= offset_x && point.x < offset_x + region_width &&
-                        point.y >= offset_y && point.y < offset_y + region_height)
+                    if (point.x >= region.x && point.x < region.x + region_width &&
+                        point.y >= region.y && point.y < region.y + region_height)
                         points.push_back(point);
                     delete grid[x][y];
                 }
