@@ -24,27 +24,20 @@
 #include "sokol/sokol_log.h"
 #include "sokol/sokol_time.h"
 #include "sokol/util/sokol_debugtext.h"
-#include "sokol_input.h"
 #include "glm/vec2.hpp"
 #include "passthru.glsl.h"
 
-#ifndef DEFAULT_WINDOW_WIDTH
-#define DEFAULT_WINDOW_WIDTH 640
-#endif
-
-#ifndef DEFAULT_WINDOW_HEIGHT
-#define DEFAULT_WINDOW_HEIGHT 480
-#endif
-
-#define X(NAME)                  \
-extern void NAME##_enter(void);  \
-extern void NAME##_exit(void);   \
-extern void NAME##_step(void);   \
-struct scene NAME##_scene = {    \
-    .name = #NAME,               \
-    .enter = NAME##_enter,       \
-    .exit = NAME##_exit,         \
-    .step = NAME##_step          \
+#define X(NAME)                                     \
+extern void NAME##_enter(void);                     \
+extern void NAME##_exit(void);                      \
+extern void NAME##_step(void);                      \
+extern void NAME##_event(const sapp_event *event);  \
+struct scene NAME##_scene = {                       \
+    .name = #NAME,                                  \
+    .enter = NAME##_enter,                          \
+    .exit = NAME##_exit,                            \
+    .step = NAME##_step,                            \
+    .event = NAME##_event                           \
 };
 SCENES
 #undef X
@@ -178,8 +171,6 @@ static void init(void) {
 
     stm_setup();
 
-    sapp_input_init();
-
     state.shader = sg_make_shader(passthru_shader_desc(sg_query_backend()));
 
     sg_pipeline_desc pip_desc = {
@@ -261,7 +252,6 @@ static void frame(void) {
     sdtx_draw();
     sg_end_pass();
     sg_commit();
-    sapp_input_flush();
 
     if (state.next_scene) {
         if ((state.scene_prev = state.scene_current))
@@ -272,9 +262,13 @@ static void frame(void) {
     }
 }
 
+static void event(const sapp_event *event) {
+    if (state.scene_current != NULL)
+        state.scene_current->event(event);
+}
+
 static void cleanup(void) {
-    if (state.scene_current)
-        state.scene_current->exit();
+    state.scene_current->exit();
     $Assets.clear();
     sg_shutdown();
 }
@@ -286,7 +280,7 @@ sapp_desc sokol_main(int argc, char* argv[]) {
         .window_title = "rpg",
         .init_cb = init,
         .frame_cb = frame,
-        .event_cb = sapp_input_event,
+        .event_cb = event,
         .cleanup_cb = cleanup
     };
 }

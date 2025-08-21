@@ -9,45 +9,70 @@
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/util/sokol_debugtext.h"
-#include "sokol_input.h"
 #include "chunk_manager.hpp"
+#include "cursor.hpp"
 
 static struct {
     Camera *camera;
     ChunkManager *manager;
     bool camera_dragging = false;
+    glm::vec2 mouse_position;
+    Cursor *cursor;
 } state;
 
 void test_enter(void) {
     $Assets.set_archive("assets/assets.zip");
     state.camera = new Camera();
     state.manager = new ChunkManager(state.camera);
+    state.cursor = new Cursor();
+    sapp_show_mouse(false);
 }
 
 void test_exit(void) {
+    delete state.cursor;
     delete state.manager;
     delete state.camera;
 }
 
+void test_event(const sapp_event *event) {
+    switch (event->type) {
+        case SAPP_EVENTTYPE_MOUSE_DOWN:
+            if (!state.camera_dragging) 
+                state.camera_dragging = true;
+            break;
+        case SAPP_EVENTTYPE_MOUSE_UP:
+            if (state.camera_dragging)
+                state.camera_dragging = false;
+            break;
+        case SAPP_EVENTTYPE_MOUSE_MOVE: {
+            state.mouse_position = glm::vec2(event->mouse_x, event->mouse_y);
+            if (state.camera_dragging)
+                state.camera->move_by(-glm::vec2(event->mouse_dx, event->mouse_dy) * (1.f / state.camera->zoom()));
+            state.cursor->set_position(state.mouse_position);
+            break;
+        }
+        case SAPP_EVENTTYPE_MOUSE_SCROLL:
+            state.camera->zoom_by(event->scroll_y * .1f);
+            break;
+        case SAPP_EVENTTYPE_MOUSE_ENTER:
+            sapp_show_mouse(false);
+            break;
+        case SAPP_EVENTTYPE_MOUSE_LEAVE:
+            sapp_show_mouse(true);
+            break;
+        default:
+            break;
+    }
+}
+
 void test_step(void) {
-    if ((sapp_was_button_pressed(SAPP_MOUSEBUTTON_LEFT) && sapp_modifier_equals(SAPP_MODIFIER_SHIFT)) && !state.camera_dragging)
-        state.camera_dragging = true;
-    if (sapp_was_button_released(SAPP_MOUSEBUTTON_LEFT) && state.camera_dragging)
-        state.camera_dragging = false;
-    if (state.camera_dragging)
-        state.camera->move_by(glm::vec2(-sapp_mouse_delta_x(), -sapp_mouse_delta_y()) * (1.f / state.camera->zoom()));
-
-    if (sapp_was_scrolled() && sapp_modifier_equals(SAPP_MODIFIER_SHIFT))
-        state.camera->zoom_by(sapp_scroll_y() * .1f);
-
     sdtx_home();
     sdtx_printf("fps:    %.2f\n", 1.f / sapp_frame_duration());
     sdtx_printf("pos:    (%.2f, %.2f)\n", state.camera->position().x, state.camera->position().y);
     sdtx_printf("zoom:   %.2f\n", state.camera->zoom());
     sdtx_printf("drag:   %s\n", state.camera_dragging ? "true" : "false");
-    glm::vec2 mouse_pos = glm::vec2(sapp_mouse_x(), sapp_mouse_y());
-    sdtx_printf("mouse:  (%.2f, %.2f)\n", mouse_pos.x, mouse_pos.y);
-    glm::vec2 mouse_world = state.camera->screen_to_world(mouse_pos);
+    sdtx_printf("mouse:  (%.2f, %.2f)\n", state.mouse_position.x, state.mouse_position.y);
+    glm::vec2 mouse_world = state.camera->screen_to_world(state.mouse_position);
     sdtx_printf("world:  (%.2f, %.2f)\n", mouse_world.x, mouse_world.y);
     glm::vec2 mouse_chunk = state.camera->world_to_chunk(mouse_world);
     sdtx_printf("chunk:  (%d, %d)\n", (int)mouse_chunk.x, (int)mouse_chunk.y);
@@ -55,11 +80,10 @@ void test_step(void) {
     sdtx_printf("tile:   (%d, %d)\n", (int)mouse_tile.x, (int)mouse_tile.y);
     Rect bounds = state.camera->bounds();
     sdtx_printf("camera: (%d, %d, %d, %d)\n", bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h);
-    bounds = state.camera->max_bounds();
-    sdtx_printf("camera: (%d, %d, %d, %d)\n", bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h);
 
     state.manager->update_chunks();
     state.manager->scan_for_chunks();
     state.manager->release_chunks();
     state.manager->draw_chunks();
+    state.cursor->draw();
 }

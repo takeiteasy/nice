@@ -30,7 +30,6 @@ class Entity {
 
 protected:
     glm::vec2 _position;
-    int _texture_width, _texture_height;
 
     static BasicVertex* generate_quad(glm::vec2 position, glm::vec2 size, glm::vec2 clip_offset, glm::vec2 clip_size, glm::vec2 texture_size) {
         int _x = static_cast<int>(position.x);
@@ -73,7 +72,7 @@ protected:
     }
 
 public:
-    Entity(glm::vec2 position, int chunk_x, int chunk_y, int texture_width, int texture_height): _uuid(uuid_v4::New()), _position(Camera::chunk_tile_to_world({chunk_x, chunk_y}, position)), _texture_width(texture_width), _texture_height(texture_height) {}
+    Entity(glm::vec2 position, int chunk_x, int chunk_y): _uuid(uuid_v4::New()), _position(Camera::chunk_tile_to_world({chunk_x, chunk_y}, position)) {}
     Entity(const Entity &other): _uuid(uuid_v4::New()) {}
     Entity(Entity &&other) noexcept : _uuid(std::move(other._uuid)) {}
 
@@ -159,6 +158,9 @@ public:
 
     virtual bool build() {
         if (!_dirty.load())
+            return false;
+        std::lock_guard<std::shared_mutex> objects_lock(_objects_mutex);
+        if (_objects.empty())
             return false;
         std::lock_guard<std::shared_mutex> lock(_batch_mutex);
         _batch.clear();

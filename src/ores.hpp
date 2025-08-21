@@ -27,11 +27,12 @@ enum class OreType {
     Cobalt,
     Nickel,
     Copper,
-    COUNT
+    _COUNT
 };
 
 class Ore: Entity<> {
     OreType _type;
+    Texture *_texture;
 
     static inline std::string ore_type_to_string(OreType type) {
         switch (type) {
@@ -59,15 +60,15 @@ class Ore: Entity<> {
     }
 
     static inline glm::vec2 ore_texcoords(OreType type) {
-        if (type < OreType::Clay || type >= OreType::COUNT)
+        if (type < OreType::Clay || type >= OreType::_COUNT)
             throw std::invalid_argument("Invalid OreType");
         int index = static_cast<int>(type);
         return glm::vec2(0, index == 0 ? 0 : (index - 1) * TILE_ORIGINAL_HEIGHT);
     }
 
 public:
-    Ore(OreType type, glm::vec2 position, int chunk_x, int chunk_y, int texture_width, int texture_height): _type(type), Entity<>(position, chunk_x, chunk_y, texture_width, texture_height) {
-        if (type < OreType::Clay || type >= OreType::COUNT)
+    Ore(OreType type, Texture *texture, glm::vec2 position, int chunk_x, int chunk_y): _type(type), _texture(texture), Entity<>(position, chunk_x, chunk_y) {
+        if (type < OreType::Clay || type >= OreType::_COUNT)
             throw std::invalid_argument("Invalid OreType");
     }
 
@@ -80,13 +81,12 @@ public:
     }
 
     std::pair<BasicVertex*, size_t> vertices() override {
-        int clip_y = static_cast<int>(ore_texcoords(_type).y);
-        int tile_index = clip_y / ORE_ORIGINAL_HEIGHT;
+        int y = (static_cast<int>(ore_texcoords(_type).y)) / ORE_ORIGINAL_HEIGHT;
         return {generate_quad(_position - (glm::vec2(TILE_WIDTH, TILE_HEIGHT) / 2.f),
                               {ORE_WIDTH, ORE_HEIGHT},
-                              {0, static_cast<int>(clip_y + (tile_index * ORE_PADDING))},
+                              {0, y * ORE_ORIGINAL_HEIGHT},
                               {ORE_ORIGINAL_WIDTH, ORE_ORIGINAL_HEIGHT},
-                              {_texture_width, _texture_height}),
+                              {_texture->width(), _texture->height()}),
                 6};
     }
 };
@@ -101,7 +101,7 @@ public:
             return;
         std::lock_guard<std::shared_mutex> lock(_objects_mutex);
         for (const auto& ore : ores)
-            _objects.push_back(new Ore(ore.first, ore.second, _chunk_x, _chunk_y, _texture->width(), _texture->height()));
+            _objects.push_back(new Ore(ore.first, _texture, ore.second, _chunk_x, _chunk_y));
         std::cout << fmt::format("Added {} ores to chunk ({}, {})\n", ores.size(), _chunk_x, _chunk_y);
         _dirty.store(true);
     }
@@ -119,7 +119,7 @@ public:
     void add_ores(uint64_t chunk_id, const std::vector<glm::vec2>& positions) {
         static std::random_device seed;
         static std::mt19937 gen{seed()};
-        std::uniform_int_distribution<> ro{1, static_cast<int>(OreType::COUNT) - 1};
+        std::uniform_int_distribution<> ro{1, static_cast<int>(OreType::_COUNT) - 1};
 
         std::vector<OreType> ore_types;
         ore_types.reserve(positions.size());

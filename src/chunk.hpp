@@ -92,6 +92,7 @@ class Chunk: Entity<> {
     std::atomic<ChunkVisibility> _visibility = ChunkVisibility::OutOfSign;
     glm::mat4 _mvp;
     Camera *_camera;
+    Texture *_texture;
     bool _rebuild_mvp = true;
 
     static void cellular_automata(int width, int height, int fill_chance, int smooth_iterations, int survive, int starve, uint8_t* result) {
@@ -152,8 +153,9 @@ class Chunk: Entity<> {
 
 public:
     Chunk(int x, int y, Camera *camera, Texture *texture)
-        : Entity<>({x * TILE_WIDTH, y * TILE_HEIGHT}, x, y, texture->width(), texture->height())
+        : Entity<>({x * TILE_WIDTH, y * TILE_HEIGHT}, x, y)
         , _camera(camera)
+        , _texture(texture)
         , _x(x)
         , _y(y) {
         _batch.set_texture(texture);
@@ -203,7 +205,7 @@ public:
                                                       {TILE_WIDTH, TILE_HEIGHT},
                                                       {clip_x, clip_y},
                                                       {TILE_ORIGINAL_WIDTH, TILE_ORIGINAL_HEIGHT},
-                                                      {_texture_width, _texture_height});
+                                                      {_texture->width(), _texture->height()});
                 std::copy(veritces, veritces + 6, &vertices[vertex_index]);
                 delete[] veritces;
                 vertex_index += 6;

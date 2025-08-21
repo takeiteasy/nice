@@ -109,7 +109,7 @@ public:
         _fill_chunk_queue.enqueue(chunk);
     }),
     _fill_chunk_queue([&](Chunk *chunk) {
-        std::vector<glm::vec2> positions = chunk->poisson(5, 30, true, true);
+        std::vector<glm::vec2> positions = chunk->poisson(10, 30, true, true);
         std::cout << fmt::format("Chunk at ({}, {}) filling with {} ores\n", chunk->x(), chunk->y(), positions.size());
         uint64_t id = chunk->id();
         _ore_manager->add_ores(id, positions);
@@ -155,7 +155,7 @@ public:
         _tilemap = $Assets.get<Texture>("tilemap.exploded.png");
 
         _ore_pipeline = sg_make_pipeline(&desc);
-        _ore_manager = new OreManager(this, _camera, $Assets.get<Texture>("ores.exploded.png"));
+        _ore_manager = new OreManager(this, _camera, $Assets.get<Texture>("ores.png"));
     }
 
     ~ChunkManager() {

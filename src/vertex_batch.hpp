@@ -118,9 +118,8 @@ public:
         
         // Always recreate the buffer to ensure it's the right size
         // This is safer and handles dynamic resizing properly
-        if (sg_query_buffer_state(_bind.vertex_buffers[0]) == SG_RESOURCESTATE_VALID) {
+        if (sg_query_buffer_state(_bind.vertex_buffers[0]) == SG_RESOURCESTATE_VALID)
             sg_destroy_buffer(_bind.vertex_buffers[0]);
-        }
         
         sg_buffer_desc desc = {
             .usage.stream_update = true,

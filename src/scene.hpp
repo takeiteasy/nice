@@ -9,10 +9,13 @@
 
 #include "global.hpp"
 
+struct sapp_event;
+
 struct scene {
     const char *name;
     void(*enter)(void);
     void(*exit)(void);
+    void(*event)(const sapp_event *event);
     void(*step)(void);
 };
 
