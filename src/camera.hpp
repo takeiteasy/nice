@@ -95,7 +95,8 @@ public:
             glm::mat4 view = glm::mat4(1.f);
             float hw = (float)w / 2.f;
             float hh = (float)h / 2.f;
-            // Apply camera transformations: translate to center, scale for zoom, rotate, then translate to position
+            // Apply camera transformations: translate to center, scale for zoom, then translate by camera position
+            // _position represents the world coordinate that appears at the center of the screen
             view = glm::translate(view, glm::vec3(hw, hh, 0.f));
             view = glm::scale(view, glm::vec3(_zoom, _zoom, 1.f));
             view = glm::translate(view, glm::vec3(-_position, 0.f));
@@ -110,10 +111,10 @@ public:
         int w = framebuffer_width();
         int h = framebuffer_height();
 
-        // Apply camera transformation: translate relative to camera, then zoom, then center on screen
+        // Apply camera transformation: translate relative to camera center, then zoom, then center on screen
         glm::vec2 relative_pos = world_pos - _position;
         glm::vec2 zoomed_pos = relative_pos * _zoom;
-        glm::vec2 screen_pos = zoomed_pos + glm::vec2(w * .5f, h * .5f);
+        glm::vec2 screen_pos = zoomed_pos;
 
         // Convert from framebuffer coordinates to actual screen coordinates
         return screen_pos * glm::vec2((float)sapp_width() / w, (float)sapp_height() / h);
@@ -127,9 +128,9 @@ public:
         glm::vec2 fb_pos = screen_pos * glm::vec2((float)w / sapp_width(), (float)h / sapp_height());
 
         // Reverse the camera transformation: uncenter, unzoom, then translate back to world
-        glm::vec2 centered_pos = fb_pos - glm::vec2(w * .5f, h * .5f);
+        glm::vec2 centered_pos = fb_pos - glm::vec2((float)w / 2.f, (float)h / 2.f);
         glm::vec2 unzoomed_pos = centered_pos / _zoom;
-        glm::vec2 world_pos = unzoomed_pos + _position;
+        glm::vec2 world_pos = unzoomed_pos + _position + glm::vec2((float)w / 2.f, (float)h / 2.f);
 
         return world_pos;
     }
@@ -164,19 +165,6 @@ public:
         // Convert world position to chunk coordinates
         return glm::vec2(floor(world.x / chunk_world_width),
                          floor(world.y / chunk_world_height));
-    }
-
-    static glm::vec2 chunk_to_world(glm::vec2 chunk) {
-        // Convert chunk coordinates to world position
-        return glm::vec2(chunk.x * CHUNK_WIDTH * TILE_WIDTH,
-                         chunk.y * CHUNK_HEIGHT * TILE_HEIGHT);
-    }
-
-    static glm::vec2 chunk_tile_to_world(glm::vec2 chunk, glm::vec2 tile) {
-        // Convert chunk and tile coordinates to world position
-        glm::vec2 chunk_world = chunk_to_world(chunk);
-        return glm::vec2(chunk_world.x + tile.x * TILE_WIDTH,
-                         chunk_world.y + tile.y * TILE_HEIGHT);
     }
 
     struct Rect bounds() {

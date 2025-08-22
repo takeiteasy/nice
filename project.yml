@@ -21,7 +21,7 @@ targets:
         - path: scenes/
         - path: deps/fmt
           includes:
-            - "*.cpp"
+            - "*.cc"
           excludes:
             - "fmt.cc"
         - path: deps/
@@ -43,7 +43,18 @@ targets:
         - sdk: MetalKit.framework
         - sdk: Quartz.framework
         - sdk: AudioToolbox.framework
+        - target: flecs
     settings:
         HEADER_SEARCH_PATHS: [$(PROJECT_DIR)/deps,
+                              $(PROJECT_DIR)/deps/flecs,
                               $(PROJECT_DIR)/scenes]
         OTHER_CFLAGS: [-x objective-c++, -DSOKOL_METAL]
+  flecs:
+    type: library.dynamic
+    platform: macOS
+    sources:
+        - path: deps/flecs
+        - path: deps/minilua.c
+    settings:
+        HEADER_SEARCH_PATHS: [$(PROJECT_DIR)/deps,
+                              $(PROJECT_DIR)/deps/flecs]

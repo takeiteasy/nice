@@ -10,10 +10,10 @@
 #include "global.hpp"
 #include "vertex_batch.hpp"
 #include "camera.hpp"
-#include "entity.hpp"
 #include <unordered_map>
 #include <shared_mutex>
 #include <random>
+#include "basic.glsl.h"
 
 static const glm::vec2 Autotile3x3Simplified[256] = {
     [0] = {0, 3},
@@ -81,11 +81,16 @@ enum class ChunkVisibility {
     Occluded
 };
 
-class Chunk: Entity<> {
+struct ChunkVertex {
+    glm::vec2 position;
+    glm::vec2 texcoord;
+};
+
+class Chunk {
     int _x, _y;
     Tile _tiles[CHUNK_WIDTH][CHUNK_HEIGHT];
     mutable std::shared_mutex _chunk_mutex;
-    VertexBatch<BasicVertex, CHUNK_SIZE * 6, false> _batch;
+    VertexBatch<ChunkVertex, CHUNK_SIZE * 6, false> _batch;
     std::atomic<bool> _is_filled = false;
     std::atomic<bool> _is_built = false;
     std::atomic<bool> _is_destroyed = false;
@@ -151,10 +156,49 @@ class Chunk: Entity<> {
         return result;
     }
 
+    static ChunkVertex* generate_quad(glm::vec2 position, glm::vec2 size, glm::vec2 clip_offset, glm::vec2 clip_size, glm::vec2 texture_size) {
+            int _x = static_cast<int>(position.x);
+            int _y = static_cast<int>(position.y);
+            int _width = static_cast<int>(size.x);
+            int _height = static_cast<int>(size.y);
+            glm::vec2 _positions[] = {
+                {_x, _y},                    // Top-left
+                {_x + _width, _y},           // Top-right
+                {_x + _width, _y + _height}, // Bottom-right
+                {_x, _y + _height},          // Bottom-left
+            };
+
+            int _clip_x = static_cast<int>(clip_offset.x);
+            int _clip_y = static_cast<int>(clip_offset.y);
+            int _clip_width = static_cast<int>(clip_size.x);
+            int _clip_height = static_cast<int>(clip_size.y);
+            int _texture_width = static_cast<int>(texture_size.x);
+            int _texture_height = static_cast<int>(texture_size.y);
+            float iw = 1.f / _texture_width;
+            float ih = 1.f / _texture_height;
+            float tl = _clip_x * iw;
+            float tt = _clip_y * ih;
+            float tr = (_clip_x + _clip_width) * iw;
+            float tb = (_clip_y + _clip_height) * ih;
+            glm::vec2 _texcoords[4] = {
+                {tl, tt}, // top left
+                {tr, tt}, // top right
+                {tr, tb}, // bottom right
+                {tl, tb}, // bottom left
+            };
+
+        ChunkVertex *v = new ChunkVertex[6];
+            static uint16_t _indices[] = {0, 1, 2, 2, 3, 0};
+            for (int i = 0; i < 6; i++) {
+                v[i].position = _positions[_indices[i]];
+                v[i].texcoord = _texcoords[_indices[i]];
+            }
+            return v;
+        }
+
 public:
     Chunk(int x, int y, Camera *camera, Texture *texture)
-        : Entity<>({x * TILE_WIDTH, y * TILE_HEIGHT}, x, y)
-        , _camera(camera)
+        : _camera(camera)
         , _texture(texture)
         , _x(x)
         , _y(y) {
@@ -183,7 +227,7 @@ public:
         return true;
     }
 
-    std::pair<BasicVertex*, size_t> vertices() override {
+    std::pair<ChunkVertex*, size_t> vertices() {
         // First, count solid tiles to allocate the correct amount of memory
         size_t solid_count = 0;
         for (int x = 0; x < CHUNK_WIDTH; x++)
@@ -191,7 +235,7 @@ public:
                 if (_tiles[x][y].solid)
                     solid_count++;
 
-        BasicVertex *vertices = new BasicVertex[solid_count * 6];
+        ChunkVertex *vertices = new ChunkVertex[solid_count * 6];
         size_t vertex_index = 0;
         for (int x = 0; x < CHUNK_WIDTH; x++)
             for (int y = 0; y < CHUNK_HEIGHT; y++) {
@@ -201,7 +245,7 @@ public:
                 glm::vec2 clip = Autotile3x3Simplified[tile->bitmask];
                 int clip_x = static_cast<int>((clip.x * TILE_ORIGINAL_WIDTH) + ((clip.x + 1) * TILE_PADDING));
                 int clip_y = static_cast<int>((clip.y * TILE_ORIGINAL_HEIGHT) + ((clip.y + 1) * TILE_PADDING));
-                BasicVertex *veritces = generate_quad({x * TILE_WIDTH, y * TILE_HEIGHT},
+                ChunkVertex *veritces = generate_quad({x * TILE_WIDTH, y * TILE_HEIGHT},
                                                       {TILE_WIDTH, TILE_HEIGHT},
                                                       {clip_x, clip_y},
                                                       {TILE_ORIGINAL_WIDTH, TILE_ORIGINAL_HEIGHT},

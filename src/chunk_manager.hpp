@@ -10,7 +10,6 @@
 #include "chunk.hpp"
 #include "camera.hpp"
 #include "jobs.hpp"
-#include "ores.hpp"
 #include "texture.hpp"
 #include "fmt/format.h"
 #include <unordered_map>
@@ -25,15 +24,11 @@ class ChunkManager {
     JobQueue<Chunk*> _build_chunk_queue;
     ThreadSafeSet<uint64_t> _chunks_being_built;
     ThreadSafeSet<uint64_t> _chunks_being_destroyed;
-    JobQueue<Chunk*> _fill_chunk_queue;
 
     Camera *_camera;
     Texture *_tilemap;
     sg_shader _shader;
     sg_pipeline _pipeline;
-
-    sg_pipeline _ore_pipeline;
-    OreManager *_ore_manager;
 
     void ensure_chunk(int x, int y, bool priority) {
         uint64_t idx = index(x, y);
@@ -106,14 +101,6 @@ public:
             _chunks_being_built.insert(idx);  // Mark as being built
         }
         _build_chunk_queue.enqueue(chunk);
-        _fill_chunk_queue.enqueue(chunk);
-    }),
-    _fill_chunk_queue([&](Chunk *chunk) {
-        std::vector<glm::vec2> positions = chunk->poisson(10, 30, true, true);
-        std::cout << fmt::format("Chunk at ({}, {}) filling with {} ores\n", chunk->x(), chunk->y(), positions.size());
-        uint64_t id = chunk->id();
-        _ore_manager->add_ores(id, positions);
-        _ore_manager->build(id);
     }),
     _build_chunk_queue([&](Chunk *chunk) {
         chunk->build();
@@ -127,7 +114,7 @@ public:
         sg_pipeline_desc desc = {
             .shader = _shader,
             .layout = {
-                .buffers[0].stride = sizeof(BasicVertex),
+                .buffers[0].stride = sizeof(ChunkVertex),
                 .attrs = {
                     [ATTR_basic_position].format = SG_VERTEXFORMAT_FLOAT2,
                     [ATTR_basic_texcoord].format = SG_VERTEXFORMAT_FLOAT2
@@ -153,9 +140,6 @@ public:
             }
         };
         _tilemap = $Assets.get<Texture>("tilemap.exploded.png");
-
-        _ore_pipeline = sg_make_pipeline(&desc);
-        _ore_manager = new OreManager(this, _camera, $Assets.get<Texture>("ores.png"));
     }
 
     ~ChunkManager() {
@@ -170,9 +154,6 @@ public:
                     delete chunk;
             _chunks.clear();
         }
-        if (sg_query_pipeline_state(_ore_pipeline) == SG_RESOURCESTATE_VALID)
-            sg_destroy_pipeline(_ore_pipeline);
-        delete _ore_manager;
     }
 
     void update_chunks() {
@@ -232,10 +213,8 @@ public:
         for (Chunk* chunk : chunks_to_delete)
             delete chunk;
         // Remove from destroyed set
-        for (uint64_t chunk_id : chunks_to_destroy) {
+        for (uint64_t chunk_id : chunks_to_destroy)
             _chunks_being_destroyed.erase(chunk_id);
-            _ore_manager->remove(chunk_id);
-        }
     }
 
     void draw_chunks() {
@@ -254,10 +233,10 @@ public:
             // Double-check chunk is still valid (avoid race condition)
             if (_chunks_being_destroyed.contains(id))
                 continue;
+            if (chunk->id() != 0)
+                continue;
             sg_apply_pipeline(_pipeline);
             chunk->draw(force_update_mvp);
-            sg_apply_pipeline(_ore_pipeline);
-            _ore_manager->draw(chunk->id());
         }
     }
 };

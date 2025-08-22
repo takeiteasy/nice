@@ -11,7 +11,7 @@
 #include <memory>
 #include <unordered_map>
 #include <string>
-#include "stdzip.h"
+#include "just_zip.h"
 
 #define $Assets Assets::instance()
 
