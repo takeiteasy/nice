@@ -1,6 +1,6 @@
 //
 //  chunk_manager.hpp
-//  rpg
+//  ice
 //
 //  Created by George Watson on 18/08/2025.
 //
@@ -233,8 +233,8 @@ public:
             // Double-check chunk is still valid (avoid race condition)
             if (_chunks_being_destroyed.contains(id))
                 continue;
-            if (chunk->id() != 0)
-                continue;
+//            if (chunk->id() != 0)
+//                continue;
             sg_apply_pipeline(_pipeline);
             chunk->draw(force_update_mvp);
         }

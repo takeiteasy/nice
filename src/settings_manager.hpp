@@ -1,6 +1,6 @@
 //
 //  settings_manager.hpp
-//  rpg
+//  ice
 //
 //  Created by George Watson on 19/08/2025.
 //

@@ -1,6 +1,6 @@
 //
 //  texture.hpp
-//  rpg
+//  ice
 //
 //  Created by George Watson on 03/08/2025.
 //

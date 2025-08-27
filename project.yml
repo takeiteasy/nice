@@ -1,4 +1,4 @@
-name: rpg 
+name: ice 
 
 options:
   bundleIdPrefix: io.github.takeiteasy
@@ -13,7 +13,7 @@ settings:
   CLANG_WARN_DOCUMENTATION_COMMENTS: false
 
 targets:
-  rpg:
+  ice:
     type: tool
     platform: macOS
     sources:

@@ -1,6 +1,6 @@
-/* https://github.com/takeiteasy/rpg 
+/* https://github.com/takeiteasy/ice 
 
- rpg Copyright (C) 2025 George Watson
+ ice Copyright (C) 2025 George Watson
 
  This program is free software: you can redistribute it and/or modify
  it under the terms of the GNU General Public License as published by
@@ -277,7 +277,7 @@ sapp_desc sokol_main(int argc, char* argv[]) {
     return (sapp_desc) {
         .width = DEFAULT_WINDOW_WIDTH,
         .height = DEFAULT_WINDOW_HEIGHT,
-        .window_title = "rpg",
+        .window_title = "ice",
         .init_cb = init,
         .frame_cb = frame,
         .event_cb = event,

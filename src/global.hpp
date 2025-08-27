@@ -1,6 +1,6 @@
 //
 //  global.hpp
-//  rpg
+//  ice
 //
 //  Created by George Watson on 01/08/2025.
 //

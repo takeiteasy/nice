@@ -22,8 +22,8 @@ all: clean shaders exe
 
 SOURCE := $(wildcard src/*.cpp) deps/fmt/format.cc deps/fmt/os.cc
 SCENES := $(wildcard scenes/*.cpp)
-EXE := build/rpg_$(ARCH)$(PROG_EXT)
-LIB := build/librpg_$(ARCH).$(LIB_EXT)
+EXE := build/ice_$(ARCH)$(PROG_EXT)
+LIB := build/libice_$(ARCH).$(LIB_EXT)
 INC := $(CXXFLAGS) -Iscenes -Isrc -Ideps $(LDFLAGS)
 
 ARCH_PATH := bin/$(ARCH)

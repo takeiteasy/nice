@@ -1,6 +1,6 @@
 //
 //  assets.hpp
-//  rpg
+//  ice
 //
 //  Created by George Watson on 16/08/2025.
 //
