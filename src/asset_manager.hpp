@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <string>
 #include "just_zip.h"
+#include "global.hpp"
 
 #define $Assets Assets::instance()
 
@@ -59,28 +60,15 @@ public:
     }
 };
 
-class Assets {
-private:
-    inline static std::unique_ptr<Assets> _instance = nullptr;
-    inline static std::once_flag _once;
-
+class Assets: public Global<Assets> {
     std::unordered_map<std::string, std::unique_ptr<AssetBase>> _assets;
     mutable std::mutex _map_lock;
     zip *_archive = nullptr;
     mutable std::mutex _archive_lock;
 
-    Assets() = default;
-    Assets(const Assets&) = delete;
-    Assets& operator=(const Assets&) = delete;
-
 public:
-    static Assets& instance() {
-        std::call_once(_once, []() {
-            _instance = std::unique_ptr<Assets>(new Assets());
-        });
-        return *_instance;
-    }
-
+    Assets() = default;  // Add explicit default constructor
+    
     bool set_archive(const std::string& path) {
         std::unique_lock<std::mutex> lock(_archive_lock);
         if (_archive != nullptr) {

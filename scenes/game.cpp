@@ -1,36 +1,40 @@
 //
-//  test.c
+//  game.cpp
 //  ice
 //
 //  Created by George Watson on 24/07/2025.
 //
 
-#include "scene.hpp"
+#include "ice.hpp"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/util/sokol_debugtext.h"
 #include "chunk_manager.hpp"
+#include "world.hpp"
 
 static struct {
     Camera *camera;
     ChunkManager *manager;
     bool camera_dragging = false;
     glm::vec2 mouse_position;
+    World *world;
 } state;
 
-void test_enter(void) {
+void game_enter(void) {
     $Assets.set_archive("assets/assets.zip");
     state.camera = new Camera();
     state.manager = new ChunkManager(state.camera);
-//    sapp_show_mouse(false);
+    state.world = new World(state.manager, "scripts/test.lua");
+    //    sapp_show_mouse(false);
 }
 
-void test_exit(void) {
+void game_exit(void) {
+    delete state.world;
     delete state.manager;
     delete state.camera;
 }
 
-void test_event(const sapp_event *event) {
+void game_event(const sapp_event *event) {
     switch (event->type) {
         case SAPP_EVENTTYPE_MOUSE_DOWN:
             if (!state.camera_dragging) 
@@ -60,7 +64,7 @@ void test_event(const sapp_event *event) {
     }
 }
 
-void test_step(void) {
+void game_step(void) {
     sdtx_home();
     sdtx_printf("fps:    %.2f\n", 1.f / sapp_frame_duration());
     sdtx_printf("pos:    (%.2f, %.2f)\n", state.camera->position().x, state.camera->position().y);
@@ -76,8 +80,6 @@ void test_step(void) {
     Rect bounds = state.camera->bounds();
     sdtx_printf("camera: (%d, %d, %d, %d)\n", bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h);
 
-    state.manager->update_chunks();
-    state.manager->scan_for_chunks();
-    state.manager->release_chunks();
-    state.manager->draw_chunks();
+    if (!state.world->update(sapp_frame_duration()))
+        sapp_quit();
 }

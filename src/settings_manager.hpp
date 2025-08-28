@@ -8,13 +8,12 @@
 #pragma once
 
 #include <unordered_map>
-#include <memory>
-#include <mutex>
 #include <string>
 #include <typeinfo>
 #include <stdexcept>
 #include <vector>
 #include <type_traits>
+#include "global.hpp"
 
 #define $Settings Settings::instance()
 
@@ -39,25 +38,12 @@ struct Setting: public SettingBase {
     }
 };
 
-class Settings {
-    inline static std::unique_ptr<Settings> instance_ = nullptr;
-    static std::once_flag _once;
-
+class Settings: public Global<Settings> {
     std::unordered_map<std::string, std::unique_ptr<SettingBase>> _settings;
     mutable std::mutex _mutex;
 
-    // Private constructor for singleton
-    Settings() = default;
-    Settings(const Settings&) = delete;
-    Settings& operator=(const Settings&) = delete;
-
 public:
-    static Settings& instance() {
-        std::call_once(_once, []() {
-            instance_ = std::unique_ptr<Settings>(new Settings());
-        });
-        return *instance_;
-    }
+    Settings() = default;
 
     template<typename T>
     void set(const std::string& key, T&& value) {

@@ -15,9 +15,7 @@
  You should have received a copy of the GNU General Public License
  along with this program.  If not, see <https://www.gnu.org/licenses/>. */
 
-#define ZIP_IMPLEMENTATION
-#include "scene.hpp"
-#define SOKOL_IMPL
+#include "ice.hpp"
 #include "sokol/sokol_gfx.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_glue.h"
@@ -254,8 +252,10 @@ static void frame(void) {
     sg_commit();
 
     if (state.next_scene) {
-        if ((state.scene_prev = state.scene_current))
+        if ((state.scene_prev = state.scene_current)) {
             state.scene_current->exit();
+            $Assets.clear();
+        }
         if ((state.scene_current = state.next_scene))
             state.scene_current->enter();
         state.next_scene = NULL;

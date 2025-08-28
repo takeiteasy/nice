@@ -1,14 +1,17 @@
 //
-//  config.h
+//  ice_config.h
 //  ice
 //
 //  Created by George Watson on 22/07/2025.
 //
 
 #define SCENES \
-    X(test) \
+    X(game) \
 
-#define FIRST_SCENE test
+#define MODULES \
+    X(Renderable)
+
+#define FIRST_SCENE game
 
 #define CHUNK_WIDTH  256
 #define CHUNK_HEIGHT 256

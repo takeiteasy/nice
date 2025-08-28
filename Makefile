@@ -24,7 +24,7 @@ SOURCE := $(wildcard src/*.cpp) deps/fmt/format.cc deps/fmt/os.cc
 SCENES := $(wildcard scenes/*.cpp)
 EXE := build/ice_$(ARCH)$(PROG_EXT)
 LIB := build/libice_$(ARCH).$(LIB_EXT)
-INC := $(CXXFLAGS) -Iscenes -Isrc -Ideps $(LDFLAGS)
+INC := $(CXXFLAGS) -Iscenes -Isrc -Ideps -Ideps/flecs $(LDFLAGS)
 
 ARCH_PATH := bin/$(ARCH)
 SHDC_PATH := $(ARCH_PATH)/sokol-shdc$(PROG_EXT)
@@ -38,8 +38,13 @@ src/%.glsl.h: shaders/%.glsl
 
 shaders: $(SHADER_OUTS)
 
-exe:
-	$(CXX) $(INC) $(CFLAGS) $(SOURCE) $(SCENES) -o $(EXE)
+libflecs_$(ARCH).$(LIB_EXT):
+	$(CC) -shared -fpic -Ideps/flecs -Ideps deps/flecs/*.c deps/minilua.c -o build/libflecs_$(ARCH).$(LIB_EXT)
+
+flecs: libflecs_$(ARCH).$(LIB_EXT)
+
+exe: flecs
+	$(CXX) $(INC) $(CFLAGS) $(SOURCE) $(SCENES) -Lbuild -lflecs_$(ARCH) -o $(EXE)
 
 clean:
 	rm -f $(EXE) 

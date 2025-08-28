@@ -2,18 +2,32 @@
 //  global.hpp
 //  ice
 //
-//  Created by George Watson on 01/08/2025.
+//  Created by George Watson on 28/08/2025.
 //
 
 #pragma once
 
-#include "config.h"
-#include "asset_manager.hpp"
-#include "settings_manager.hpp"
+#include <memory>
+#include <mutex>
+#include <utility>
 
-int framebuffer_width(void);
-int framebuffer_height(void);
-void framebuffer_resize(int width, int height);
+template<typename T>
+class Global {
+    inline static std::unique_ptr<T> _instance = nullptr;
+    inline static std::once_flag _once;
 
-uint64_t index(int x, int y);
-std::pair<int, int> unindex(uint64_t i);
+protected:
+    Global() = default;
+
+private:
+    Global(const Global<T>&) = delete;
+    Global& operator=(const Global<T>&) = delete;
+
+public:
+    static T& instance() {
+        std::call_once(_once, []() {
+            _instance = std::unique_ptr<T>(new T());
+        });
+        return *_instance;
+    }
+};

@@ -7,9 +7,8 @@
 
 #pragma once
 
-#include "global.hpp"
+#include "ice.hpp"
 #include "sokol/sokol_gfx.h"
-#define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #include <string>
 

@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "global.hpp"
+#include "ice.hpp"
 #include "vertex_batch.hpp"
 #include "camera.hpp"
 #include <unordered_map>
