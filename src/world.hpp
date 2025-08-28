@@ -11,13 +11,10 @@
 #include "flecs.h"
 #include "flecs_lua.h"
 #include "chunk_manager.hpp"
-
-#define X(NAME) extern void NAME##Import(ecs_world_t*);
-MODULES
-#undef X
+#include "renderable.hpp"
 
 class World {
-    ecs_world_t *world = nullptr;
+    flecs::world *world = nullptr;
     lua_State *L = nullptr;
     ChunkManager *_manager = nullptr;
 
@@ -98,12 +95,15 @@ public:
         ecs_os_set_api(&os_api);
         ecs_log_enable_colors(false);
 
-        world = ecs_init();
-        ECS_IMPORT(world, FlecsLua);
-#define X(MODULE) ECS_IMPORT(world, MODULE);
+        world = new flecs::world();
+        // FlecsLua still uses C API for import
+        ECS_IMPORT(world->c_ptr(), FlecsLua);
+        
+        // Import C++ modules
+#define X(MODULE) world->import<MODULE>();
         MODULES
 #undef X
-        L = ecs_lua_get_state(world);
+        L = ecs_lua_get_state(world->c_ptr());
         ecs_assert(L != NULL, ECS_INTERNAL_ERROR, NULL);
 
         luaL_openlibs(L);
@@ -122,11 +122,12 @@ public:
             fprintf(stderr, "Lua error loading %s: %s\n", path, error_msg);
             lua_pop(L, 1);
         }
+        ecs_assert(L != NULL, ECS_INTERNAL_ERROR, NULL);
     }
 
     ~World() {
         if (world)
-            ecs_fini(world);
+            delete world;
     }
 
     bool update(float dt) {
@@ -134,10 +135,10 @@ public:
         _manager->scan_for_chunks();
         _manager->release_chunks();
         _manager->draw_chunks();
-        return ecs_progress(world, dt);
+        return world->progress(dt);
     }
 
-    operator ecs_world_t*(void) {
+    operator flecs::world*(void) {
         return world;
     }
 };
