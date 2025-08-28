@@ -29060,6 +29060,17 @@ inline flecs::scoped_world world::scope() const {
 
 /** @} */
 
+#include <algorithm>
+
+namespace std {
+    template<>
+    struct hash<flecs::entity> {
+        size_t operator()(const flecs::entity& entity) const {
+            return hash<uint64_t>()(entity.id());
+        }
+    };
+}
+
 #endif // __cplusplus
 
 #endif // FLECS_CPP

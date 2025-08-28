@@ -20,31 +20,34 @@ default: exe
 
 all: clean shaders exe
 
+BUILD_DIR := build
 SOURCE := $(wildcard src/*.cpp) deps/fmt/format.cc deps/fmt/os.cc
 SCENES := $(wildcard scenes/*.cpp)
-EXE := build/ice_$(ARCH)$(PROG_EXT)
-LIB := build/libice_$(ARCH).$(LIB_EXT)
+EXE := $(BUILD_DIR)/ice_$(ARCH)$(PROG_EXT)
+LIB := $(BUILD_DIR)/libice_$(ARCH).$(LIB_EXT)
 INC := $(CXXFLAGS) -Iscenes -Isrc -Ideps -Ideps/flecs $(LDFLAGS)
 
+SHADERS_SRC := shaders
+SHADER_DST := $(BUILD_DIR)
 ARCH_PATH := bin/$(ARCH)
 SHDC_PATH := $(ARCH_PATH)/sokol-shdc$(PROG_EXT)
-SHADERS := $(wildcard shaders/*.glsl)
-SHADER_OUTS := $(patsubst shaders/%,src/%.h,$(SHADERS))
+SHADERS := $(wildcard $(SHADERS_SRC)/*.glsl)
+SHADER_OUTS := $(patsubst $(SHADERS_SRC)/%,$(SHADER_DST)/%.h,$(SHADERS))
 
 .SECONDEXPANSION:
 SHADER_OUT := $@
-src/%.glsl.h: shaders/%.glsl
+$(SHADER_DST)/%.glsl.h: $(SHADERS_SRC)/%.glsl
 	$(SHDC_PATH) -i $< -o $@ -l $(SHDC_FLAGS)
 
 shaders: $(SHADER_OUTS)
 
 libflecs_$(ARCH).$(LIB_EXT):
-	$(CC) -shared -fpic -Ideps/flecs -Ideps deps/flecs/*.c deps/minilua.c -o build/libflecs_$(ARCH).$(LIB_EXT)
+	$(CC) -shared -fpic -Ideps/flecs -Ideps deps/flecs/*.c deps/minilua.c -o $(BUILD_DIR)/libflecs_$(ARCH).$(LIB_EXT)
 
 flecs: libflecs_$(ARCH).$(LIB_EXT)
 
 exe: flecs
-	$(CXX) $(INC) $(CFLAGS) $(SOURCE) $(SCENES) -Lbuild -lflecs_$(ARCH) -o $(EXE)
+	$(CXX) $(INC) $(CFLAGS) $(SOURCE) $(SCENES) -I$(SHADER_DST) -L$(BUILD_DIR) -lflecs_$(ARCH) -o $(EXE)
 
 clean:
 	rm -f $(EXE) 

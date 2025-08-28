@@ -62,7 +62,9 @@
         "__tree": "cpp",
         "iomanip": "cpp",
         "set": "cpp",
-        "typeindex": "cpp"
+        "typeindex": "cpp",
+        "fstream": "cpp",
+        "source_location": "cpp"
     },
     "C_Cpp.default.configurationProvider": "ms-vscode.cpptools",
     "C_Cpp.default.cppStandard": "c++17",

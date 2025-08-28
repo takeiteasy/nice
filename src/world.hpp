@@ -11,7 +11,82 @@
 #include "flecs.h"
 #include "flecs_lua.h"
 #include "chunk_manager.hpp"
-#include "renderable.hpp"
+
+ECS_STRUCT(LuaChunk, {
+    uint32_t x;
+    uint32_t y;
+});
+
+ECS_STRUCT(LuaRenderable, {
+    float x;
+    float y;
+    float width;
+    float height;
+    uint32_t texture_id;
+    uint32_t z_index;
+    float rotation;
+    float scale_x;
+    float scale_y;
+});
+
+struct Renderable {
+    Renderable(flecs::world &world) {
+        world.module<Renderable>();
+
+        ecs_world_t *w = world.c_ptr();
+        ECS_IMPORT(w, FlecsMeta);
+
+        ecs_entity_t scope = ecs_set_scope(w, 0);
+
+        ECS_META_COMPONENT(w, LuaChunk);
+        LuaChunk chunk = {.x = 0, .y = 0};
+        ecs_set_ptr(w, 0, LuaChunk, &chunk);
+        ECS_META_COMPONENT(w, LuaRenderable);
+        LuaRenderable renderable = {
+            .x = 0.f,
+            .y = 0.f,
+            .width = 0.f,
+            .height = 0.f,
+            .texture_id = 0,
+            .z_index = 0,
+            .rotation = 0.f,
+            .scale_x = 1.f,
+            .scale_y = 1.f
+        };
+        ecs_set_ptr(w, 0, LuaRenderable, &renderable);
+
+        ecs_set_scope(w, scope);
+
+        // Set up observers to automatically manage renderable entities
+        world.observer<LuaRenderable>()
+            .event(flecs::OnAdd)
+            .each([](flecs::entity entity, LuaRenderable& renderable) {
+                printf("Renderable added: Entity ID %llu\nX: %.2f, Y: %.2f, Width: %.2f, Height: %.2f, Texture ID: %u, Z-Index: %u, Rotation: %.2f, ScaleX: %.2f, ScaleY: %.2f\n",
+                       entity.id(),
+                       renderable.x, renderable.y,
+                       renderable.width, renderable.height,
+                       renderable.texture_id,
+                       renderable.z_index,
+                       renderable.rotation,
+                       renderable.scale_x, renderable.scale_y);
+                // TODO: Mark entity as dirty
+                glm::vec2 chunk = Camera::world_to_chunk(glm::vec2(renderable.x, renderable.y));
+                entity.set<LuaChunk>({static_cast<uint32_t>(chunk.x), static_cast<uint32_t>(chunk.y)});
+            });
+
+        world.observer<LuaRenderable>()
+            .event(flecs::OnRemove)
+            .each([](flecs::entity entity, LuaRenderable& renderable) {
+                printf("Renderable removed: Entity ID %llu\n", entity.id());
+            });
+
+
+        world.observer<LuaChunk, LuaRenderable>()
+            .event(flecs::OnSet)
+            .each([](flecs::entity entity, LuaChunk& chunk, LuaRenderable& renderable) {
+            });
+    }
+};
 
 class World {
     flecs::world *world = nullptr;
@@ -98,7 +173,6 @@ public:
         world = new flecs::world();
         // FlecsLua still uses C API for import
         ECS_IMPORT(world->c_ptr(), FlecsLua);
-        
         // Import C++ modules
 #define X(MODULE) world->import<MODULE>();
         MODULES
