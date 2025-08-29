@@ -9,27 +9,23 @@
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/util/sokol_debugtext.h"
-#include "chunk_manager.hpp"
 #include "world.hpp"
 
 static struct {
     Camera *camera;
-    ChunkManager *manager;
+    World *manager;
     bool camera_dragging = false;
     glm::vec2 mouse_position;
-    World *world;
 } state;
 
 void game_enter(void) {
     $Assets.set_archive("assets/assets.zip");
     state.camera = new Camera();
-    state.manager = new ChunkManager(state.camera);
-    state.world = new World(state.manager, "scripts/test.lua");
+    state.manager = new World(state.camera);
     //    sapp_show_mouse(false);
 }
 
 void game_exit(void) {
-    delete state.world;
     delete state.manager;
     delete state.camera;
 }
@@ -80,6 +76,6 @@ void game_step(void) {
     Rect bounds = state.camera->bounds();
     sdtx_printf("camera: (%d, %d, %d, %d)\n", bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h);
 
-    if (!state.world->update(sapp_frame_duration()))
+    if (!state.manager->update(sapp_frame_duration()))
         sapp_quit();
 }
