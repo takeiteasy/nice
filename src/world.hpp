@@ -32,6 +32,7 @@ class World {
     Texture *_tilemap;
     sg_shader _shader;
     sg_pipeline _pipeline;
+    sg_pipeline _renderables_pipeline;
 
     flecs::world *_world = nullptr;
     lua_State *L = nullptr;
@@ -296,6 +297,7 @@ public:
                 .dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA
             }
         };
+        _renderables_pipeline = sg_make_pipeline(&desc);
         _tilemap = $Assets.get<Texture>("tilemap.exploded.png");
 
         ecs_os_set_api_defaults();
@@ -306,7 +308,7 @@ public:
         ecs_log_enable_colors(false);
 
         _world = new flecs::world();
-        $Renderables.init(_world);
+        $Renderables.set_world(_world);
         // FlecsLua still uses C API for import
         ECS_IMPORT(_world->c_ptr(), FlecsLua);
         // Import C++ modules
@@ -326,6 +328,48 @@ public:
         lua_setfield(L, -2, "path");
         lua_pop(L, 1);
 
+        // Register texture function for Lua
+        lua_register(L, "register_texture", [](lua_State* L) -> int {
+            const char* path = luaL_checkstring(L, 1);
+            uint32_t texture_id = $Renderables.register_texture(path);
+            lua_pushinteger(L, texture_id);
+            return 1; // Return the texture ID
+        });
+
+        lua_register(L, "framebuffer_width", [](lua_State* L) -> int {
+            lua_pushinteger(L, framebuffer_width());
+            return 1;
+        });
+
+        lua_register(L, "framebuffer_height", [](lua_State* L) -> int {
+            lua_pushinteger(L, framebuffer_height());
+            return 1;
+        });
+
+        lua_register(L, "framebuffer_resize", [](lua_State* L) -> int {
+            int width = luaL_checkinteger(L, 1);
+            int height = luaL_checkinteger(L, 2);
+            framebuffer_resize(width, height);
+            return 0; // No return value
+        });
+
+        lua_register(L, "chunk_index", [](lua_State* L) -> int {
+            int x = luaL_checkinteger(L, 1);
+            int y = luaL_checkinteger(L, 2);
+            uint64_t result = index(x, y);
+            lua_pushinteger(L, result);
+            return 1;
+        });
+
+        auto unindex_func = [](lua_State* L) -> int {
+            uint64_t i = luaL_checkinteger(L, 1);
+            auto coords = unindex(i);
+            lua_pushinteger(L, coords.first);
+            lua_pushinteger(L, coords.second);
+            return 2; // Return two values: x, y
+        };
+        lua_register(L, "chunk_unindex", unindex_func);
+
         const char *path = "scripts/test.lua";
         int result = luaL_dofile(L, path);
         if (result != LUA_OK) {
@@ -344,6 +388,8 @@ public:
             sg_destroy_shader(_shader);
         if (sg_query_pipeline_state(_pipeline) == SG_RESOURCESTATE_VALID)
             sg_destroy_pipeline(_pipeline);
+        if (sg_query_pipeline_state(_renderables_pipeline) == SG_RESOURCESTATE_VALID)
+            sg_destroy_pipeline(_renderables_pipeline);
         {
             std::unique_lock<std::shared_mutex> lock(_chunks_lock);
             for (auto& [id, chunk] : _chunks)
@@ -354,10 +400,17 @@ public:
     }
 
     bool update(float dt) {
+        // TODO: modify these functions to also update $Renderables at same time as chunks
         update_chunks();
         scan_for_chunks();
         release_chunks();
-        draw_chunks();
-        return _world->progress(dt);
+        bool result = _world->progress(dt);
+        if (result) {
+            $Renderables.finalize(_camera);
+            draw_chunks();
+            sg_apply_pipeline(_renderables_pipeline);
+            $Renderables.flush(_camera);
+        }
+        return result;
     }
 };

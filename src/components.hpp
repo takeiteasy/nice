@@ -24,4 +24,8 @@ ECS_STRUCT(LuaRenderable, {
     float rotation;
     float scale_x;
     float scale_y;
+    uint32_t clip_x;
+    uint32_t clip_y;
+    uint32_t clip_width;
+    uint32_t clip_height;
 });

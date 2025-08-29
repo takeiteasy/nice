@@ -156,45 +156,41 @@ class Chunk {
         return result;
     }
 
-    static ChunkVertex* generate_quad(glm::vec2 position, glm::vec2 size, glm::vec2 clip_offset, glm::vec2 clip_size, glm::vec2 texture_size) {
-            int _x = static_cast<int>(position.x);
-            int _y = static_cast<int>(position.y);
-            int _width = static_cast<int>(size.x);
-            int _height = static_cast<int>(size.y);
-            glm::vec2 _positions[] = {
-                {_x, _y},                    // Top-left
-                {_x + _width, _y},           // Top-right
-                {_x + _width, _y + _height}, // Bottom-right
-                {_x, _y + _height},          // Bottom-left
-            };
+    ChunkVertex *generate_quad(glm::vec2 position, glm::vec2 clip_offset) {
+        int _x = static_cast<int>(position.x);
+        int _y = static_cast<int>(position.y);
+        glm::vec2 _positions[] = {
+            {_x, _y},                           // Top-left
+            {_x + TILE_WIDTH, _y},              // Top-right
+            {_x + TILE_WIDTH, _y + TILE_HEIGHT}, // Bottom-right
+            {_x, _y + TILE_HEIGHT},             // Bottom-left
+        };
 
-            int _clip_x = static_cast<int>(clip_offset.x);
-            int _clip_y = static_cast<int>(clip_offset.y);
-            int _clip_width = static_cast<int>(clip_size.x);
-            int _clip_height = static_cast<int>(clip_size.y);
-            int _texture_width = static_cast<int>(texture_size.x);
-            int _texture_height = static_cast<int>(texture_size.y);
-            float iw = 1.f / _texture_width;
-            float ih = 1.f / _texture_height;
-            float tl = _clip_x * iw;
-            float tt = _clip_y * ih;
-            float tr = (_clip_x + _clip_width) * iw;
-            float tb = (_clip_y + _clip_height) * ih;
-            glm::vec2 _texcoords[4] = {
-                {tl, tt}, // top left
-                {tr, tt}, // top right
-                {tr, tb}, // bottom right
-                {tl, tb}, // bottom left
-            };
+        int _clip_x = static_cast<int>(clip_offset.x);
+        int _clip_y = static_cast<int>(clip_offset.y);
+        int _texture_width = _texture->width();
+        int _texture_height = _texture->height();
+        float iw = 1.f / _texture_width;
+        float ih = 1.f / _texture_height;
+        float tl = _clip_x * iw;
+        float tt = _clip_y * ih;
+        float tr = (_clip_x + TILE_ORIGINAL_WIDTH) * iw;
+        float tb = (_clip_y + TILE_ORIGINAL_HEIGHT) * ih;
+        glm::vec2 _texcoords[4] = {
+            {tl, tt}, // top left
+            {tr, tt}, // top right
+            {tr, tb}, // bottom right
+            {tl, tb}, // bottom left
+        };
 
         ChunkVertex *v = new ChunkVertex[6];
-            static uint16_t _indices[] = {0, 1, 2, 2, 3, 0};
-            for (int i = 0; i < 6; i++) {
-                v[i].position = _positions[_indices[i]];
-                v[i].texcoord = _texcoords[_indices[i]];
-            }
-            return v;
+        static uint16_t _indices[] = {0, 1, 2, 2, 3, 0};
+        for (int i = 0; i < 6; i++) {
+            v[i].position = _positions[_indices[i]];
+            v[i].texcoord = _texcoords[_indices[i]];
         }
+        return v;
+    }
 
 public:
     Chunk(int x, int y, Camera *camera, Texture *texture)
@@ -246,10 +242,7 @@ public:
                 int clip_x = static_cast<int>((clip.x * TILE_ORIGINAL_WIDTH) + ((clip.x + 1) * TILE_PADDING));
                 int clip_y = static_cast<int>((clip.y * TILE_ORIGINAL_HEIGHT) + ((clip.y + 1) * TILE_PADDING));
                 ChunkVertex *veritces = generate_quad({x * TILE_WIDTH, y * TILE_HEIGHT},
-                                                      {TILE_WIDTH, TILE_HEIGHT},
-                                                      {clip_x, clip_y},
-                                                      {TILE_ORIGINAL_WIDTH, TILE_ORIGINAL_HEIGHT},
-                                                      {_texture->width(), _texture->height()});
+                                                      {clip_x, clip_y});
                 std::copy(veritces, veritces + 6, &vertices[vertex_index]);
                 delete[] veritces;
                 vertex_index += 6;
