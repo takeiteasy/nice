@@ -22,6 +22,8 @@
 #include "sokol/sokol_log.h"
 #include "sokol/sokol_time.h"
 #include "sokol/util/sokol_debugtext.h"
+#include "imgui.h"
+#include "sokol/util/sokol_imgui.h"
 #include "glm/vec2.hpp"
 #include "passthru.glsl.h"
 
@@ -224,6 +226,10 @@ static void init(void) {
     };
     state.bind.index_buffer = sg_make_buffer(&i_desc);
 
+    simgui_desc_t simgui_desc = { };
+    simgui_desc.logger.func = slog_func;
+    simgui_setup(&simgui_desc);
+
 #define _STRINGIFY(s) #s
 #define STRINGIFY(S) _STRINGIFY(S)
     set_scene_named(STRINGIFY(FIRST_SCENE));
@@ -235,8 +241,12 @@ static void frame(void) {
         return;
     }
 
+    int width = sapp_width();
+    int height = sapp_height();
+    simgui_new_frame({ width, height, sapp_frame_duration(), sapp_dpi_scale() });
+
     sg_begin_pass(&state.pass);
-    sdtx_canvas(sapp_width(), sapp_height());
+    sdtx_canvas(width, height);
     state.scene_current->step();
     sg_end_pass();
     sg_pass pass_desc = {
@@ -248,6 +258,7 @@ static void frame(void) {
     sg_apply_bindings(&state.bind);
     sg_draw(0, 6, 1);
     sdtx_draw();
+    simgui_render();
     sg_end_pass();
     sg_commit();
 
@@ -263,6 +274,7 @@ static void frame(void) {
 }
 
 static void event(const sapp_event *event) {
+    simgui_handle_event(event);
     if (state.scene_current != NULL)
         state.scene_current->event(event);
 }

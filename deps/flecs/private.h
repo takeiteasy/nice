@@ -3,9 +3,8 @@
 
 #include <flecs_lua.h>
 
-/* A 64-bit lua_Number is also recommended */
-#if (lua_Unsigned)-1 != UINT64_MAX
-    #error "flecs-lua requires a 64-bit lua_Integer"
+#if LUA_INT_TYPE != LUA_INT_LONGLONG
+    #error "flecs-lua requires a 64-bit lua_Integer (compile Lua with LUAI_INT64)"
 #endif
 
 #undef ECS_META_IMPL

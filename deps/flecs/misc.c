@@ -76,7 +76,7 @@ ecs_filter_t *checkfilter(lua_State *L, const ecs_world_t *world, int arg)
 
     check_filter_desc(L, world, &filter_desc, arg);
 
-    ecs_filter_t *filter = ecs_filter_init(world, &filter_desc);
+    ecs_filter_t *filter = ecs_filter_init((ecs_world_t*)world, &filter_desc);
 
     if(!filter) luaL_argerror(L, arg, "invalid filter");
 

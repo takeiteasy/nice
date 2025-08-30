@@ -12,20 +12,21 @@ else
 	ARCH:=osx
 endif
 SHDC_FLAGS := metal_macos
-CXX = clang++
-CXXFLAGS = -std=c++17 -arch arm64 -Wno-c99-designator -Wno-reorder-init-list
-LDFLAGS = -arch arm64
+CXX := clang++
+IGNORE := -Wno-c99-designator -Wno-reorder-init-list -Wno-arc-bridge-casts-disallowed-in-nonarc
+CXXFLAGS := -std=c++17 -arch arm64 $(IGNORE)
+LDFLAGS := -arch arm64
 
 default: exe
 
 all: clean shaders exe
 
 BUILD_DIR := build
-SOURCE := $(wildcard src/*.cpp) deps/fmt/format.cc deps/fmt/os.cc
+SOURCE := $(wildcard src/*.cpp) deps/fmt/format.cc deps/fmt/os.cc deps/imgui/backends/imgui_impl_metal.mm
 SCENES := $(wildcard scenes/*.cpp)
 EXE := $(BUILD_DIR)/ice_$(ARCH)$(PROG_EXT)
 LIB := $(BUILD_DIR)/libice_$(ARCH).$(LIB_EXT)
-INC := $(CXXFLAGS) -Iscenes -Isrc -Ideps -Ideps/flecs $(LDFLAGS)
+INC := $(CXXFLAGS) -Iscenes -Isrc -Ideps -Ideps/flecs -Ideps/imgui $(LDFLAGS)
 
 SHADERS_SRC := shaders
 SHADER_DST := $(BUILD_DIR)

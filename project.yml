@@ -24,6 +24,7 @@ targets:
             - "*.cc"
           excludes:
             - "fmt.cc"
+        - path: deps/imgui/backends/imgui_impl_metal.mm
         - path: deps/
           type: folder
         - path: tools/
@@ -48,6 +49,7 @@ targets:
         HEADER_SEARCH_PATHS: [$(PROJECT_DIR)/deps,
                               $(PROJECT_DIR)/build,
                               $(PROJECT_DIR)/deps/flecs,
+                              $(PROJECT_DIR)/deps/imgui,
                               $(PROJECT_DIR)/scenes]
         OTHER_CFLAGS: [-x objective-c++, -DSOKOL_METAL]
   flecs:

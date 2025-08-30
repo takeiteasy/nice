@@ -347,6 +347,8 @@ void serialize_type_op(
     case EcsOpString:
         lua_pushstring(L, *(char**)ECS_OFFSET(base, op->offset));
         break;
+    default:
+        break;
     }
 }
 
@@ -1219,7 +1221,7 @@ static int is_primitive(const EcsMetaTypeSerialized *ser)
 
     if(count != 2) return 0;
 
-    if(ops[1].kind = EcsOpPrimitive) return 1;
+    if((ops[1].kind = EcsOpPrimitive)) return 1;
 
     return 0;
 }

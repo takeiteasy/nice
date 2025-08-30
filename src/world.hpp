@@ -18,6 +18,8 @@
 #include "flecs.h"
 #include "flecs_lua.h"
 #include "renderable_manager.hpp"
+#include "imgui.h"
+#include "sol/sol_imgui.h"
 
 class World {
     std::unordered_map<uint64_t, Chunk*> _chunks;
@@ -327,6 +329,9 @@ public:
         lua_pushstring(L, new_path.c_str());
         lua_setfield(L, -2, "path");
         lua_pop(L, 1);
+
+        sol::state_view lua(L);
+        lua["imgui"] = imgui::load(static_cast<sol::state&>(lua));
 
         // Register texture function for Lua
         lua_register(L, "register_texture", [](lua_State* L) -> int {
