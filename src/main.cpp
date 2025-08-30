@@ -285,7 +285,7 @@ sapp_desc sokol_main(int argc, char* argv[]) {
     return (sapp_desc) {
         .width = DEFAULT_WINDOW_WIDTH,
         .height = DEFAULT_WINDOW_HEIGHT,
-        .window_title = "ice",
+        .window_title = "nice",
         .init_cb = init,
         .frame_cb = frame,
         .event_cb = event,

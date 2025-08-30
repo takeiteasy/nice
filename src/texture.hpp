@@ -9,7 +9,7 @@
 
 #include "nice.hpp"
 #include "sokol/sokol_gfx.h"
-#include "stb_image.h"
+#include "qoi.h"
 #include <string>
 
 class Texture: public Asset<Texture> {
@@ -32,11 +32,12 @@ public:
     }
 
     bool load(const unsigned char *data, size_t data_size) override {
-        int num_channels;
-        const int desired_channels = 4;
-        stbi_uc *pixels = stbi_load_from_memory(data, (int)data_size, &_width, &_height, &num_channels, desired_channels);
+        qoi_desc desc;
+        unsigned char *pixels = (unsigned char*)qoi_decode(data, (int)data_size, &desc, 4);
         if (!pixels)
             return false;
+        _width = desc.width;
+        _height = desc.height;
         sg_image_desc idesc = {
             .width = _width,
             .height = _height,
@@ -54,7 +55,7 @@ public:
             .wrap_v = SG_WRAP_CLAMP_TO_EDGE
         };
         sampler = sg_make_sampler(&sdesc);
-        stbi_image_free(pixels);
+        free(pixels);
         return sg_query_image_state(image) == SG_RESOURCESTATE_VALID &&
         sg_query_sampler_state(sampler) == SG_RESOURCESTATE_VALID;
     }
@@ -71,5 +72,9 @@ public:
     bool is_valid() const override {
         return sg_query_image_state(image) == SG_RESOURCESTATE_VALID &&
                sg_query_sampler_state(sampler) == SG_RESOURCESTATE_VALID;
+    }
+
+    std::string asset_extension() const override {
+        return ".qoi";
     }
 };

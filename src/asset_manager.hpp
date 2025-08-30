@@ -10,6 +10,7 @@
 #include <mutex>
 #include <memory>
 #include <unordered_map>
+#include <filesystem>
 #include <string>
 #include "just_zip.h"
 #include "global.hpp"
@@ -48,6 +49,10 @@ public:
         return cleanup_done ? false : static_cast<const Derived*>(this)->Derived::is_valid();  // Direct call to avoid virtual dispatch
     }
 
+    virtual std::string asset_extension() const {
+        return "";
+    }
+
     // Handle cleanup in Asset destructor where Derived is still valid
     virtual ~Asset() {
         if (cleanup_done)
@@ -65,6 +70,7 @@ class Assets: public Global<Assets> {
     mutable std::mutex _map_lock;
     zip *_archive = nullptr;
     mutable std::mutex _archive_lock;
+    std::string _base_path = "";
 
 public:
     Assets() = default;  // Add explicit default constructor
@@ -81,13 +87,22 @@ public:
         return result;
     }
 
+    void set_base_path(const std::string& base_path) {
+        _base_path = base_path;
+    }
+
     template<typename T, typename... Args>
     T* get(const std::string& key, bool ensure = true, Args&&... args) {
         std::lock_guard<std::mutex> _a_lock(_archive_lock);
         if (!_archive)
             return nullptr;
         std::lock_guard<std::mutex> m_lock(_map_lock);
-        auto it = _assets.find(key);
+        std::string ext = T().asset_extension();
+        std::filesystem::path p(key);
+        std::string final_key = _base_path.empty() ? key : _base_path + "/" + key;
+        if (key.substr(key.length() - ext.length()) != ext)
+            final_key += ext;
+        auto it = _assets.find(final_key);
         if (it != _assets.end())
             if (auto* asset = dynamic_cast<T*>(it->second.get()))
                 return asset;
@@ -95,15 +110,31 @@ public:
             return nullptr;
         auto asset = std::make_unique<T>(std::forward<Args>(args)...);
         T* result = asset.get();
-        int index;
-        if ((index = zip_find(_archive, key.c_str())) < 0)
-            return nullptr;
-        size_t file_size = zip_size(_archive, index);
-        unsigned char* data = (unsigned char*)std::malloc(file_size);
-        zip_extract_data(_archive, index, data, (int)file_size);
-        result->load(data, file_size);  // Pass data to load
-        std::free(data);
-        _assets[key] = std::move(asset);
+        size_t file_size = 0;
+        unsigned char *data = nullptr;
+        if (_archive != nullptr) {
+            int index;
+            if ((index = zip_find(_archive, final_key.c_str())) < 0)
+                return nullptr;
+            file_size = zip_size(_archive, index);
+            data = (unsigned char*)std::malloc(file_size);
+            zip_extract_data(_archive, index, data, (int)file_size);
+        } else {
+            FILE* file = fopen(final_key.c_str(), "rb");
+            if (!file)
+                return nullptr;
+            fseek(file, 0, SEEK_END);
+            file_size = ftell(file);
+            fseek(file, 0, SEEK_SET);
+            data = (unsigned char*)std::malloc(file_size);
+            fread(data, 1, file_size, file);
+            fclose(file);
+        }
+        if (data != nullptr) {
+            result->load(data, file_size);  // Pass data to load
+            std::free(data);
+            _assets[final_key] = std::move(asset);
+        }
         return result;
     };
 

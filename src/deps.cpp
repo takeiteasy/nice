@@ -7,8 +7,8 @@
 
 #define ZIP_IMPLEMENTATION
 #include "just_zip.h"
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#define QOI_IMPLEMENTATION
+#include "qoi.h"
 #define IMGUI_IMPLEMENTATION
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "imgui.h"

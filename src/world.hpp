@@ -306,7 +306,7 @@ public:
             }
         };
         _renderables_pipeline = sg_make_pipeline(&desc);
-        _tilemap = $Assets.get<Texture>("tilemap.exploded.png");
+        _tilemap = $Assets.get<Texture>("tilemap.exploded");
 
         ecs_os_set_api_defaults();
         ecs_os_api_t os_api = ecs_os_api;
@@ -340,7 +340,7 @@ public:
         lua["imgui"] = imgui::load(static_cast<sol::state&>(lua));
 
         // Register texture function for Lua
-        lua_register(L, "register_texture", [](lua_State* L) -> int {
+        lua_register(L, "get_texture_id", [](lua_State* L) -> int {
             const char* path = luaL_checkstring(L, 1);
             uint32_t texture_id = $Renderables.register_texture(path);
             lua_pushinteger(L, texture_id);

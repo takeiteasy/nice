@@ -1,7 +1,7 @@
 local ecs = require "ecs"
 local m = require "module"
 
-local test_texture = register_texture("hand.png")
+local test_texture = get_texture_id("hand")
 -- local EcsRenderable = ecs.lookup("LuaRenderable")
 
 local test = ecs.new("Test", EcsRenderable)
@@ -30,4 +30,4 @@ function draw_imgui_test(it)
 end
 
 -- Register the function to be called each frame
-ecs.system(draw_imgui_test, "ImGuiTestSystem", ecs.OnUpdate)
+-- ecs.system(draw_imgui_test, "ImGuiTestSystem", ecs.OnUpdate)

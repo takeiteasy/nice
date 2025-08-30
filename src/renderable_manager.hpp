@@ -113,18 +113,23 @@ class RenderableManager: public Global<RenderableManager> {
 
 public:
     RenderableManager(): _build_queue([this](DrawCall call) {
-        for (const auto& entity : call.entities) {
-            if (!entity.is_alive())
-                continue;
-            LuaRenderable *renderable = entity.get_mut<LuaRenderable>();
-            if (!call.texture) // Safety check
-                continue;
-            BasicVertex *vertices = generate_quad(renderable, call.texture);
-            call.batch->add_vertices(vertices, 6);
-            delete[] vertices;
+        // Ensure we always decrement the pending counter and notify, even if processing throws
+        try {
+            for (const auto& entity : call.entities) {
+                if (!entity.is_alive())
+                    continue;
+                LuaRenderable *renderable = entity.get_mut<LuaRenderable>();
+                if (!call.texture) // Safety check
+                    continue;
+                BasicVertex *vertices = generate_quad(renderable, call.texture);
+                call.batch->add_vertices(vertices, 6);
+                delete[] vertices;
+            }
+            call.batch->build();
+        } catch (...) {
+            // Swallow exceptions to avoid terminating the worker thread; still ensure counter is decremented.
         }
-        call.batch->build();
-        
+
         // Decrement pending jobs counter and notify
         _pending_jobs.fetch_sub(1);
         _completion_cv.notify_all();
@@ -213,30 +218,26 @@ public:
             std::lock_guard<std::mutex> lock(_entities_lock);
             map_copy = _entities;
             
-            // Filter entities in-place while we have the lock
-            for (auto it = _entities.begin(); it != _entities.end();) {
+            // Build a filtered snapshot into map_copy while holding the lock
+            // (we'll release the lock and operate on the copy afterwards).
+            for (auto it = _entities.begin(); it != _entities.end(); ++it) {
                 auto &layer = it->second;
-                for (auto layer_it = layer.begin(); layer_it != layer.end();) {
+                auto &copy_layer = map_copy[it->first];
+                for (auto layer_it = layer.begin(); layer_it != layer.end(); ++layer_it) {
                     auto &vec = layer_it->second;
-                    vec.erase(std::remove_if(vec.begin(), vec.end(), [&](flecs::entity entity) {
+                    auto &copy_vec = copy_layer[layer_it->first];
+                    // Copy only alive entities that intersect the camera bounds
+                    for (auto &entity : vec) {
                         if (!entity.is_alive())
-                            return true;
+                            continue;
                         LuaRenderable *renderable = entity.get_mut<LuaRenderable>();
                         Rect bounds = renderable_bounds(*renderable);
-                        return !bounds.intersects(camera_bounds);
-                    }), vec.end());
-                    if (vec.empty())
-                        layer_it = layer.erase(layer_it);
-                    else
-                        ++layer_it;
+                        if (bounds.intersects(camera_bounds))
+                            copy_vec.push_back(entity);
+                    }
                 }
-                if (layer.empty())
-                    it = _entities.erase(it);
-                else
-                    ++it;
             }
         }
-        // _entities_lock is now released
         
         // Pre-fetch textures to avoid holding texture lock during batch operations
         std::unordered_map<uint32_t, Texture*> texture_cache;
@@ -249,7 +250,6 @@ public:
                         texture_cache[texture_id] = it->second;
                 }
         }
-        // _texture_lock is now released
         
         // Now acquire batch lock and set up batches
         std::lock_guard<std::mutex> batch_lock(_batches_lock);
