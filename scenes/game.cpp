@@ -1,11 +1,11 @@
 //
 //  game.cpp
-//  ice
+//  nice
 //
 //  Created by George Watson on 24/07/2025.
 //
 
-#include "ice.hpp"
+#include "nice.hpp"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/util/sokol_debugtext.h"

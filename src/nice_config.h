@@ -1,6 +1,6 @@
 //
-//  ice_config.h
-//  ice
+//  nice_config.h
+//  nice
 //
 //  Created by George Watson on 22/07/2025.
 //

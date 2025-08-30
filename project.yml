@@ -1,4 +1,4 @@
-name: ice 
+name: nice 
 
 options:
   bundleIdPrefix: io.github.takeiteasy
@@ -13,11 +13,14 @@ settings:
   CLANG_WARN_DOCUMENTATION_COMMENTS: false
 
 targets:
-  ice:
+  nice:
     type: tool
     platform: macOS
     sources:
         - path: src/
+          includes:
+            - "*.h"
+            - "*.[ch]pp"
         - path: scenes/
         - path: deps/fmt
           includes:
@@ -36,6 +39,8 @@ targets:
         - path: project.yml
           type: folder
         - path: Makefile
+          type: folder
+        - path: README.md 
           type: folder
     dependencies:
         - sdk: Cocoa.framework

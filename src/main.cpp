@@ -1,6 +1,4 @@
-/* https://github.com/takeiteasy/ice 
-
- ice Copyright (C) 2025 George Watson
+/* https://github.com/takeiteasy/nice 
 
  This program is free software: you can redistribute it and/or modify
  it under the terms of the GNU General Public License as published by
@@ -15,7 +13,7 @@
  You should have received a copy of the GNU General Public License
  along with this program.  If not, see <https://www.gnu.org/licenses/>. */
 
-#include "ice.hpp"
+#include "nice.hpp"
 #include "sokol/sokol_gfx.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_glue.h"
@@ -51,11 +49,9 @@ static struct {
     sg_image color, depth;
     sg_sampler sampler;
     sg_shader shader;
-    int framebuffer_width, framebuffer_height;
-} state = {
-    .framebuffer_width = DEFAULT_WINDOW_WIDTH,
-    .framebuffer_height = DEFAULT_WINDOW_HEIGHT
-};
+    int framebuffer_width = DEFAULT_WINDOW_WIDTH;
+    int framebuffer_height = DEFAULT_WINDOW_HEIGHT;
+} state;
 
 static struct scene* find_scene(const char *name) {
     size_t name_len = strlen(name);

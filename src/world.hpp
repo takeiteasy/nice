@@ -1,6 +1,6 @@
 //
 //  world.hpp
-//  ice
+//  nice
 //
 //  Created by George Watson on 18/08/2025.
 //
@@ -20,6 +20,12 @@
 #include "renderable_manager.hpp"
 #include "imgui.h"
 #include "sol/sol_imgui.h"
+
+// Embedded file: src/setup.lua
+// Size: 71 bytes
+static const char setup_lua[] = 
+    "local ecs = require(\"ecs\")\n\nEcsRenderable = ecs.lookup(\"LuaRenderable\")";
+static const size_t setup_lua_size = 71;
 
 class World {
     std::unordered_map<uint64_t, Chunk*> _chunks;
@@ -375,9 +381,15 @@ public:
         };
         lua_register(L, "chunk_unindex", unindex_func);
 
+        if (luaL_dostring(L, setup_lua) != LUA_OK) {
+            const char* error_msg = lua_tostring(L, -1);
+            fprintf(stderr, "Lua error in setup.lua: %s\n", error_msg);
+            lua_pop(L, 1); // Remove error message from stack
+            throw std::runtime_error("Internal Error: Failed to execute `setup.lua`");
+        }
+
         const char *path = "scripts/test.lua";
-        int result = luaL_dofile(L, path);
-        if (result != LUA_OK) {
+        if (luaL_dofile(L, path) != LUA_OK) {
             const char* error_msg = lua_tostring(L, -1);
             fprintf(stderr, "Lua error loading %s: %s\n", path, error_msg);
             lua_pop(L, 1);

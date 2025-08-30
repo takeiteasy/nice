@@ -1,6 +1,4 @@
-/* https://github.com/takeiteasy/ice
-
- ice Copyright (C) 2025 George Watson
+/* https://github.com/takeiteasy/nice
 
  This program is free software: you can redistribute it and/or modify
  it under the terms of the GNU General Public License as published by

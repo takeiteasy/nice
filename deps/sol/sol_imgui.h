@@ -1,4 +1,4 @@
-/* sol_imgui.h -- https://github.com/takeiteasy/ice
+/* sol_imgui.h -- https://github.com/takeiteasy/nice
  
  forked from: https://github.com/Fesmaster/sol2_ImGui_Bindings
  originally from: https://github.com/MSeys/sol2_ImGui_Bindings */

@@ -1,13 +1,13 @@
 //
 //  texture.hpp
-//  ice
+//  nice
 //
 //  Created by George Watson on 03/08/2025.
 //
 
 #pragma once
 
-#include "ice.hpp"
+#include "nice.hpp"
 #include "sokol/sokol_gfx.h"
 #include "stb_image.h"
 #include <string>

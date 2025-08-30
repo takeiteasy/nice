@@ -1,6 +1,6 @@
 //
 //  global.hpp
-//  ice
+//  nice
 //
 //  Created by George Watson on 28/08/2025.
 //

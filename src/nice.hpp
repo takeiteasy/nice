@@ -1,13 +1,13 @@
 //
-//  ice.hpp
-//  ice
+//  nice.hpp
+//  nice
 //
 //  Created by George Watson on 01/08/2025.
 //
 
 #pragma once
 
-#include "ice_config.h"
+#include "nice_config.h"
 #include "asset_manager.hpp"
 #include "settings_manager.hpp"
 

@@ -1,13 +1,13 @@
 //
 //  chunks.hpp
-//  ice
+//  nice
 //
 //  Created by George Watson on 14/08/2025.
 //
 
 #pragma once
 
-#include "ice.hpp"
+#include "nice.hpp"
 #include "vertex_batch.hpp"
 #include "camera.hpp"
 #include <unordered_map>

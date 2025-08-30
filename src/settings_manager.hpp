@@ -1,6 +1,6 @@
 //
 //  settings_manager.hpp
-//  ice
+//  nice
 //
 //  Created by George Watson on 19/08/2025.
 //

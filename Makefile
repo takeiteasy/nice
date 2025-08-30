@@ -1,3 +1,4 @@
+NAME := nice
 UNAME := $(shell uname -s)
 PROG_EXT :=
 LIB_EXT := dylib
@@ -24,8 +25,8 @@ all: clean shaders exe
 BUILD_DIR := build
 SOURCE := $(wildcard src/*.cpp) deps/fmt/format.cc deps/fmt/os.cc deps/imgui/backends/imgui_impl_metal.mm
 SCENES := $(wildcard scenes/*.cpp)
-EXE := $(BUILD_DIR)/ice_$(ARCH)$(PROG_EXT)
-LIB := $(BUILD_DIR)/libice_$(ARCH).$(LIB_EXT)
+EXE := $(BUILD_DIR)/$(NAME)_$(ARCH)$(PROG_EXT)
+LIB := $(BUILD_DIR)/lib$(NAME)_$(ARCH).$(LIB_EXT)
 INC := $(CXXFLAGS) -Iscenes -Isrc -Ideps -Ideps/flecs -Ideps/imgui $(LDFLAGS)
 
 SHADERS_SRC := shaders
@@ -50,6 +51,9 @@ flecs: libflecs_$(ARCH).$(LIB_EXT)
 exe: flecs
 	$(CXX) $(INC) $(CFLAGS) $(SOURCE) $(SCENES) -I$(SHADER_DST) -L$(BUILD_DIR) -lflecs_$(ARCH) -o $(EXE)
 
+lua:
+	$(CC) -o $(BUILD_DIR)/lua$(PROG_EXT) -Ideps -DLUA_MAKE_LUA deps/minilua.c
+
 clean:
 	rm -f $(EXE) 
 	rm -f src/*.glsl.h
@@ -59,4 +63,4 @@ rrun:
 
 run: exe rrun
 
-.PHONY: rrun run default all clean exe shaders
+.PHONY: rrun run default all clean exe shaders lua

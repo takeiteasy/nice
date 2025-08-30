@@ -1,13 +1,13 @@
 //
 //  renderable_manager.hpp
-//  ice
+//  nice
 //
 //  Created by George Watson on 29/08/2025.
 //
 
 #pragma once
 
-#include "ice.hpp"
+#include "nice.hpp"
 #include "global.hpp"
 #include "components.hpp"
 #include "vertex_batch.hpp"

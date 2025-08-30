@@ -1,6 +1,6 @@
 //
 //  vertex_batch.hpp
-//  ice
+//  nice
 //
 //  Created by George Watson on 11/08/2025.
 //
