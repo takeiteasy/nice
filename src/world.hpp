@@ -20,12 +20,7 @@
 #include "renderable_manager.hpp"
 #include "imgui.h"
 #include "sol/sol_imgui.h"
-
-// Embedded file: src/setup.lua
-// Size: 71 bytes
-static const char setup_lua[] = 
-    "local ecs = require(\"ecs\")\n\nEcsRenderable = ecs.lookup(\"LuaRenderable\")";
-static const size_t setup_lua_size = 71;
+#include "nice.dat.h"
 
 class World {
     std::unordered_map<uint64_t, Chunk*> _chunks;

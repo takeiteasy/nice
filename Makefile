@@ -20,7 +20,7 @@ LDFLAGS := -arch arm64
 
 default: exe
 
-all: clean shaders tools assets clean-assets exe
+all: clean shaders lua nicepkg nice 
 
 BUILD_DIR := build
 ASSET_DIR := assets
@@ -33,7 +33,6 @@ builddir: $(BUILD_DIR)
 SOURCE := $(wildcard src/*.cpp) deps/fmt/format.cc deps/fmt/os.cc deps/imgui/backends/imgui_impl_metal.mm
 SCENES := $(wildcard scenes/*.cpp)
 EXE := $(BUILD_DIR)/$(NAME)_$(ARCH)$(PROG_EXT)
-LIB := $(BUILD_DIR)/lib$(NAME)_$(ARCH).$(LIB_EXT)
 INC := $(CXXFLAGS) -Iscenes -Isrc -Ideps -Ideps/flecs -Ideps/imgui $(LDFLAGS)
 
 SHADERS_SRC := shaders
@@ -50,122 +49,48 @@ $(SHADER_DST)/%.glsl.h: $(SHADERS_SRC)/%.glsl
 
 shaders: builddir $(SHADER_OUTS)
 
+DAT_H := $(BUILD_DIR)/nice.dat.h
+DAT_SRC := src/setup.lua
+LUA := $(BUILD_DIR)/lua$(PROG_EXT)
+
+$(DAT_H): $(DAT_SRC)
+	./$(LUA) tools/embed.lua $(DAT_SRC) > $(DAT_H)
+
+dat: lua $(DAT_H)
+
 lua: builddir
-	$(CC) -o $(BUILD_DIR)/lua$(PROG_EXT) -Ideps -DLUA_MAKE_LUA deps/minilua.c
+	$(CC) -o $(LUA) -Ideps -DLUA_MAKE_LUA deps/minilua.c
 
-TOOLS := explode to_qoa to_qoi
-TOOL_SOURCES := $(patsubst %,tools/%.c,$(TOOLS))
-TOOL_TARGETS := $(patsubst %,$(BUILD_DIR)/%,$(TOOLS))
+FLECS_LIB := $(BUILD_DIR)/libflecs_$(ARCH).$(LIB_EXT)
 
-$(BUILD_DIR)/%: tools/%.c
-	$(CC) -o $@ $< -Ideps -std=c99
+$(FLECS_LIB): builddir
+	$(CC) -shared -fpic -Ideps/flecs -Ideps deps/flecs/*.c deps/minilua.c -o $(FLECS_LIB)
 
-tools: builddir $(TOOL_TARGETS) lua
+flecs: FLECS_LIB
 
-EXPLODE := assets/tilemap.png
-explode: builddir
-	./$(BUILD_DIR)/explode $(EXPLODE)
-
-# Generate the exploded output filenames from EXPLODE inputs
-EXPLODED_FILES := $(patsubst %.png,%.exploded.png,$(EXPLODE))
-
-# Get all image files but exclude the EXPLODE source files
-QOI_IN_ALL := $(wildcard $(ASSET_DIR)/*.png) \
-	   	      $(wildcard $(ASSET_DIR)/*.jpg) \
-	   	      $(wildcard $(ASSET_DIR)/*.jpeg) \
-	   	      $(wildcard $(ASSET_DIR)/*.bmp) \
-	          $(wildcard $(ASSET_DIR)/*.tga) \
-	          $(wildcard $(ASSET_DIR)/*.psd) \
-	          $(wildcard $(ASSET_DIR)/*.hdr) \
-	          $(wildcard $(ASSET_DIR)/*.pic) \
-	          $(wildcard $(ASSET_DIR)/*.pnm) \
-	          $(wildcard $(ASSET_DIR)/*.gif)
-
-# Filter out the EXPLODE source files and add the exploded output files
-QOI_IN := $(sort $(filter-out $(EXPLODE),$(QOI_IN_ALL)) $(EXPLODED_FILES))
-
-# Strip extension and add .qoi
-QOI_OUTS := $(addsuffix .qoi,$(basename $(QOI_IN)))
-
-# Pattern rules for each image format
-%.qoi: %.png | $(BUILD_DIR)/to_qoi
-	./$(BUILD_DIR)/to_qoi $<
-%.qoi: %.jpg | $(BUILD_DIR)/to_qoi
-	./$(BUILD_DIR)/to_qoi $<
-%.qoi: %.jpeg | $(BUILD_DIR)/to_qoi
-	./$(BUILD_DIR)/to_qoi $<
-%.qoi: %.bmp | $(BUILD_DIR)/to_qoi
-	./$(BUILD_DIR)/to_qoi $<
-%.qoi: %.tga | $(BUILD_DIR)/to_qoi
-	./$(BUILD_DIR)/to_qoi $<
-%.qoi: %.psd | $(BUILD_DIR)/to_qoi
-	./$(BUILD_DIR)/to_qoi $<
-%.qoi: %.hdr | $(BUILD_DIR)/to_qoi
-	./$(BUILD_DIR)/to_qoi $<
-%.qoi: %.pic | $(BUILD_DIR)/to_qoi
-	./$(BUILD_DIR)/to_qoi $<
-%.qoi: %.pnm | $(BUILD_DIR)/to_qoi
-	./$(BUILD_DIR)/to_qoi $<
-%.qoi: %.gif | $(BUILD_DIR)/to_qoi
-	./$(BUILD_DIR)/to_qoi $<
-# Special rule for exploded PNG files
-%.exploded.qoi: %.exploded.png | $(BUILD_DIR)/to_qoi
-	./$(BUILD_DIR)/to_qoi $<
-
-qoi: builddir explode $(QOI_OUTS)
-
-QOA_IN := $(wildcard $(ASSET_DIR)/*.wav) \
-		  $(wildcard $(ASSET_DIR)/*.flac) \
-		  $(wildcard $(ASSET_DIR)/*.ogg) \
-		  $(wildcard $(ASSET_DIR)/*.mp3)
-
-# Strip extension and add .qoa
-QOA_OUTS := $(addsuffix .qoa,$(basename $(QOA_IN)))
-
-# Pattern rules for each audio format
-%.qoa: %.wav | $(BUILD_DIR)/to_qoa
-	./$(BUILD_DIR)/to_qoa $<
-%.qoa: %.flac | $(BUILD_DIR)/to_qoa
-	./$(BUILD_DIR)/to_qoa $<
-%.qoa: %.ogg | $(BUILD_DIR)/to_qoa
-	./$(BUILD_DIR)/to_qoa $<
-%.qoa: %.mp3 | $(BUILD_DIR)/to_qoa
-	./$(BUILD_DIR)/to_qoa $<
-
-qoa: builddir $(QOA_OUTS)
-
-ZIP_FILES := $(QOI_OUTS) $(QOA_OUTS)
-
-zip:
-	zip -r $(ASSET_DIR)/assets.zip $(ZIP_FILES) || true
-
-assets: builddir explode qoi qoa zip clean-assets
-
-clean-assets:
-	rm -f $(ASSET_DIR)/*.qoi
-	rm -f $(ASSET_DIR)/*.qoa
-	rm -f $(ASSET_DIR)/*.exploded.*
-
-libflecs_$(ARCH).$(LIB_EXT): builddir
-	$(CC) -shared -fpic -Ideps/flecs -Ideps deps/flecs/*.c deps/minilua.c -o $(BUILD_DIR)/libflecs_$(ARCH).$(LIB_EXT)
-
-flecs: libflecs_$(ARCH).$(LIB_EXT)
-
-$(EXE): builddir flecs
+$(EXE): builddir $(FLECS_LIB)
 	$(CXX) $(INC) $(CFLAGS) $(SOURCE) $(SCENES) -I$(SHADER_DST) -L$(BUILD_DIR) -lflecs_$(ARCH) -o $(EXE)
 
-exe: $(EXE)
+nice: $(EXE)
+
+NICEPKG := $(BUILD_DIR)/nicepkg.$(LIB_EXT)
+
+$(NICEPKG): builddir shaders dat
+	$(CC) -shared -fpic -o $(NICEPKG) tools/nicepkg.c deps/minilua.c -Ideps
+
+nicepkg: $(NICEPKG)
 
 clean:
-	rm -f $(EXE) 
-	rm -f src/*.glsl.h
-
-veryclean:
-	rm -rf $(BUILD_DIR)
+	rm -f $(EXE) || true
+	rm -f $(BUILD_DIR)/lua$(PROG_EXT) || true
+	rm -f $(FLECS_LIB) || true
+	rm -f $(NICEPKG) || true
+	rm -r $(BUILD_DIR)/*.glsl.h || true
+	rm -r $(DAT_H) || true
 
 rerun:
 	./$(EXE)
 
-run: exe rerun
+run: nice rerun
 
-.PHONY: rerun run default all clean exe shaders lua tools builddir qoi qoa zip explode assets clean-assets veryclean
+.PHONY: rerun run default all clean nice shaders lua builddir

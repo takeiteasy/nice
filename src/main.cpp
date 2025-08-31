@@ -24,6 +24,7 @@
 #include "sokol/util/sokol_imgui.h"
 #include "glm/vec2.hpp"
 #include "passthru.glsl.h"
+#include "argparse.hpp"
 
 #define X(NAME)                                     \
 extern void NAME##_enter(void);                     \
@@ -282,6 +283,16 @@ static void cleanup(void) {
 }
 
 sapp_desc sokol_main(int argc, char* argv[]) {
+    argparse::ArgumentParser program("nice");
+
+    try {
+        program.parse_args(argc, argv);
+    } catch (const std::exception& e) {
+        std::cerr << e.what() << std::endl;
+        std::cerr << program;
+        exit(1);
+    }
+
     return (sapp_desc) {
         .width = DEFAULT_WINDOW_WIDTH,
         .height = DEFAULT_WINDOW_HEIGHT,

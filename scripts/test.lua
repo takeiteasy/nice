@@ -1,5 +1,4 @@
 local ecs = require "ecs"
-local m = require "module"
 
 local test_texture = get_texture_id("hand")
 -- local EcsRenderable = ecs.lookup("LuaRenderable")

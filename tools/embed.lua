@@ -1,8 +1,5 @@
 #!/usr/bin/env lua
 
--- Convert files to embeddable C strings
--- Usage: lua embed.lua <filename> [variable_name]
-
 local function escape_string(str)
     local escaped = str:gsub("\\", "\\\\")
                       :gsub("\"", "\\\"")
@@ -36,7 +33,7 @@ local function embed_file(filename)
     local var_name = get_variable_name(filename)
     
     -- Output C string declaration
-    print("// Embedded file: " .. filename)
+    print("\n// Embedded file: " .. filename)
     print("// Size: " .. #content .. " bytes")
     print("static const char " .. var_name .. "[] = ")
     
@@ -79,12 +76,15 @@ end
 local failed_files = {}
 
 -- Process all files
+print("#ifndef NICE_DAT_H")
+print("#define NICE_DAT_H")
 for i = 1, #arg do
     local filename = arg[i]
     if not embed_file(filename) then
         table.insert(failed_files, filename)
     end
 end
+print("#endif // NICE_DAT_H")
 
 -- Report any failures
 if #failed_files > 0 then
