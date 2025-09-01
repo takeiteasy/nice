@@ -219,6 +219,11 @@ static int l_create_zip(lua_State *L) {
     lua_pushnil(L);  // first key
     while (lua_next(L, 2) != 0) {
         const char *path = luaL_checkstring(L, -1);
+        const char *entryname = NULL;
+        // Check if the key is a string (custom entry name) or number (use path as entry name)
+        if (lua_type(L, -2) == LUA_TSTRING)
+            entryname = lua_tostring(L, -2);
+        
         FILE *f = fopen(path, "rb");
         if (!f) {
             zip_close(z);
@@ -226,7 +231,7 @@ static int l_create_zip(lua_State *L) {
             lua_pushstring(L, "Failed to open file");
             return 2;
         }
-        if (!zip_append_file(z, path, f, 6)) {
+        if (!zip_append_file_ex(z, path, entryname, f, 6)) {
             fclose(f);
             zip_close(z);
             lua_pushnil(L);

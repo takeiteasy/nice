@@ -26,6 +26,7 @@ zip* zip_open(const char *file, const char *mode /*r,w,a*/);
 
 // only for (w)rite or (a)ppend mode
 bool zip_append_file(zip*, const char *entryname, FILE *in, unsigned compr_level);
+bool zip_append_file_ex(zip *z, const char *filepath, const char *entryname, FILE *in, unsigned compress_level);
 
 // only for (r)ead mode
 int zip_find(zip*, const char *entryname); // convert entry to index. returns <0 if not found.
@@ -2048,15 +2049,17 @@ bool zip_test(zip *z, unsigned index) {
 }
 
 // zip append/write
-
-bool zip_append_file(zip *z, const char *entryname, FILE *in, unsigned compress_level) {
+bool zip_append_file_ex(zip *z, const char *filepath, const char *entryname, FILE *in, unsigned compress_level) {
     if( !in ) return ERR(false, "No input file provided");
-    if( !entryname ) return ERR(false, "No filename provided");
+    if( !filepath ) return ERR(false, "No filename provided");
+    if ( !entryname ) entryname = filepath;
 
     struct stat st;
     struct tm *timeinfo;
-    stat(entryname, &st);
-    timeinfo = localtime(&st.st_mtime);
+    if (stat(filepath, &st) != 0)
+        return ERR(false, "Failed to get file stats");
+    if (!(timeinfo = localtime(&st.st_mtime)))
+        return ERR(false, "Failed to get file time");
 
     uint32_t crc = 0;
     unsigned char buf[1<<15];
@@ -2152,6 +2155,11 @@ common:;
     (void)REALLOC(comp, 0);
     (void)REALLOC(data, 0);
     return true;
+
+}
+
+bool zip_append_file(zip *z, const char *entryname, FILE *in, unsigned compress_level) {
+    return zip_append_file_ex(z, entryname, NULL, in, compress_level);
 }
 
 // zip common

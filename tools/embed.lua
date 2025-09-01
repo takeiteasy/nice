@@ -2,11 +2,11 @@
 
 local function escape_string(str)
     local escaped = str:gsub("\\", "\\\\")
-                      :gsub("\"", "\\\"")
-                      :gsub("\n", "\\n")
-                      :gsub("\r", "\\r")
-                      :gsub("\t", "\\t")
-                      :gsub("\0", "\\0")
+                       :gsub("\"", "\\\"")
+                       :gsub("\n", "\\n")
+                       :gsub("\r", "\\r")
+                       :gsub("\t", "\\t")
+                       :gsub("\0", "\\0")
     return escaped
 end
 

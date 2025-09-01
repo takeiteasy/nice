@@ -18,7 +18,7 @@ IGNORE := -Wno-c99-designator -Wno-reorder-init-list -Wno-arc-bridge-casts-disal
 CXXFLAGS := -std=c++17 -arch arm64 $(IGNORE)
 LDFLAGS := -arch arm64
 
-default: exe
+default: nice
 
 all: clean shaders lua nicepkg nice 
 
@@ -31,7 +31,6 @@ $(BUILD_DIR):
 builddir: $(BUILD_DIR)
 
 SOURCE := $(wildcard src/*.cpp) deps/fmt/format.cc deps/fmt/os.cc deps/imgui/backends/imgui_impl_metal.mm
-SCENES := $(wildcard scenes/*.cpp)
 EXE := $(BUILD_DIR)/$(NAME)_$(ARCH)$(PROG_EXT)
 INC := $(CXXFLAGS) -Iscenes -Isrc -Ideps -Ideps/flecs -Ideps/imgui $(LDFLAGS)
 
@@ -69,7 +68,7 @@ $(FLECS_LIB): builddir
 flecs: FLECS_LIB
 
 $(EXE): builddir $(FLECS_LIB)
-	$(CXX) $(INC) $(CFLAGS) $(SOURCE) $(SCENES) -I$(SHADER_DST) -L$(BUILD_DIR) -lflecs_$(ARCH) -o $(EXE)
+	$(CXX) $(INC) $(CFLAGS) $(SOURCE) -I$(SHADER_DST) -L$(BUILD_DIR) -lflecs_$(ARCH) -o $(EXE)
 
 nice: $(EXE)
 
@@ -87,6 +86,7 @@ clean:
 	rm -f $(NICEPKG) || true
 	rm -r $(BUILD_DIR)/*.glsl.h || true
 	rm -r $(DAT_H) || true
+	rm *.niceworld || true
 
 rerun:
 	./$(EXE)

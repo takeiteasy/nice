@@ -27,6 +27,7 @@ local function print_usage()
     print("Options:")
     print("  --help, -h           Show this help message")
     print("  --explode, -x FILE   Explode the specified image file into tiles before converting")
+    print("  --as, -a FILE        Specify the output file for the last asset (default: relative path to file)")
     print("  --width WIDTH        Set the tile width (default: 64)")
     print("  --height HEIGHT      Set the tile height (default: 64)")
     print("  --padding PADDING    Set the padding between tiles (default: 4)")
@@ -241,8 +242,13 @@ function table_contains(tbl, x)
 end
 
 function file_exists(name)
-   local f=io.open(name,"r")
-   if f~=nil then io.close(f) return true else return false end
+    local f=io.open(name,"r")
+    if f~=nil then
+        io.close(f)
+        return true
+    else
+        return false
+    end
 end
 
 local tile_width = 8
@@ -260,8 +266,11 @@ local reading_amalg_opts = false
 local lua_files = {}
 local main_lua = nil
 local main_lua_out = "main.lua"
+local temp_lua = nil
 
 local i = 1
+local last_asset_name = nil
+local custom_names = {}  -- Store custom names for files
 while i <= #arg do
     local a = arg[i]
     if reading_amalg_opts then
@@ -274,41 +283,58 @@ while i <= #arg do
     elseif a == "-x" or a == "--explode" then
         next_arg = arg[i + 1] or error("Missing argument for " .. a)
         table.insert(explode_list, next_arg)
+        last_asset_name = next_arg
+        i = i + 1
+    elseif a == "--as" or a == "-a" then
+        if last_asset_name == nil then
+            error("No previous asset to apply --as/-a to")
+        end
+        new_name = arg[i + 1] or error("Missing argument for " .. a)
+        custom_names[last_asset_name] = new_name
+        i = i + 1
     elseif a == "--channels" then
         force_channels = tonumber(arg[i + 1]) or error("Missing argument for --channels")
         if not force_channels or (force_channels ~= 0 and force_channels ~= 3 and force_channels ~= 4) then
             error("Channels must be 0 (auto), 3 (RGB), or 4 (RGBA)")
         end
+        i = i + 1
     elseif a == "--colorspace" then
         colorspace = tonumber(arg[i + 1]) or error("Missing argument for --colorspace")
         if not colorspace or (colorspace ~= 0 and colorspace ~= 1) then
             error("Colorspace must be 0 (sRGB with linear alpha) or 1 (all linear)")
         end
+        i = i + 1
     elseif a == "--width" then
         tile_width = tonumber(arg[i + 1]) or error("Missing argument for --width")
         if not tile_width or tile_width <= 0 then
             error("Width must be positive")
         end
+        i = i + 1
     elseif a == "--height" then
         tile_height = tonumber(arg[i + 1]) or error("Missing argument for --height")
         if not tile_height or tile_height <= 0 then
             error("Height must be positive")
         end
+        i = i + 1
     elseif a == "--padding" then
         padding = tonumber(arg[i + 1]) or error("Missing argument for --padding")
         if not padding or padding < 0 then
             error("Padding must be non-negative")
         end
+        i = i + 1
     elseif a == "-o" or a == "--output" then
         zip_out = arg[i + 1] or error("Missing argument for -o/--output " .. a)
+        i = i + 1
     elseif a == "-k" or a == "--keep" then
         keep_generated = true
     elseif a == "-m" or a == "--main" then
         main_lua = arg[i + 1] or error("Missing argument for -m/--main " .. a)
+        i = i + 1
     elseif a == "--" then
         reading_amalg_opts = true
     else
         table.insert(input_files, a)
+        last_asset_name = a  -- Track the last asset for --as option
     end
     ::continue::
     i = i + 1
@@ -326,6 +352,9 @@ if #input_files == 0 then
 end
 
 for _, f in ipairs(input_files) do
+    if not file_exists(f) then
+        error("Input file does not exist: " .. f)
+    end
     local ext = f:match("%.[^.]+$"):lower()
     if ext == ".png" or
        ext == ".jpg" or
@@ -363,7 +392,7 @@ else
 end
 
 if #lua_files > 0 then
-    local temp_lua = os.tmpname() .. ".lua"
+    temp_lua = os.tmpname() .. ".lua"
     print("Creating temporary Lua file: " .. temp_lua)
     local args = {"-o", temp_lua}
     if main_lua then
@@ -390,33 +419,47 @@ if #lua_files > 0 then
     end
     amalg.amalgamate(table.unpack(args))
     print("Lua amalgamation complete: " .. temp_lua)
-    -- file file exists with name main_lua_out, make backup of original file and move temp_lua to main_lua_out
-    if file_exists(main_lua_out) then
-        os.rename(main_lua_out, main_lua_out .. ".bak")
-        if os.rename(main_lua_out, main_lua_out .. ".bak") then
-            os.rename(temp_lua, main_lua_out)
-        else
-            error("Failed to move temporary Lua file to main output file")
-        end
-    else
-        os.rename(temp_lua, main_lua_out)
-    end
-    os.rename(temp_lua, main_lua_out)
-    table.insert(out_files, main_lua_out)
+    table.insert(out_files, temp_lua)
 end
 
+-- Create the final file mapping for the zip
+local zip_files = {}
+
 for _, f in ipairs(out_files) do
-    if f then
+    if f and f ~= temp_lua then  -- Exclude temp_lua from regular processing
         -- check if file exists
         if not os.rename(f, f) then
             error("File does not exist: " .. f)
         else
-            print("Packaging file: " .. f)
+            -- Check if this file has a custom name
+            local entry_name = f
+            -- Look for custom name based on original file that generated this output
+            for original_file, custom_name in pairs(custom_names) do
+                -- Check if this output file was generated from the original file
+                if f:find(original_file:match("([^/]+)%.[^%.]+$"):gsub("%.", "%%%."), 1, true) then
+                    entry_name = custom_name
+                    break
+                end
+            end
+            
+            print("Packaging file: " .. f .. (entry_name ~= f and (" as " .. entry_name) or ""))
+            zip_files[entry_name] = f
         end
     end
 end
 
-if nicepkg.create_zip(zip_out, out_files) then
+-- Add the main lua file with custom entry name
+if temp_lua then
+    -- Check if temp_lua exists
+    if not os.rename(temp_lua, temp_lua) then
+        error("Temp lua file does not exist: " .. temp_lua)
+    else
+        print("Packaging file: " .. temp_lua .. " as " .. main_lua_out)
+        zip_files[main_lua_out] = temp_lua
+    end
+end
+
+if nicepkg.create_zip(zip_out, zip_files) then
     print("ZIP created successfully at " .. zip_out)
 else
     error("Failed to create ZIP file at " .. zip_out)
@@ -424,7 +467,11 @@ end
 
 if not keep_generated then
     for _, f in ipairs(out_files) do
-        os.remove(f)
+        if f then
+            os.remove(f)
+        end
     end
-    os.remove(main_lua_out)
+    if temp_lua then
+        os.remove(temp_lua)
+    end
 end

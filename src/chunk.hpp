@@ -13,6 +13,9 @@
 #include <unordered_map>
 #include <shared_mutex>
 #include <random>
+#include <iostream>
+#include <fstream>
+#include "fmt/format.h"
 #include "basic.glsl.h"
 
 static const glm::vec2 Autotile3x3Simplified[256] = {
@@ -190,6 +193,174 @@ class Chunk {
             v[i].texcoord = _texcoords[_indices[i]];
         }
         return v;
+    }
+
+    enum ChunkCompression {
+        Default = 0,
+        SPARSE,
+        DENSE,
+        RLE
+    };
+
+    struct ChunkHeader {
+        uint32_t magic;        // "NICE"
+        uint32_t version;      // Version number
+        uint32_t compression;  // Compression type
+        uint32_t width;        // Width in tiles
+        uint32_t height;       // Height in tiles
+    };
+
+    struct ChunkRLEEntry {
+        uint32_t count;    // How many consecutive tiles
+        uint8_t value;     // The flag value for those tiles
+    };
+
+    std::unordered_map<int, uint8_t> _grid_flags() const {
+        std::unordered_map<int, uint8_t> flags;
+        for (int y = 0; y < CHUNK_HEIGHT; y++)
+            for (int x = 0; x < CHUNK_WIDTH; x++)
+                if (_tiles[x][y].extra > 0)
+                    flags[y * CHUNK_WIDTH + x] = _tiles[x][y].extra;
+        return flags;
+    }
+
+    void _serialize_grid(std::ofstream& file) const {
+        int nbytes = CHUNK_SIZE / 8;
+        std::vector<uint8_t> buffer(nbytes, 0);
+
+        uint8_t packed_byte = 0;
+        for (int y = 0; y < CHUNK_HEIGHT; y++) {
+            for (int x = 0; x < CHUNK_WIDTH; x++) {
+                int idx = y * CHUNK_WIDTH + x;
+                int bit = idx % 8;
+                if (_tiles[x][y].solid)
+                    packed_byte |= (1 << bit);
+                if (bit == 7 || idx == CHUNK_SIZE - 1) {
+                    buffer[idx / 8] = packed_byte;
+                    packed_byte = 0;
+                }
+            }
+        }
+        file.write(reinterpret_cast<const char*>(buffer.data()), nbytes);
+    }
+
+    void _deserialize_grid(std::ifstream& file) {
+        int nbytes = CHUNK_SIZE / 8;
+        std::vector<uint8_t> buffer(nbytes);
+        file.read(reinterpret_cast<char*>(buffer.data()), nbytes);
+        
+        for (int byteIdx = 0; byteIdx < nbytes; ++byteIdx) {
+            uint8_t packedByte = buffer[byteIdx];
+            for (int bit = 0; bit < 8; ++bit) {
+                int tileIdx = byteIdx * 8 + bit;
+                if (tileIdx >= CHUNK_SIZE) break;
+                int x = tileIdx % CHUNK_WIDTH;
+                int y = tileIdx / CHUNK_WIDTH;
+                _tiles[x][y].solid = (packedByte & (1 << bit)) != 0;
+            }
+        }
+    }
+
+    // Sparse flags: count + (index, value) pairs
+    void _serialize_sparse(std::ofstream& file) const {
+        std::unordered_map<int, uint8_t> flags = _grid_flags();
+        uint32_t count = static_cast<uint32_t>(flags.size());
+        file.write(reinterpret_cast<const char*>(&count), sizeof(count));
+        for (const auto& pair : flags) {
+            uint32_t index = static_cast<uint32_t>(pair.first);
+            uint8_t value = pair.second;
+            file.write(reinterpret_cast<const char*>(&index), sizeof(index));
+            file.write(reinterpret_cast<const char*>(&value), sizeof(value));
+        }
+    }
+
+    void _serialize_dense(std::ofstream& file) const {
+        // Store all flags densely (1 byte per tile)
+        std::unordered_map<int, uint8_t> flags = _grid_flags();
+        std::vector<uint8_t> buffer(CHUNK_SIZE);
+        for (int i = 0; i < CHUNK_SIZE; ++i) {
+            auto it = flags.find(i);
+            buffer[i] = (it != flags.end()) ? it->second : 0;
+        }
+        file.write(reinterpret_cast<const char*>(buffer.data()), CHUNK_SIZE);
+    }
+
+    void _serialize_rle(std::ofstream& file) const {
+        std::vector<ChunkRLEEntry> encoded;
+        std::unordered_map<int, uint8_t> _flags = _grid_flags();
+        if (_flags.empty())
+            return;
+        std::vector<uint8_t> flags(CHUNK_SIZE, 0);
+        for (const auto& pair : _flags)
+            flags[pair.first] = pair.second;
+
+        uint8_t currentValue = flags[0];
+        uint32_t currentCount = 1;
+        for (size_t i = 1; i < flags.size(); ++i)
+            if (flags[i] == currentValue && currentCount < UINT32_MAX)
+                currentCount++;
+            else {
+                // Value changed or max count reached, store current run
+                encoded.push_back({currentCount, currentValue});
+                currentValue = flags[i];
+                currentCount = 1;
+            }
+        // Don't forget the last run
+        encoded.push_back({currentCount, currentValue});
+
+        uint32_t entryCount = static_cast<uint32_t>(encoded.size());
+        file.write(reinterpret_cast<const char*>(&entryCount), sizeof(entryCount));
+        for (const auto& entry : encoded) {
+            file.write(reinterpret_cast<const char*>(&entry.count), sizeof(entry.count));
+            file.write(reinterpret_cast<const char*>(&entry.value), sizeof(entry.value));
+        }
+    }
+
+    void _deserialize_sparse(std::ifstream& file) {
+        uint32_t count;
+        file.read(reinterpret_cast<char*>(&count), sizeof(count));
+        for (uint32_t i = 0; i < count; ++i) {
+            uint32_t index;
+            uint8_t value;
+            file.read(reinterpret_cast<char*>(&index), sizeof(index));
+            file.read(reinterpret_cast<char*>(&value), sizeof(value));
+            if (index < CHUNK_SIZE) {
+                int x = index % CHUNK_WIDTH;
+                int y = index / CHUNK_WIDTH;
+                _tiles[x][y].extra = value;
+            }
+        }
+    }
+
+    void _deserialize_dense(std::ifstream& file) {
+        std::vector<uint8_t> buffer(CHUNK_SIZE);
+        file.read(reinterpret_cast<char*>(buffer.data()), CHUNK_SIZE);
+        for (int i = 0; i < CHUNK_SIZE; ++i) {
+            int x = i % CHUNK_WIDTH;
+            int y = i / CHUNK_WIDTH;
+            if (x < CHUNK_WIDTH && y < CHUNK_HEIGHT) {
+                _tiles[x][y].extra = buffer[i];
+            }
+        }
+    }
+
+    void _deserialize_rle(std::ifstream& file) {
+        uint32_t count;
+        file.read(reinterpret_cast<char*>(&count), sizeof(count));
+        std::vector<ChunkRLEEntry> encoded(count);
+        for (uint32_t i = 0; i < count; ++i) {
+            file.read(reinterpret_cast<char*>(&encoded[i].count), sizeof(encoded[i].count));
+            file.read(reinterpret_cast<char*>(&encoded[i].value), sizeof(encoded[i].value));
+        }
+        
+        int tileIdx = 0;
+        for (const auto& entry : encoded) {
+            for (uint32_t i = 0; i < entry.count && tileIdx < CHUNK_SIZE; ++i, ++tileIdx) {
+                int x = tileIdx % CHUNK_WIDTH;
+                int y = tileIdx / CHUNK_WIDTH;
+                _tiles[x][y].extra = entry.value;
+            }
+        }
     }
 
 public:
@@ -425,4 +596,102 @@ public:
     void mark_destroyed() { _is_destroyed.store(true); }
     ChunkVisibility visibility() const { return _visibility.load(); }
     void set_visibility(ChunkVisibility visibility) { _visibility.store(visibility); }
+
+    bool serialize(const char *path, ChunkCompression compression = ChunkCompression::Default) const {
+        if (!_is_filled.load())
+            return false;
+
+        // Acquire shared lock to prevent modifications during serialization
+        std::shared_lock<std::shared_mutex> lock(_chunk_mutex);
+
+        std::ofstream file(path, std::ios::binary);
+        if (!file)
+            throw std::runtime_error(fmt::format("Failed to open file for writing: {}", path));
+
+        if (compression == ChunkCompression::Default) {
+            size_t total_tiles = CHUNK_WIDTH * CHUNK_HEIGHT;
+            size_t flagged_tiles = 0;
+            for (int y = 0; y < CHUNK_HEIGHT; y++)
+                for (int x = 0; x < CHUNK_WIDTH; x++)
+                    if (_tiles[x][y].extra != 0)
+                        flagged_tiles++;
+            compression = static_cast<int>((flagged_tiles * 100) / total_tiles) < 30 ? SPARSE : DENSE;
+        }
+
+        ChunkHeader header = {
+            .magic = 0x4543494E, // "NICE"
+            .version = 1,
+            .compression = static_cast<uint32_t>(compression),
+            .width = CHUNK_WIDTH,
+            .height = CHUNK_HEIGHT
+        };
+        file.write(reinterpret_cast<const char*>(&header), sizeof(ChunkHeader));
+
+        try {
+            _serialize_grid(file);
+            switch (compression) {
+                case ChunkCompression::DENSE:
+                    _serialize_dense(file);
+                    break;
+                case ChunkCompression::SPARSE:
+                    _serialize_sparse(file);
+                    break;
+                case ChunkCompression::Default:
+                case ChunkCompression::RLE:
+                    _serialize_rle(file);
+                    break;
+                default:
+                    throw std::runtime_error("Unknown compression type");
+            }
+        } catch (const std::exception &e) {
+            throw std::runtime_error(std::string("Failed to serialize chunk: ") + e.what());
+        }
+        return true;
+    }
+
+    void deserialize(const char *path) {
+        // Acquire unique lock to prevent other operations during deserialization
+        std::unique_lock<std::shared_mutex> lock(_chunk_mutex);
+
+        std::ifstream file(path, std::ios::binary);
+        if (!file)
+            throw std::runtime_error(fmt::format("Failed to open file for reading: {}", path));
+
+        ChunkHeader header;
+        file.read(reinterpret_cast<char*>(&header), sizeof(ChunkHeader));
+        if (header.magic != 0x4543494E) // "NICE"
+            throw std::runtime_error("Invalid chunk data (bad magic)");
+        if (header.version != 1)
+            throw std::runtime_error("Unsupported chunk version");
+        if (header.width != CHUNK_WIDTH || header.height != CHUNK_HEIGHT)
+            throw std::runtime_error("Chunk size mismatch");
+
+        try {
+            memset(_tiles, 0, sizeof(_tiles));
+            _deserialize_grid(file);
+            switch (header.compression) {
+                case ChunkCompression::SPARSE:
+                    _deserialize_sparse(file);
+                    break;
+                case ChunkCompression::DENSE:
+                    _deserialize_dense(file);
+                    break;
+                case ChunkCompression::Default:
+                case ChunkCompression::RLE:
+                    _deserialize_rle(file);
+                    break;
+                default:
+                    throw std::runtime_error("Unknown compression type");
+            }
+            
+            // Recalculate bitmasks after deserialization
+            for (int y = 0; y < CHUNK_HEIGHT; y++)
+                for (int x = 0; x < CHUNK_WIDTH; x++)
+                    _tiles[x][y].bitmask = _tiles[x][y].solid ? tile_bitmask(this, x, y, 1) : 0;
+            
+            _is_filled.store(true);
+        } catch (const std::exception &e) {
+            throw std::runtime_error(std::string("Failed to deserialize chunk: ") + e.what());
+        }
+    }
 };

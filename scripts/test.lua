@@ -28,5 +28,18 @@ function draw_imgui_test(it)
     imgui.end_window()
 end
 
+-- Chunk event callbacks
+function on_chunk_created(x, y)
+    print("(LUA) Chunk created at (" .. x .. ", " .. y .. ")")
+end
+
+function on_chunk_deleted(x, y)
+    print("(LUA) Chunk deleted at (" .. x .. ", " .. y .. ")")
+end
+
+function on_chunk_visibility_changed(x, y, old_vis, new_vis)
+    print("(LUA) Chunk at (" .. x .. ", " .. y .. ") visibility changed from " .. old_vis .. " to " .. new_vis)
+end
+
 -- Register the function to be called each frame
 -- ecs.system(draw_imgui_test, "ImGuiTestSystem", ecs.OnUpdate)

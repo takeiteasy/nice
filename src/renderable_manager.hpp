@@ -236,6 +236,14 @@ public:
                             copy_vec.push_back(entity);
                     }
                 }
+                // Sort entities in layer by y-axis
+                for (auto &pair : copy_layer) {
+                    std::sort(pair.second.begin(), pair.second.end(), [](flecs::entity a, flecs::entity b) {
+                        LuaRenderable *ra = a.get_mut<LuaRenderable>();
+                        LuaRenderable *rb = b.get_mut<LuaRenderable>();
+                        return ra->y < rb->y;
+                    });
+                }
             }
         }
         
