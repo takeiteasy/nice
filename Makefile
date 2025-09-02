@@ -65,7 +65,7 @@ FLECS_LIB := $(BUILD_DIR)/libflecs_$(ARCH).$(LIB_EXT)
 $(FLECS_LIB): builddir
 	$(CC) -shared -fpic -Ideps/flecs -Ideps deps/flecs/*.c deps/minilua.c -o $(FLECS_LIB)
 
-flecs: FLECS_LIB
+flecs: $(FLECS_LIB)
 
 $(EXE): builddir $(FLECS_LIB)
 	$(CXX) $(INC) $(CFLAGS) $(SOURCE) -I$(SHADER_DST) -L$(BUILD_DIR) -lflecs_$(ARCH) -o $(EXE)

@@ -18,15 +18,64 @@
             "problemMatcher": []
         },
         {
+            "label": "Build Lua",
+            "type": "shell",
+            "command": "make",
+            "args": ["lua"],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "Build Flecs",
+            "type": "shell",
+            "command": "make",
+            "args": ["flecs"],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "Build NicePkg",
+            "type": "shell",
+            "command": "make",
+            "args": ["nicepkg"],
+            "group": "build",
+            "dependsOn": ["Build Shaders", "Build Lua"],
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "problemMatcher": ["$gcc"]
+        },
+        {
             "label": "Build App",
             "type": "shell",
             "command": "make",
-            "args": ["exe"],
+            "args": ["nice"],
             "group": {
                 "kind": "build",
                 "isDefault": true
             },
-            "dependsOn": ["Build Shaders"],
+            "dependsOn": ["Build Flecs"],
             "presentation": {
                 "echo": true,
                 "reveal": "always",
@@ -63,6 +112,23 @@
                 "echo": true,
                 "reveal": "always",
                 "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Run App",
+            "type": "shell",
+            "command": "make",
+            "args": ["run"],
+            "group": "test",
+            "dependsOn": ["Build App"],
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": true,
                 "panel": "shared",
                 "showReuseMessage": true,
                 "clear": false

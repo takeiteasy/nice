@@ -3,4 +3,6 @@
 build/
 *.plist
 *.xcodeproj/
-compile_commands.json
+*.niceworld
+*.nicechunk
+*.nice

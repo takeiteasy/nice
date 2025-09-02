@@ -237,18 +237,7 @@ class World {
     void ensure_chunk(int x, int y, bool priority) {
         uint64_t idx = index(x, y);
 
-        // Check if chunk already exists or is being processed
-        {
-            std::shared_lock<std::shared_mutex> chunks_lock(_chunks_lock);
-            if (_chunks.find(idx) != _chunks.end()) {
-                // If chunk exists but is in deletion queue, remove it from queue
-                std::unique_lock<std::shared_mutex> deletion_lock(_deletion_queue_lock);
-                _deletion_queue.erase(idx);
-                return;
-            }
-        }
-
-        // Check and insert atomically using ThreadSafeSet methods
+        // Check and insert atomically using ThreadSafeSet methods first
         if (_chunks_being_created.contains(idx) ||
             _chunks_being_built.contains(idx))
             return;
@@ -256,6 +245,24 @@ class World {
         // Try to mark as being created
         if (!_chunks_being_created.insert(idx))
             return; // Another thread already marked it
+
+        // Check if chunk already exists (after marking as being created to avoid race)
+        bool chunk_exists = false;
+        {
+            std::shared_lock<std::shared_mutex> chunks_lock(_chunks_lock);
+            chunk_exists = (_chunks.find(idx) != _chunks.end());
+        }
+
+        if (chunk_exists) {
+            // Chunk exists, so we don't need to create it
+            _chunks_being_created.erase(idx);
+            // Remove from deletion queue if it was there
+            {
+                std::unique_lock<std::shared_mutex> deletion_lock(_deletion_queue_lock);
+                _deletion_queue.erase(idx);
+            }
+            return;
+        }
 
         // Remove from deletion queue if it was there
         {
@@ -269,7 +276,9 @@ class World {
             _create_chunk_queue.enqueue({x, y});
     }
 
-    void update_chunk(Chunk *chunk, const Rect &camera_bounds, const Rect &max_bounds) {
+    void update_chunk(Chunk *chunk, const Rect &camera_bounds, const Rect &max_bounds, 
+                      std::vector<std::pair<uint64_t, bool>>& deletion_updates,
+                      std::vector<ChunkEvent>& events) {
         if (!chunk->is_ready())
             return;
 
@@ -284,26 +293,23 @@ class World {
                                      chunk->x(), chunk->y(),
                                      Chunk::visibility_to_string(last_visibility),
                                      Chunk::visibility_to_string(new_visibility));
+            
+            // Collect deletion queue updates to apply later
+            uint64_t chunk_id = chunk->id();
             switch (new_visibility) {
                 case ChunkVisibility::Visible:
                 case ChunkVisibility::Occluded:
-                    // If chunk is visible or occluded, remove it from deletion queue
-                    {
-                        std::unique_lock<std::shared_mutex> lock(_deletion_queue_lock);
-                        _deletion_queue.erase(chunk->id());
-                    }
+                    // Mark for removal from deletion queue
+                    deletion_updates.emplace_back(chunk_id, false);
                     break;
                 case ChunkVisibility::OutOfSign:
-                    // Add to deletion queue with timestamp
-                    {
-                        std::unique_lock<std::shared_mutex> lock(_deletion_queue_lock);
-                        _deletion_queue[chunk->id()] = stm_now();
-                    }
+                    // Mark for addition to deletion queue
+                    deletion_updates.emplace_back(chunk_id, true);
                     break;
             }
 
-            std::lock_guard<std::mutex> lock(_event_queue_mutex);
-            _chunk_event_queue.push({ChunkEvent::VisibilityChanged, chunk->x(), chunk->y(), last_visibility, new_visibility});
+            // Collect events to process later
+            events.push_back({ChunkEvent::VisibilityChanged, chunk->x(), chunk->y(), last_visibility, new_visibility});
         }
     }
 
@@ -320,9 +326,34 @@ class World {
                 chunks_to_update.push_back(chunk);
         }
 
-        // Update chunks without holding the lock
+        // Collect deletion updates and events
+        std::vector<std::pair<uint64_t, bool>> deletion_updates;
+        std::vector<ChunkEvent> events;
+        deletion_updates.reserve(chunks_to_update.size());
+        events.reserve(chunks_to_update.size());
+
+        // Update chunks without holding any locks
         for (auto chunk : chunks_to_update)
-            update_chunk(chunk, bounds, max_bounds);
+            update_chunk(chunk, bounds, max_bounds, deletion_updates, events);
+
+        // Apply deletion queue updates in batch
+        if (!deletion_updates.empty()) {
+            uint64_t now = stm_now();
+            std::unique_lock<std::shared_mutex> lock(_deletion_queue_lock);
+            for (const auto& [chunk_id, should_add] : deletion_updates) {
+                if (should_add)
+                    _deletion_queue[chunk_id] = now;
+                else
+                    _deletion_queue.erase(chunk_id);
+            }
+        }
+
+        // Apply events in batch
+        if (!events.empty()) {
+            std::lock_guard<std::mutex> lock(_event_queue_mutex);
+            for (const auto& event : events)
+                _chunk_event_queue.push(event);
+        }
     }
 
     void update_deletion_queue() {
@@ -457,6 +488,7 @@ public:
             std::cout << fmt::format("New chunk created at ({}, {})\n", x, y);
             _chunks[idx] = chunk;
             _chunks_being_created.erase(idx);  // Remove from being created set
+            _chunks_being_built.insert(idx);  // Mark as being built
         }
         
         // Only fill if we didn't load from disk
@@ -473,10 +505,6 @@ public:
         {
             std::lock_guard<std::mutex> lock(_event_queue_mutex);
             _chunk_event_queue.push({ChunkEvent::Created, x, y});
-        }
-        {
-            std::lock_guard<std::shared_mutex> lock(_chunks_lock);
-            _chunks_being_built.insert(idx);  // Mark as being built
         }
         _build_chunk_queue.enqueue(chunk);
     }),
@@ -646,6 +674,10 @@ public:
             sg_destroy_pipeline(_pipeline);
         if (sg_query_pipeline_state(_renderables_pipeline) == SG_RESOURCESTATE_VALID)
             sg_destroy_pipeline(_renderables_pipeline);
+        {
+            std::unique_lock<std::shared_mutex> lock(_deletion_queue_lock);
+            _deletion_queue.clear();
+        }
         {
             std::unique_lock<std::shared_mutex> lock(_chunks_lock);
             // Save all remaining chunks before deletion
