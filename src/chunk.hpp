@@ -262,46 +262,6 @@ class Chunk {
             return ChunkCompression::RLE;
     }
 
-    struct CompressionStats {
-        size_t sparse_size;
-        size_t dense_size;
-        size_t rle_size;
-        ChunkCompression chosen;
-        size_t flagged_tiles;
-        size_t total_tiles;
-        float compression_ratio;
-    };
-
-    CompressionStats get_compression_stats() const {
-        size_t sparse_size = _calculate_sparse_size();
-        size_t dense_size = CHUNK_SIZE;
-        size_t rle_size = _calculate_rle_size();
-        ChunkCompression chosen = _choose_optimal_compression();
-        
-        std::unordered_map<int, uint8_t> flags = _grid_flags();
-        size_t flagged_tiles = flags.size();
-        size_t total_tiles = CHUNK_WIDTH * CHUNK_HEIGHT;
-        
-        size_t chosen_size = (chosen == ChunkCompression::SPARSE) ? sparse_size :
-                            (chosen == ChunkCompression::DENSE) ? dense_size : rle_size;
-        float compression_ratio = static_cast<float>(chosen_size) / static_cast<float>(dense_size);
-        
-        return {sparse_size, dense_size, rle_size, chosen, flagged_tiles, total_tiles, compression_ratio};
-    }
-
-    void print_compression_stats() const {
-        auto stats = get_compression_stats();
-        std::cout << fmt::format("Chunk ({}, {}) Compression Analysis:\n", _x, _y);
-        std::cout << fmt::format("  Flagged tiles: {}/{} ({:.1f}%)\n", 
-                                stats.flagged_tiles, stats.total_tiles, 
-                                (static_cast<float>(stats.flagged_tiles) * 100.0f) / static_cast<float>(stats.total_tiles));
-        std::cout << fmt::format("  SPARSE size: {} bytes\n", stats.sparse_size);
-        std::cout << fmt::format("  DENSE size:  {} bytes\n", stats.dense_size);
-        std::cout << fmt::format("  RLE size:    {} bytes\n", stats.rle_size);
-        std::cout << fmt::format("  Chosen: {} (ratio: {:.2f})\n", 
-                                compression_to_string(stats.chosen), stats.compression_ratio);
-    }
-
     void _serialize_grid(std::ofstream& file) const {
         int nbytes = CHUNK_SIZE / 8;
         std::vector<uint8_t> buffer(nbytes, 0);
@@ -654,21 +614,6 @@ public:
         }
     }
 
-    static inline std::string compression_to_string(ChunkCompression compression) {
-        switch (compression) {
-            case ChunkCompression::Default:
-                return "Default";
-            case ChunkCompression::SPARSE:
-                return "SPARSE";
-            case ChunkCompression::DENSE:
-                return "DENSE";
-            case ChunkCompression::RLE:
-                return "RLE";
-            default:
-                return "Unknown";
-        }
-    }
-
     static Rect bounds(int _x, int _y) {
         return {
             .x = _x * CHUNK_WIDTH * TILE_WIDTH,
@@ -678,18 +623,49 @@ public:
         };
     }
 
-    uint64_t id() const { return index(_x, _y); }
-    Rect bounds() const { return Chunk::bounds(_x, _y); }
-    int x() const { return _x; }
-    int y() const { return _y; }
-    bool is_filled() const { return _is_filled.load(); }
-    bool is_built() const { return _is_built.load(); }
-    bool is_ready() const { return is_filled() && is_built() && !is_destroyed(); }
-    bool is_destroyed() const { return _is_destroyed.load(); }
-    void mark_destroyed() { _is_destroyed.store(true); }
-    ChunkVisibility visibility() const { return _visibility.load(); }
-    void set_visibility(ChunkVisibility visibility) { _visibility.store(visibility); }
+    uint64_t id() const {
+        return index(_x, _y);
+    }
+
+    Rect bounds() const {
+        return Chunk::bounds(_x, _y);
+    }
+
+    int x() const {
+        return _x;
+    }
+
+    int y() const {
+        return _y;
+    }
     
+    bool is_filled() const {
+        return _is_filled.load();
+    }
+
+    bool is_built() const {
+        return _is_built.load();
+    }
+
+    bool is_ready() const {
+        return is_filled() && is_built() && !is_destroyed();
+    }
+
+    bool is_destroyed() const {
+        return _is_destroyed.load();
+    }
+
+    void mark_destroyed() {
+        _is_destroyed.store(true);
+    }
+
+    ChunkVisibility visibility() const {
+        return _visibility.load();
+    }
+    void set_visibility(ChunkVisibility visibility) {
+        _visibility.store(visibility);
+    }
+
     bool serialize(const char *path, ChunkCompression compression = ChunkCompression::Default) const {
         if (!_is_filled.load())
             return false;
@@ -703,14 +679,6 @@ public:
 
         if (compression == ChunkCompression::Default)
             compression = _choose_optimal_compression();
-
-        auto stats = get_compression_stats();
-        std::cout << fmt::format("Serializing chunk ({}, {}) with {} compression\n", 
-                                _x, _y, compression_to_string(compression));
-        std::cout << fmt::format("  Flagged: {}/{} tiles ({:.1f}%) | Sizes: SPARSE={}, DENSE={}, RLE={}\n",
-                                stats.flagged_tiles, stats.total_tiles,
-                                (static_cast<float>(stats.flagged_tiles) * 100.0f) / static_cast<float>(stats.total_tiles),
-                                stats.sparse_size, stats.dense_size, stats.rle_size);
 
         ChunkHeader header = {
             .magic = 0x4543494E, // "NICE"
