@@ -86,7 +86,6 @@ clean:
 	rm -f $(NICEPKG) || true
 	rm -r $(BUILD_DIR)/*.glsl.h || true
 	rm -r $(DAT_H) || true
-	rm *.niceworld || true
 
 rerun:
 	./$(EXE)
