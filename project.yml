@@ -21,7 +21,6 @@ targets:
           includes:
             - "*.h"
             - "*.[ch]pp"
-        - path: scenes/
         - path: deps/fmt
           includes:
             - "*.cc"
@@ -30,11 +29,11 @@ targets:
         - path: deps/imgui/backends/imgui_impl_metal.mm
         - path: deps/
           type: folder
-        - path: tools/
-          type: folder
         - path: assets/
           type: folder
-        - path: shaders/
+        - path: build/
+          type: folder
+        - path: test/
           type: folder
         - path: project.yml
           type: folder
@@ -54,8 +53,7 @@ targets:
         HEADER_SEARCH_PATHS: [$(PROJECT_DIR)/deps,
                               $(PROJECT_DIR)/build,
                               $(PROJECT_DIR)/deps/flecs,
-                              $(PROJECT_DIR)/deps/imgui,
-                              $(PROJECT_DIR)/scenes]
+                              $(PROJECT_DIR)/deps/imgui]
         OTHER_CFLAGS: [-x objective-c++, -DSOKOL_METAL]
   flecs:
     type: library.dynamic

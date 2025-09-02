@@ -23,7 +23,7 @@ default: nice
 all: clean shaders lua nicepkg nice 
 
 BUILD_DIR := build
-ASSET_DIR := assets
+TOOLS_DIR := assets
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -34,7 +34,7 @@ SOURCE := $(wildcard src/*.cpp) deps/fmt/format.cc deps/fmt/os.cc deps/imgui/bac
 EXE := $(BUILD_DIR)/$(NAME)_$(ARCH)$(PROG_EXT)
 INC := $(CXXFLAGS) -Iscenes -Isrc -Ideps -Ideps/flecs -Ideps/imgui $(LDFLAGS)
 
-SHADERS_SRC := shaders
+SHADERS_SRC := assets
 SHADER_DST := $(BUILD_DIR)
 ARCH_PATH := bin/$(ARCH)
 SHDC_PATH := $(ARCH_PATH)/sokol-shdc$(PROG_EXT)
@@ -49,11 +49,11 @@ $(SHADER_DST)/%.glsl.h: $(SHADERS_SRC)/%.glsl
 shaders: builddir $(SHADER_OUTS)
 
 DAT_H := $(BUILD_DIR)/nice.dat.h
-DAT_SRC := src/setup.lua
+DAT_SRC := $(TOOLS_DIR)/setup.lua
 LUA := $(BUILD_DIR)/lua$(PROG_EXT)
 
 $(DAT_H): $(DAT_SRC)
-	./$(LUA) tools/embed.lua $(DAT_SRC) > $(DAT_H)
+	./$(LUA) $(TOOLS_DIR)/embed.lua $(DAT_SRC) > $(DAT_H)
 
 dat: lua $(DAT_H)
 
@@ -75,7 +75,7 @@ nice: $(EXE)
 NICEPKG := $(BUILD_DIR)/nicepkg.$(LIB_EXT)
 
 $(NICEPKG): builddir shaders dat
-	$(CC) -shared -fpic -o $(NICEPKG) tools/nicepkg.c deps/minilua.c -Ideps
+	$(CC) -shared -fpic -o $(NICEPKG) $(TOOLS_DIR)/nicepkg.c deps/minilua.c -Ideps
 
 nicepkg: $(NICEPKG)
 
