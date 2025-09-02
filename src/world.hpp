@@ -26,6 +26,7 @@
 #include "sol/sol_imgui.h"
 #include "nice.dat.h"
 #include "uuid.h"
+#include "sokol/sokol_time.h"
 
 class World {
     uuid::v4::UUID _id;
@@ -36,6 +37,8 @@ class World {
     JobQueue<Chunk*> _build_chunk_queue;
     ThreadSafeSet<uint64_t> _chunks_being_built;
     ThreadSafeSet<uint64_t> _chunks_being_destroyed;
+    std::unordered_map<uint64_t, uint64_t> _deletion_queue;
+    mutable std::shared_mutex _deletion_queue_lock;
 
     struct ChunkEvent {
         enum Type { Created, Deleted, VisibilityChanged } type;
@@ -225,12 +228,10 @@ class World {
                 lua_pushstring(L, old_vis.c_str());
                 lua_pushstring(L, new_vis.c_str());
                 lua_call(L, 4, 0);
-            } else {
+            } else
                 lua_call(L, 2, 0);
-            }
-        } else {
+        } else
             lua_pop(L, 1);
-        }
     }
 
     void ensure_chunk(int x, int y, bool priority) {
@@ -239,8 +240,12 @@ class World {
         // Check if chunk already exists or is being processed
         {
             std::shared_lock<std::shared_mutex> chunks_lock(_chunks_lock);
-            if (_chunks.find(idx) != _chunks.end())
+            if (_chunks.find(idx) != _chunks.end()) {
+                // If chunk exists but is in deletion queue, remove it from queue
+                std::unique_lock<std::shared_mutex> deletion_lock(_deletion_queue_lock);
+                _deletion_queue.erase(idx);
                 return;
+            }
         }
 
         // Check and insert atomically using ThreadSafeSet methods
@@ -251,6 +256,12 @@ class World {
         // Try to mark as being created
         if (!_chunks_being_created.insert(idx))
             return; // Another thread already marked it
+
+        // Remove from deletion queue if it was there
+        {
+            std::unique_lock<std::shared_mutex> deletion_lock(_deletion_queue_lock);
+            _deletion_queue.erase(idx);
+        }
 
         if (priority)
             _create_chunk_queue.enqueue_priority({x, y});
@@ -273,16 +284,27 @@ class World {
                                      chunk->x(), chunk->y(),
                                      Chunk::visibility_to_string(last_visibility),
                                      Chunk::visibility_to_string(new_visibility));
-            if (new_visibility == ChunkVisibility::OutOfSign) {
-                _chunks_being_destroyed.insert(chunk->id());
-                chunk->mark_destroyed();
+            switch (new_visibility) {
+                case ChunkVisibility::Visible:
+                case ChunkVisibility::Occluded:
+                    // If chunk is visible or occluded, remove it from deletion queue
+                    {
+                        std::unique_lock<std::shared_mutex> lock(_deletion_queue_lock);
+                        _deletion_queue.erase(chunk->id());
+                    }
+                    break;
+                case ChunkVisibility::OutOfSign:
+                    // Add to deletion queue with timestamp
+                    {
+                        std::unique_lock<std::shared_mutex> lock(_deletion_queue_lock);
+                        _deletion_queue[chunk->id()] = stm_now();
+                    }
+                    break;
             }
 
             std::lock_guard<std::mutex> lock(_event_queue_mutex);
             _chunk_event_queue.push({ChunkEvent::VisibilityChanged, chunk->x(), chunk->y(), last_visibility, new_visibility});
         }
-        // TODO: Add timer to Occulded chunks, if not visible for x seconds mark for deletion
-        //       If chunk becomes visible again it will save time reloading it
     }
 
     void update_chunks() {
@@ -301,6 +323,33 @@ class World {
         // Update chunks without holding the lock
         for (auto chunk : chunks_to_update)
             update_chunk(chunk, bounds, max_bounds);
+    }
+
+    void update_deletion_queue() {
+        auto now = stm_now();
+        std::vector<uint64_t> chunks_to_destroy;
+        
+        {
+            std::unique_lock<std::shared_mutex> lock(_deletion_queue_lock);
+            for (auto it = _deletion_queue.begin(); it != _deletion_queue.end();) {
+                if (stm_sec(stm_diff(now, it->second)) > CHUNK_DELETION_TIMEOUT) {
+                    std::cout << fmt::format("Chunk with ID {} exceeded deletion timeout, marking for destruction\n", it->first);
+                    chunks_to_destroy.push_back(it->first);
+                    it = _deletion_queue.erase(it);
+                } else
+                    ++it;
+            }
+        }
+        
+        // Mark chunks for destruction outside the lock
+        for (uint64_t chunk_id : chunks_to_destroy) {
+            _chunks_being_destroyed.insert(chunk_id);
+            // Find and mark the chunk as destroyed
+            std::shared_lock<std::shared_mutex> chunks_lock(_chunks_lock);
+            auto it = _chunks.find(chunk_id);
+            if (it != _chunks.end() && it->second)
+                it->second->mark_destroyed();
+        }
     }
 
     void scan_for_chunks() {
@@ -618,8 +667,8 @@ public:
     }
 
     bool update(float dt) {
-        // TODO: modify these functions to also update $Renderables at same time as chunks
         update_chunks();
+        update_deletion_queue();
         scan_for_chunks();
         release_chunks();
         {
