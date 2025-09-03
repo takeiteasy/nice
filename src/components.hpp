@@ -28,4 +28,10 @@ ECS_STRUCT(LuaEntity, {
     uint32_t clip_y;
     uint32_t clip_width;
     uint32_t clip_height;
+    float speed;
+});
+
+ECS_STRUCT(LuaTarget, {
+    float x;
+    float y;
 });

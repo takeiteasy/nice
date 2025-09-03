@@ -903,6 +903,32 @@ public:
             return 2;
         });
 
+        lua_register(L, "set_entity_target", [](lua_State *L) -> int {
+            World *world = get_world_from_lua(L);
+            if (!world)
+                throw std::runtime_error("Failed to get World instance from Lua");
+            uint64_t entity_id = static_cast<uint64_t>(luaL_checkinteger(L, 1));
+            flecs::entity entity = world->_world->entity(entity_id);
+            const LuaEntity *entity_data = entity.get<LuaEntity>();
+            if (!entity_data)
+                throw std::runtime_error("Entity does not have LuaEntity component");
+            int target_x = static_cast<int>(luaL_checkinteger(L, 2));
+            int target_y = static_cast<int>(luaL_checkinteger(L, 3));
+            if (std::abs(target_x - entity_data->x) >= 0.1f && std::abs(target_y - entity_data->y) >= 0.1f)
+                entity.set<LuaTarget>({static_cast<float>(target_x), static_cast<float>(target_y)});
+            return 0;
+        });
+
+        lua_register(L, "clear_entity_target", [](lua_State *L) -> int {
+            World *world = get_world_from_lua(L);
+            if (!world)
+                throw std::runtime_error("Failed to get World instance from Lua");
+            uint64_t entity_id = static_cast<uint64_t>(luaL_checkinteger(L, 1));
+            flecs::entity entity = world->_world->entity(entity_id);
+            entity.remove<LuaTarget>();
+            return 0;
+        });
+
         // Expose ChunkEvent types to Lua
         lua_newtable(L);
         lua_pushinteger(L, ChunkEvent::Created);
@@ -932,8 +958,9 @@ public:
             
             int event_type = static_cast<int>(luaL_checkinteger(L, 1));
             World* world = get_world_from_lua(L);
-            if (!world) return 0;
-            
+            if (!world)
+                return 0;
+
             // Store the function in the registry and get a reference
             lua_pushvalue(L, 2); // Duplicate the function
             int ref = luaL_ref(L, LUA_REGISTRYINDEX);
@@ -941,10 +968,9 @@ public:
             // Clear any existing callback for this event
             auto& callbacks = world->_chunk_callbacks;
             auto it = callbacks.find(event_type);
-            if (it != callbacks.end()) {
+            if (it != callbacks.end())
                 luaL_unref(L, LUA_REGISTRYINDEX, it->second);
-            }
-            
+
             callbacks[event_type] = ref;
             return 0;
         });

@@ -4,13 +4,12 @@
 
 ## TODO
 
+- [ ] Rewrite chunk serialization, must include tile.visited
 - [ ] Chunk queries from lua for things like hit detection and collision
 - [ ] Collision for entities with walls and each other, lua callback on collision
-- [ ] Tile destruction and chunk modification 
-- [ ] Fix imgui events not consuming event
-- [ ] Init, frame, exit, and scene change callbacks for lua
+- [ ] Tile destruction and chunk modification from lua 
 - [ ] Cursor + tile selection
-- [ ] A*
+- [ ] Thread pooled A*
 - [ ] Arguments, settings, configs
     - [ ] Handle arguments from lua?
     - [ ] Check for configs in zip
@@ -30,6 +29,7 @@
 - [x] ~~Rework camera, integrate with ECS~~
 - [x] ~~Expose poisson to lua~~
 - [X] ~~Add sokol_input, wrap for lua~~
+- [X] ~~Fix imgui events not consuming event~~
 
 ### Ideas:
 

@@ -2,17 +2,19 @@ local ecs = require "ecs"
 
 local test_texture = get_texture_id("hand")
 
-local test = ecs.new("Test", EcsRenderable)
-ecs.set(test, EcsRenderable, {
+local test = ecs.new("Test", NiceEntity)
+ecs.set(test, NiceEntity, {
     texture_id = test_texture,
     x = 100,
     y = 100
 })
 
+set_entity_target(test, 200, 200)
+
 -- Camera state variables
 local camera_dragging = false
 
--- Mouse event handlers for camera control - EXACT REPLICA OF YOUR C++ CODE
+-- Mouse event handlers for camera control
 local function handle_mouse_down(event)
     if event.button == 0 then -- Left mouse button
         if not camera_dragging then

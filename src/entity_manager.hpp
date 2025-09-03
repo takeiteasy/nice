@@ -15,6 +15,8 @@
 #include "jobs.hpp"
 #include "camera.hpp"
 #include "basic.glsl.h"
+#include "fmt/format.h"
+#include <iostream>
 
 struct BasicVertex {
     glm::vec2 position;
@@ -209,6 +211,35 @@ public:
             entity.destruct();
     }
 
+    void move_entity_to_target(flecs::entity entity) {
+        if (!entity.is_alive())
+            return;
+        std::lock_guard<std::mutex> lock(_entities_lock);
+        LuaTarget *target = entity.get_mut<LuaTarget>();
+        if (!target)
+            throw std::runtime_error("LuaTarget component missing in move_entity_to_target");
+        LuaEntity *entity_data = entity.get_mut<LuaEntity>();
+        if (!entity_data)
+            throw std::runtime_error("LuaEntity component missing in move_entity_to_target");
+        float dt = entity.world().delta_time();
+        glm::vec2 delta = glm::vec2(target->x - entity_data->x, target->y - entity_data->y) * entity_data->speed * dt;
+        std::cout << "Moving entity " << entity.id() << " towards (" << target->x << ", " << target->y << ") with delta (" << delta.x << ", " << delta.y << ")\n";
+        if (glm::length(delta) < 0.1f) {
+            entity_data->x = target->x;
+            entity_data->y = target->y;
+            entity.remove<LuaTarget>();
+            std::cout << "Entity " << entity.id() << " reached target (" << target->x << ", " << target->y << ")\n";
+            return;
+        }
+        entity_data->x += delta.x;
+        entity_data->y += delta.y;
+        // Check if target is reached (close enough)
+        if (std::abs(target->x - entity_data->x) < 0.1f && std::abs(target->y - entity_data->y) < 0.1f) {
+            entity.remove<LuaTarget>();
+            std::cout << "Entity " << entity.id() << " reached target (" << target->x << ", " << target->y << ")\n";
+        }
+    }
+
     void finalize(Camera *camera) {
         Rect camera_bounds = camera->bounds();
         EntityMap map_copy;
@@ -237,13 +268,12 @@ public:
                     }
                 }
                 // Sort entities in layer by y-axis
-                for (auto &pair : copy_layer) {
+                for (auto &pair : copy_layer)
                     std::sort(pair.second.begin(), pair.second.end(), [](flecs::entity a, flecs::entity b) {
                         LuaEntity *ra = a.get_mut<LuaEntity>();
                         LuaEntity *rb = b.get_mut<LuaEntity>();
                         return ra->y < rb->y;
                     });
-                }
             }
         }
         
@@ -327,6 +357,7 @@ struct Entity {
         ecs_entity_t scope = ecs_set_scope(w, 0);
         ECS_META_COMPONENT(w, LuaChunk);
         ECS_META_COMPONENT(w, LuaEntity);
+        ECS_META_COMPONENT(w, LuaTarget);
         ecs_set_scope(w, scope);
 
         // Set up observers to automatically manage renderable entities
@@ -338,7 +369,9 @@ struct Entity {
                     renderable.scale_x = 1.0f;
                 if (renderable.scale_y == 0.0f)
                     renderable.scale_y = 1.0f;
-                
+                if (renderable.speed == 0.0f)
+                    renderable.speed = 100.0f;
+
                 glm::vec2 chunk = Camera::world_to_chunk(glm::vec2(renderable.x, renderable.y));
                 entity.set<LuaChunk>({static_cast<uint32_t>(chunk.x), static_cast<uint32_t>(chunk.y)});
                 $Entities.add_entity(entity);
@@ -355,6 +388,40 @@ struct Entity {
             .event(flecs::OnSet)
             .each([](flecs::entity entity, LuaChunk& chunk, LuaEntity& renderable) {
                 $Entities.update_entity(entity);
+            });
+
+        world.system<LuaEntity, LuaTarget>()
+            .each([](flecs::entity entity, LuaEntity& entity_data, LuaTarget& target) {
+                float dt = entity.world().delta_time();
+                if (dt <= 0.0f)
+                    return; // Skip if no delta time
+                
+                glm::vec2 direction = glm::vec2(target.x - entity_data.x, target.y - entity_data.y);
+                float distance = glm::length(direction);
+                
+                if (distance < 1.0f) {
+                    // Close enough, snap to target and remove component
+                    entity_data.x = target.x;
+                    entity_data.y = target.y;
+                    entity.remove<LuaTarget>();
+                } else {
+                    // Normalize direction and move at constant speed
+                    glm::vec2 normalized_direction = glm::normalize(direction);
+                    glm::vec2 delta = normalized_direction * entity_data.speed * dt;
+                    
+                    // Check if we would overshoot the target
+                    float movement_distance = glm::length(delta);
+                    if (movement_distance >= distance) {
+                        // We would overshoot, so just move directly to target
+                        entity_data.x = target.x;
+                        entity_data.y = target.y;
+                        entity.remove<LuaTarget>();
+                    } else {
+                        // Move towards target at constant speed
+                        entity_data.x += delta.x;
+                        entity_data.y += delta.y;
+                    }
+                }
             });
     }
 };

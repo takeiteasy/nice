@@ -71,7 +71,7 @@ static const glm::vec2 Autotile3x3Simplified[256] = {
 union Tile {
     struct {
         uint8_t bitmask;
-        uint8_t visible;
+        uint8_t visited;
         uint8_t solid;
         uint8_t extra;
     };
@@ -240,12 +240,11 @@ class Chunk {
 
         size_t run_count = 1;
         uint8_t currentValue = flags[0];
-        for (size_t i = 1; i < flags.size(); ++i) {
+        for (size_t i = 1; i < flags.size(); ++i)
             if (flags[i] != currentValue) {
                 run_count++;
                 currentValue = flags[i];
             }
-        }
         return sizeof(uint32_t) + run_count * (sizeof(uint32_t) + sizeof(uint8_t));
     }
 
@@ -267,7 +266,7 @@ class Chunk {
         std::vector<uint8_t> buffer(nbytes, 0);
 
         uint8_t packed_byte = 0;
-        for (int y = 0; y < CHUNK_HEIGHT; y++) {
+        for (int y = 0; y < CHUNK_HEIGHT; y++)
             for (int x = 0; x < CHUNK_WIDTH; x++) {
                 int idx = y * CHUNK_WIDTH + x;
                 int bit = idx % 8;
@@ -278,7 +277,6 @@ class Chunk {
                     packed_byte = 0;
                 }
             }
-        }
         file.write(reinterpret_cast<const char*>(buffer.data()), nbytes);
     }
 
@@ -376,9 +374,8 @@ class Chunk {
         for (int i = 0; i < CHUNK_SIZE; ++i) {
             int x = i % CHUNK_WIDTH;
             int y = i / CHUNK_WIDTH;
-            if (x < CHUNK_WIDTH && y < CHUNK_HEIGHT) {
+            if (x < CHUNK_WIDTH && y < CHUNK_HEIGHT)
                 _tiles[x][y].extra = buffer[i];
-            }
         }
     }
 
@@ -392,13 +389,12 @@ class Chunk {
         }
         
         int tileIdx = 0;
-        for (const auto& entry : encoded) {
+        for (const auto& entry : encoded)
             for (uint32_t i = 0; i < entry.count && tileIdx < CHUNK_SIZE; ++i, ++tileIdx) {
                 int x = tileIdx % CHUNK_WIDTH;
                 int y = tileIdx / CHUNK_WIDTH;
                 _tiles[x][y].extra = entry.value;
             }
-        }
     }
 
 public:
