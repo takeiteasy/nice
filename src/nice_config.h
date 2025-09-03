@@ -9,7 +9,7 @@
     X(game) \
 
 #define MODULES \
-    X(Renderable)
+    X(Entity)
 
 #define FIRST_SCENE game
 

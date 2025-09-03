@@ -20,7 +20,7 @@
 #include "just_zip.h"
 #include "flecs.h"
 #include "flecs_lua.h"
-#include "renderable_manager.hpp"
+#include "entity_manager.hpp"
 #include "imgui.h"
 #include "sol/sol_imgui.h"
 #include "nice.dat.h"
@@ -609,7 +609,7 @@ public:
         ecs_log_enable_colors(false);
 
         _world = new flecs::world();
-        $Renderables.set_world(_world);
+        $Entities.set_world(_world);
         // FlecsLua still uses C API for import
         ECS_IMPORT(_world->c_ptr(), FlecsLua);
         // Import C++ modules
@@ -635,7 +635,7 @@ public:
         // Register texture function for Lua
         lua_register(L, "get_texture_id", [](lua_State* L) -> int {
             const char* path = luaL_checkstring(L, 1);
-            uint32_t texture_id = $Renderables.register_texture(path);
+            uint32_t texture_id = $Entities.register_texture(path);
             lua_pushinteger(L, texture_id);
             return 1; // Return the texture ID
         });
@@ -993,12 +993,11 @@ public:
         
         // Clean up chunk callback references
         if (L) {
-            for (auto& [event_type, ref] : _chunk_callbacks) {
+            for (auto& [event_type, ref] : _chunk_callbacks)
                 luaL_unref(L, LUA_REGISTRYINDEX, ref);
-            }
             _chunk_callbacks.clear();
         }
-        $Renderables.clear();
+        $Entities.clear();
         if (_world)
             delete _world;
         if (sg_query_shader_state(_shader) == SG_RESOURCESTATE_VALID)
@@ -1056,10 +1055,10 @@ public:
         }
         bool result = _world->progress(dt);
         if (result) {
-            $Renderables.finalize(_camera);
+            $Entities.finalize(_camera);
             draw_chunks();
             sg_apply_pipeline(_renderables_pipeline);
-            $Renderables.flush(_camera);
+            $Entities.flush(_camera);
         }
         return result;
     }

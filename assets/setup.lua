@@ -1,3 +1,3 @@
 local ecs = require("ecs")
 
-EcsRenderable = ecs.lookup("LuaRenderable")
+EcsEntity = ecs.lookup("LuaEntity")

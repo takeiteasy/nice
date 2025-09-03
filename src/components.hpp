@@ -14,7 +14,7 @@ ECS_STRUCT(LuaChunk, {
     uint32_t y;
 });
 
-ECS_STRUCT(LuaRenderable, {
+ECS_STRUCT(LuaEntity, {
     float x;
     float y;
     float width;

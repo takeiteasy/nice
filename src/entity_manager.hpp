@@ -1,5 +1,5 @@
 //
-//  renderable_manager.hpp
+//  entity_manager.hpp
 //  nice
 //
 //  Created by George Watson on 29/08/2025.
@@ -12,16 +12,18 @@
 #include "components.hpp"
 #include "vertex_batch.hpp"
 #include "asset_manager.hpp"
-#include <cmath>
+#include "jobs.hpp"
+#include "camera.hpp"
+#include "basic.glsl.h"
 
 struct BasicVertex {
     glm::vec2 position;
     glm::vec2 texcoord;
 };
 
-#define $Renderables RenderableManager::instance()
+#define $Entities EntityManager::instance()
 
-class RenderableManager: public Global<RenderableManager> {
+class EntityManager: public Global<EntityManager> {
     using EntityMap = std::unordered_map<uint32_t, std::unordered_map<uint32_t, std::vector<flecs::entity>>>;
     using BatchMap = std::unordered_map<uint32_t, std::unordered_map<uint32_t, VertexBatch<BasicVertex>>>;
     using EntityMapCache = std::unordered_map<flecs::entity, std::pair<uint32_t, uint32_t>>;
@@ -49,14 +51,14 @@ class RenderableManager: public Global<RenderableManager> {
     std::atomic<uint32_t> _next_texture_id{1}; // Start from 1, 0 can be reserved for "no texture"
     mutable std::mutex _texture_lock;
 
-    static Rect renderable_bounds(const LuaRenderable& renderable) {
+    static Rect renderable_bounds(const LuaEntity& renderable) {
         return Rect(static_cast<int>(renderable.x),
                     static_cast<int>(renderable.y),
                     static_cast<int>(renderable.width * renderable.scale_x),
                     static_cast<int>(renderable.height * renderable.scale_y));
     }
 
-    BasicVertex* generate_quad(LuaRenderable *renderable, Texture* texture) {
+    BasicVertex* generate_quad(LuaEntity *renderable, Texture* texture) {
         int _texture_width = texture->width();
         int _texture_height = texture->height();
         int width = renderable->width > 0 ? renderable->width : _texture_width;
@@ -110,13 +112,13 @@ class RenderableManager: public Global<RenderableManager> {
     }
 
 public:
-    RenderableManager(): _build_queue([this](DrawCall call) {
+    EntityManager(): _build_queue([this](DrawCall call) {
         // Ensure we always decrement the pending counter and notify, even if processing throws
         try {
             for (const auto& entity : call.entities) {
                 if (!entity.is_alive())
                     continue;
-                LuaRenderable *renderable = entity.get_mut<LuaRenderable>();
+                LuaEntity *renderable = entity.get_mut<LuaEntity>();
                 if (!call.texture) // Safety check
                     continue;
                 BasicVertex *vertices = generate_quad(renderable, call.texture);
@@ -162,7 +164,7 @@ public:
 
     void add_entity(flecs::entity entity) {
         std::lock_guard<std::mutex> lock(_entities_lock);
-        LuaRenderable *renderable = entity.get_mut<LuaRenderable>();
+        LuaEntity *renderable = entity.get_mut<LuaEntity>();
         _entities[renderable->z_index][renderable->texture_id].push_back(entity);
         _entity_cache[entity] = {renderable->z_index, renderable->texture_id};
     }
@@ -170,7 +172,7 @@ public:
     void remove_entity(flecs::entity entity) {
         std::lock_guard<std::mutex> lock(_entities_lock);
         LuaChunk *chunk = entity.get_mut<LuaChunk>();
-        LuaRenderable *renderable = entity.get_mut<LuaRenderable>();
+        LuaEntity *renderable = entity.get_mut<LuaEntity>();
         _entity_cache.erase(entity);
         auto &layer = _entities[renderable->z_index];
         auto &vec = layer[renderable->texture_id];
@@ -185,7 +187,7 @@ public:
         if (!entity.is_alive())
             return;
         std::lock_guard<std::mutex> lock(_entities_lock);
-        LuaRenderable *renderable = entity.get_mut<LuaRenderable>();
+        LuaEntity *renderable = entity.get_mut<LuaEntity>();
         auto it = _entity_cache.find(entity);
         if (it != _entity_cache.end()) {
             auto [old_z_index, old_texture_id] = it->second;
@@ -228,7 +230,7 @@ public:
                     for (auto &entity : vec) {
                         if (!entity.is_alive())
                             continue;
-                        LuaRenderable *renderable = entity.get_mut<LuaRenderable>();
+                        LuaEntity *renderable = entity.get_mut<LuaEntity>();
                         Rect bounds = renderable_bounds(*renderable);
                         if (bounds.intersects(camera_bounds))
                             copy_vec.push_back(entity);
@@ -237,8 +239,8 @@ public:
                 // Sort entities in layer by y-axis
                 for (auto &pair : copy_layer) {
                     std::sort(pair.second.begin(), pair.second.end(), [](flecs::entity a, flecs::entity b) {
-                        LuaRenderable *ra = a.get_mut<LuaRenderable>();
-                        LuaRenderable *rb = b.get_mut<LuaRenderable>();
+                        LuaEntity *ra = a.get_mut<LuaEntity>();
+                        LuaEntity *rb = b.get_mut<LuaEntity>();
                         return ra->y < rb->y;
                     });
                 }
@@ -317,20 +319,20 @@ public:
     }
 };
 
-struct Renderable {
-    Renderable(flecs::world &world) {
-        world.module<Renderable>();
+struct Entity {
+    Entity(flecs::world &world) {
+        world.module<Entity>();
         ecs_world_t *w = world.c_ptr();
         ECS_IMPORT(w, FlecsMeta);
         ecs_entity_t scope = ecs_set_scope(w, 0);
         ECS_META_COMPONENT(w, LuaChunk);
-        ECS_META_COMPONENT(w, LuaRenderable);
+        ECS_META_COMPONENT(w, LuaEntity);
         ecs_set_scope(w, scope);
 
         // Set up observers to automatically manage renderable entities
-        world.observer<LuaRenderable>()
+        world.observer<LuaEntity>()
             .event(flecs::OnAdd)
-            .each([](flecs::entity entity, LuaRenderable& renderable) {
+            .each([](flecs::entity entity, LuaEntity& renderable) {
                 // Set default values if they haven't been set
                 if (renderable.scale_x == 0.0f)
                     renderable.scale_x = 1.0f;
@@ -339,20 +341,20 @@ struct Renderable {
                 
                 glm::vec2 chunk = Camera::world_to_chunk(glm::vec2(renderable.x, renderable.y));
                 entity.set<LuaChunk>({static_cast<uint32_t>(chunk.x), static_cast<uint32_t>(chunk.y)});
-                $Renderables.add_entity(entity);
+                $Entities.add_entity(entity);
             });
 
-        world.observer<LuaRenderable>()
+        world.observer<LuaEntity>()
             .event(flecs::OnRemove)
-            .each([](flecs::entity entity, LuaRenderable& renderable) {
-                $Renderables.remove_entity(entity);
+            .each([](flecs::entity entity, LuaEntity& renderable) {
+                $Entities.remove_entity(entity);
             });
 
 
-        world.observer<LuaChunk, LuaRenderable>()
+        world.observer<LuaChunk, LuaEntity>()
             .event(flecs::OnSet)
-            .each([](flecs::entity entity, LuaChunk& chunk, LuaRenderable& renderable) {
-                $Renderables.update_entity(entity);
+            .each([](flecs::entity entity, LuaChunk& chunk, LuaEntity& renderable) {
+                $Entities.update_entity(entity);
             });
     }
 };
