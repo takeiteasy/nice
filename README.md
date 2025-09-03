@@ -7,7 +7,6 @@
 - [ ] Chunk queries from lua for things like hit detection and collision
 - [ ] Collision for entities with walls and each other, lua callback on collision
 - [ ] Tile destruction and chunk modification 
-- [ ] Add sokol_input, wrap for lua
 - [ ] Fix imgui events not consuming event
 - [ ] Init, frame, exit, and scene change callbacks for lua
 - [ ] Cursor + tile selection
@@ -24,13 +23,13 @@
 - [ ] Scene transition, loading screen
 - [ ] Debug tools, chunk monitor, entity monitor, console, modify lua file, lua repl, assets, settings, draw call monitor
 - [ ] Fonts, text rendering
-- [ ] Shape rendering
 - [ ] Package binary into app, release builds for Make
 - [ ] Emscripten build
 - [ ] Windows build
 - [ ] Linux build
 - [x] ~~Rework camera, integrate with ECS~~
 - [x] ~~Expose poisson to lua~~
+- [X] ~~Add sokol_input, wrap for lua~~
 
 ### Ideas:
 

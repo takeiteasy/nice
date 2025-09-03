@@ -24,6 +24,7 @@
 #include "sokol/util/sokol_imgui.h"
 #include "glm/vec2.hpp"
 #include "passthru.glsl.h"
+#include "input_manager.hpp"
 #include "argparse.hpp"
 
 #define X(NAME)                                     \
@@ -258,6 +259,7 @@ static void frame(void) {
     simgui_render();
     sg_end_pass();
     sg_commit();
+    $Input.update();
 
     if (state.next_scene) {
         if ((state.scene_prev = state.scene_current)) {
@@ -271,9 +273,11 @@ static void frame(void) {
 }
 
 static void event(const sapp_event *event) {
-    simgui_handle_event(event);
-    if (state.scene_current != NULL)
-        state.scene_current->event(event);
+    if (!simgui_handle_event(event)) {
+        if (state.scene_current != NULL)
+            state.scene_current->event(event);
+        $Input.handle(event);
+    }
 }
 
 static void cleanup(void) {

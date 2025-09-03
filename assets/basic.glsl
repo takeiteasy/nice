@@ -33,7 +33,6 @@ in vec2 uv;
 out vec4 frag_color;
 
 void main() {
-    vec2 frag = gl_FragCoord.xy;
     frag_color = texture(sampler2D(tex, smp), uv);
 }
 @end

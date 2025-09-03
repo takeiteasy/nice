@@ -20,7 +20,7 @@ LDFLAGS := -arch arm64
 
 default: nice
 
-all: clean shaders lua nicepkg nice 
+all: clean builddir shaders dat lua flecs nicepkg nice 
 
 BUILD_DIR := build
 TOOLS_DIR := assets
@@ -67,14 +67,14 @@ $(FLECS_LIB): builddir
 
 flecs: $(FLECS_LIB)
 
-$(EXE): builddir $(FLECS_LIB)
+$(EXE): builddir
 	$(CXX) $(INC) $(CFLAGS) $(SOURCE) -I$(SHADER_DST) -L$(BUILD_DIR) -lflecs_$(ARCH) -o $(EXE)
 
 nice: $(EXE)
 
 NICEPKG := $(BUILD_DIR)/nicepkg.$(LIB_EXT)
 
-$(NICEPKG): builddir shaders dat
+$(NICEPKG): builddir
 	$(CC) -shared -fpic -o $(NICEPKG) $(TOOLS_DIR)/nicepkg.c deps/minilua.c -Ideps
 
 nicepkg: $(NICEPKG)

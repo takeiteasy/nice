@@ -27,6 +27,7 @@
 #include "uuid.h"
 #include "sokol/sokol_time.h"
 #include "camera.hpp"
+#include "input_manager.hpp"
 
 class World {
     uuid::v4::UUID _id;
@@ -57,6 +58,7 @@ class World {
 
     flecs::world *_world = nullptr;
     lua_State *L = nullptr;
+    std::unordered_map<int, int> _chunk_callbacks;
 
     static void _abort(void) {
         std::cerr << "ECS: ecs_os_abort() was called!\n";
@@ -158,6 +160,7 @@ class World {
     }
 
     static void _log(int32_t level, const char *file, int32_t line, const char *msg) {
+#if 0
         FILE *stream;
         if (level >= 0)
             stream = stdout;
@@ -217,6 +220,7 @@ class World {
 
         fputs(msg, stream);
         fputs("\n", stream);
+#endif
     }
 
     static World* get_world_from_lua(lua_State* L) {
@@ -230,19 +234,30 @@ class World {
         return world;
     }
 
-    void call_lua_chunk_event(const std::string& event, int x, int y, const std::string& old_vis = "", const std::string& new_vis = "") {
-        lua_getglobal(L, ("on_chunk_" + event).c_str());
+    void call_lua_chunk_event(ChunkEvent::Type event_type, int x, int y, ChunkVisibility old_vis = ChunkVisibility::OutOfSign, ChunkVisibility new_vis = ChunkVisibility::OutOfSign) {
+        auto it = _chunk_callbacks.find(static_cast<int>(event_type));
+        if (it == _chunk_callbacks.end())
+            return;
+        lua_rawgeti(L, LUA_REGISTRYINDEX, it->second); // Get the callback function
         if (lua_isfunction(L, -1)) {
             lua_pushinteger(L, x);
             lua_pushinteger(L, y);
-            if (!old_vis.empty()) {
-                lua_pushstring(L, old_vis.c_str());
-                lua_pushstring(L, new_vis.c_str());
-                lua_call(L, 4, 0);
+            if (event_type == ChunkEvent::VisibilityChanged) {
+                lua_pushinteger(L, static_cast<int>(old_vis));
+                lua_pushinteger(L, static_cast<int>(new_vis));
+                if (lua_pcall(L, 4, 0, 0) != LUA_OK) {
+                    const char* error_msg = lua_tostring(L, -1);
+                    std::cout << fmt::format("Error in chunk callback for type {}: {}\n", static_cast<int>(event_type), error_msg);
+                    lua_pop(L, 1); // Remove error message
+                }
             } else
-                lua_call(L, 2, 0);
+                if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+                    const char* error_msg = lua_tostring(L, -1);
+                    std::cout << fmt::format("Error in chunk callback for type {}: {}\n", static_cast<int>(event_type), error_msg);
+                    lua_pop(L, 1); // Remove error message
+                }
         } else
-            lua_pop(L, 1);
+            lua_pop(L, 1); // Remove non-function from stack
     }
 
     void ensure_chunk(int x, int y, bool priority) {
@@ -635,6 +650,11 @@ public:
             return 1;
         });
 
+        lua_register(L, "frame_duration", [](lua_State* L) -> int {
+            lua_pushnumber(L, sapp_frame_duration());
+            return 1;
+        });
+
         lua_register(L, "framebuffer_resize", [](lua_State* L) -> int {
             int width = static_cast<int>(luaL_checkinteger(L, 1));
             int height = static_cast<int>(luaL_checkinteger(L, 2));
@@ -850,6 +870,107 @@ public:
             return 2;
         });
 
+        lua_register(L, "chunk_to_world", [](lua_State *L) -> int {
+            int chunk_x = static_cast<int>(luaL_checkinteger(L, 1));
+            int chunk_y = static_cast<int>(luaL_checkinteger(L, 2));
+            glm::vec2 world_pos = Camera::chunk_to_world(chunk_x, chunk_y);
+            lua_pushnumber(L, world_pos.x);
+            lua_pushnumber(L, world_pos.y);
+            return 2;
+        });
+
+        lua_register(L, "tile_to_world", [](lua_State *L) -> int {
+            glm::vec2 world_pos;
+            if (lua_gettop(L) == 4) {
+                int chunk_x = static_cast<int>(luaL_checkinteger(L, 1));
+                int chunk_y = static_cast<int>(luaL_checkinteger(L, 2));
+                int tile_x = static_cast<int>(luaL_checkinteger(L, 3));
+                int tile_y = static_cast<int>(luaL_checkinteger(L, 4));
+                world_pos = Camera::tile_to_world(chunk_x, chunk_y, tile_x, tile_y);
+            } else if (lua_gettop(L) == 3) {
+                // entity, tile_x, tile_y
+                flecs::entity e = static_cast<flecs::entity>(luaL_checkinteger(L, 1));
+                const LuaChunk *chunk = e.get<LuaChunk>();
+                int tile_x = static_cast<int>(luaL_checkinteger(L, 2));
+                int tile_y = static_cast<int>(luaL_checkinteger(L, 3));
+                world_pos = Camera::tile_to_world(chunk->x, chunk->y, tile_x, tile_y);
+            } else {
+                luaL_error(L, "tile_to_world expects either (entity, tile_x, tile_y) or (entity, chunk_x, chunk_y, tile_x, tile_y)");
+                return 0;
+            }
+            lua_pushnumber(L, world_pos.x);
+            lua_pushnumber(L, world_pos.y);
+            return 2;
+        });
+
+        // Expose ChunkEvent types to Lua
+        lua_newtable(L);
+        lua_pushinteger(L, ChunkEvent::Created);
+        lua_setfield(L, -2, "created");
+        lua_pushinteger(L, ChunkEvent::Deleted);
+        lua_setfield(L, -2, "deleted");
+        lua_pushinteger(L, ChunkEvent::VisibilityChanged);
+        lua_setfield(L, -2, "visibility_changed");
+        lua_setglobal(L, "ChunkEventType");
+
+        // Expose ChunkVisibility types to Lua
+        lua_newtable(L);
+        lua_pushinteger(L, static_cast<int>(ChunkVisibility::OutOfSign));
+        lua_setfield(L, -2, "out_of_sign");
+        lua_pushinteger(L, static_cast<int>(ChunkVisibility::Visible));
+        lua_setfield(L, -2, "visible");
+        lua_pushinteger(L, static_cast<int>(ChunkVisibility::Occluded));
+        lua_setfield(L, -2, "occluded");
+        lua_setglobal(L, "ChunkVisibility");
+
+        // Register chunk callback management functions
+        lua_register(L, "register_chunk_callback", [](lua_State *L) -> int {
+            if (!lua_isinteger(L, 1) || !lua_isfunction(L, 2)) {
+                luaL_error(L, "register_chunk_callback expects (integer, function)");
+                return 0;
+            }
+            
+            int event_type = static_cast<int>(luaL_checkinteger(L, 1));
+            World* world = get_world_from_lua(L);
+            if (!world) return 0;
+            
+            // Store the function in the registry and get a reference
+            lua_pushvalue(L, 2); // Duplicate the function
+            int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+            
+            // Clear any existing callback for this event
+            auto& callbacks = world->_chunk_callbacks;
+            auto it = callbacks.find(event_type);
+            if (it != callbacks.end()) {
+                luaL_unref(L, LUA_REGISTRYINDEX, it->second);
+            }
+            
+            callbacks[event_type] = ref;
+            return 0;
+        });
+
+        lua_register(L, "unregister_chunk_callback", [](lua_State *L) -> int {
+            if (!lua_isinteger(L, 1)) {
+                luaL_error(L, "unregister_chunk_callback expects (integer)");
+                return 0;
+            }
+            
+            int event_type = static_cast<int>(luaL_checkinteger(L, 1));
+            World* world = get_world_from_lua(L);
+            if (!world) return 0;
+            
+            auto& callbacks = world->_chunk_callbacks;
+            auto it = callbacks.find(event_type);
+            if (it != callbacks.end()) {
+                luaL_unref(L, LUA_REGISTRYINDEX, it->second);
+                callbacks.erase(it);
+            }
+            return 0;
+        });
+
+        // Register input functions
+        $Input.load_into_lua(L);
+
         if (luaL_dostring(L, setup_lua) != LUA_OK) {
             const char* error_msg = lua_tostring(L, -1);
             fprintf(stderr, "Lua error in setup.lua: %s\n", error_msg);
@@ -857,7 +978,7 @@ public:
             throw std::runtime_error("Internal Error: Failed to execute `setup.lua`");
         }
 
-        const char *test_path = "scripts/test.lua";
+        const char *test_path = "test/test.lua";
         if (luaL_dofile(L, test_path) != LUA_OK) {
             const char* error_msg = lua_tostring(L, -1);
             fprintf(stderr, "Lua error loading %s: %s\n", test_path, error_msg);
@@ -867,6 +988,16 @@ public:
     }
 
     ~World() {
+        // Clean up InputManager callbacks before cleaning up chunk callbacks
+        $Input.cleanup_lua_callbacks();
+        
+        // Clean up chunk callback references
+        if (L) {
+            for (auto& [event_type, ref] : _chunk_callbacks) {
+                luaL_unref(L, LUA_REGISTRYINDEX, ref);
+            }
+            _chunk_callbacks.clear();
+        }
         $Renderables.clear();
         if (_world)
             delete _world;
@@ -912,13 +1043,13 @@ public:
                 _chunk_event_queue.pop();
                 switch (event.type) {
                     case ChunkEvent::Created:
-                        call_lua_chunk_event("created", event.x, event.y);
+                        call_lua_chunk_event(ChunkEvent::Created, event.x, event.y);
                         break;
                     case ChunkEvent::Deleted:
-                        call_lua_chunk_event("deleted", event.x, event.y);
+                        call_lua_chunk_event(ChunkEvent::Deleted, event.x, event.y);
                         break;
                     case ChunkEvent::VisibilityChanged:
-                        call_lua_chunk_event("visibility_changed", event.x, event.y, Chunk::visibility_to_string(event.old_vis), Chunk::visibility_to_string(event.new_vis));
+                        call_lua_chunk_event(ChunkEvent::VisibilityChanged, event.x, event.y, event.old_vis, event.new_vis);
                         break;
                 }
             }

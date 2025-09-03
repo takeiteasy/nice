@@ -167,6 +167,34 @@ public:
                          floor(world.y / chunk_world_height));
     }
 
+    static glm::vec2 chunk_to_world(int chunk_x, int chunk_y) {
+        // Calculate chunk size in world units
+        float chunk_world_width = CHUNK_WIDTH * TILE_WIDTH;
+        float chunk_world_height = CHUNK_HEIGHT * TILE_HEIGHT;
+
+        // Calculate the world position of the chunk's top-left corner
+        float world_x = chunk_x * chunk_world_width;
+        float world_y = chunk_y * chunk_world_height;
+
+        return glm::vec2(world_x, world_y);
+    }
+
+    static glm::vec2 tile_to_world(int chunk_x, int chunk_y, int tile_x, int tile_y) {
+        // Calculate chunk size in world units
+        float chunk_world_width = CHUNK_WIDTH * TILE_WIDTH;
+        float chunk_world_height = CHUNK_HEIGHT * TILE_HEIGHT;
+
+        // Calculate the world position of the chunk's top-left corner
+        float chunk_world_x = chunk_x * chunk_world_width;
+        float chunk_world_y = chunk_y * chunk_world_height;
+
+        // Calculate the world position of the tile within the chunk
+        float world_x = chunk_world_x + tile_x * TILE_WIDTH;
+        float world_y = chunk_world_y + tile_y * TILE_HEIGHT;
+
+        return glm::vec2(world_x, world_y);
+    }
+
     struct Rect bounds() {
         return _bounds(_zoom);
     }
