@@ -65,6 +65,28 @@ public:
     }
 };
 
+class GenericAsset: public Asset<GenericAsset> {
+    std::vector<unsigned char> _data;
+public:
+    bool load(const unsigned char *data, size_t data_size) override {
+        _data.resize(data_size);
+        std::copy(data, data + data_size, _data.begin());
+        return true;
+    }
+
+    void unload() override {
+        _data.clear();
+    }
+
+    bool is_valid() const override {
+        return !_data.empty();
+    }
+
+    std::string asset_extension() const override {
+        return "";
+    }
+};
+
 class Assets: public Global<Assets> {
     std::unordered_map<std::string, std::unique_ptr<AssetBase>> _assets;
     mutable std::mutex _map_lock;
@@ -74,7 +96,7 @@ class Assets: public Global<Assets> {
 
 public:
     Assets() = default;  // Add explicit default constructor
-    
+
     bool set_archive(const std::string& path) {
         std::unique_lock<std::mutex> lock(_archive_lock);
         if (_archive != nullptr) {

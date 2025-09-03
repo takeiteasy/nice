@@ -2,6 +2,50 @@
 
 **N**ice **I**nfinite **C**hunk **E**ngine
 
+## TODO
+
+- [ ] Chunk queries from lua for things like hit detection and collision
+- [ ] Collision for entities with walls and each other, lua callback on collision
+- [ ] Tile destruction and chunk modification 
+- [ ] Add sokol_input, wrap for lua
+- [ ] Fix imgui events not consuming event
+- [ ] Init, frame, exit, and scene change callbacks for lua
+- [ ] Cursor + tile selection
+- [ ] A*
+- [ ] Arguments, settings, configs
+    - [ ] Handle arguments from lua?
+    - [ ] Check for configs in zip
+    - [ ] Configs in lua instead of JSON? Both?
+    - [ ] Expose settings to lua
+- [ ] Default texture instead of crashing
+- [ ] Proper save path destination 
+- [ ] Audio manager
+- [ ] Menu scene (minimal)
+- [ ] Scene transition, loading screen
+- [ ] Debug tools, chunk monitor, entity monitor, console, modify lua file, lua repl, assets, settings, draw call monitor
+- [ ] Fonts, text rendering
+- [ ] Shape rendering
+- [ ] Package binary into app, release builds for Make
+- [ ] Emscripten build
+- [ ] Windows build
+- [ ] Linux build
+- [x] ~~Rework camera, integrate with ECS~~
+- [x] ~~Expose poisson to lua~~
+
+### Ideas:
+
+- [ ] Rework scenes, handle in lua instead
+    - [ ] Maybe lua scenes could be used in tandem with cpp scenes?
+- [ ] Support fennel + teal
+- [ ] Optional autotile, different autotile configuration, autotile tool
+- [ ] Isometric rendering
+- [ ] Built in editor, generate lua + run dynamically (play-nice)
+- [ ] Networking built in, sync world+ECS in background automatically
+- [ ] Embed zip inside binary
+- [ ] Cellular automata optional, override in lua or add alternative methods 
+- [ ] Chunk loading rules
+- [ ] Sandboxing with lua amalgm?
+
 ## LICENSE
 ```
 Nice Infinite Chunk Engine

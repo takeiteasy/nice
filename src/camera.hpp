@@ -16,6 +16,8 @@
 struct Rect {
     int x, y, w, h;
 
+    Rect(int x=0, int y=0, int w=0, int h=0): x(x), y(y), w(w), h(h) {}
+
     bool contains(glm::vec2 point) const {
         return point.x >= x && point.x <= x + w && point.y >= y && point.y <= y + h;
     }
@@ -39,12 +41,10 @@ class Camera {
         float visible_height = framebuffer_height() / zoom;
         float left = _position.x - (visible_width * .5f);
         float top = _position.y - (visible_height * .5f);
-        return (struct Rect) {
-            .x = (int)left,
-            .y = (int)top,
-            .w = (int)visible_width,
-            .h = (int)visible_height
-        };
+        return Rect(static_cast<int>(left),
+                    static_cast<int>(top),
+                    static_cast<int>(visible_width),
+                    static_cast<int>(visible_height));
     }
 
     template<typename T> T _clamp_zoom(T value) {

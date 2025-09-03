@@ -50,12 +50,10 @@ class RenderableManager: public Global<RenderableManager> {
     mutable std::mutex _texture_lock;
 
     static Rect renderable_bounds(const LuaRenderable& renderable) {
-        return Rect{
-            .x = static_cast<int>(renderable.x),
-            .y = static_cast<int>(renderable.y),
-            .w = static_cast<int>(renderable.width * renderable.scale_x),
-            .h = static_cast<int>(renderable.height * renderable.scale_y)
-        };
+        return Rect(static_cast<int>(renderable.x),
+                    static_cast<int>(renderable.y),
+                    static_cast<int>(renderable.width * renderable.scale_x),
+                    static_cast<int>(renderable.height * renderable.scale_y));
     }
 
     BasicVertex* generate_quad(LuaRenderable *renderable, Texture* texture) {

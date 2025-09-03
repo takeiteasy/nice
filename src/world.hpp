@@ -8,7 +8,6 @@
 #pragma once
 
 #include "chunk.hpp"
-#include "camera.hpp"
 #include "jobs.hpp"
 #include "texture.hpp"
 #include "fmt/format.h"
@@ -27,6 +26,7 @@
 #include "nice.dat.h"
 #include "uuid.h"
 #include "sokol/sokol_time.h"
+#include "camera.hpp"
 
 class World {
     uuid::v4::UUID _id;
@@ -217,6 +217,17 @@ class World {
 
         fputs(msg, stream);
         fputs("\n", stream);
+    }
+
+    static World* get_world_from_lua(lua_State* L) {
+        lua_getfield(L, LUA_REGISTRYINDEX, "__world__");
+        World* world = static_cast<World*>(lua_touserdata(L, -1));
+        lua_pop(L, 1); // Remove the userdata from stack
+        if (!world) {
+            luaL_error(L, "World instance not found");
+            return nullptr;
+        }
+        return world;
     }
 
     void call_lua_chunk_event(const std::string& event, int x, int y, const std::string& old_vis = "", const std::string& new_vis = "") {
@@ -625,15 +636,15 @@ public:
         });
 
         lua_register(L, "framebuffer_resize", [](lua_State* L) -> int {
-            int width = luaL_checkinteger(L, 1);
-            int height = luaL_checkinteger(L, 2);
+            int width = static_cast<int>(luaL_checkinteger(L, 1));
+            int height = static_cast<int>(luaL_checkinteger(L, 2));
             framebuffer_resize(width, height);
             return 0; // No return value
         });
 
         lua_register(L, "chunk_index", [](lua_State* L) -> int {
-            int x = luaL_checkinteger(L, 1);
-            int y = luaL_checkinteger(L, 2);
+            int x = static_cast<int>(luaL_checkinteger(L, 1));
+            int y = static_cast<int>(luaL_checkinteger(L, 2));
             uint64_t result = index(x, y);
             lua_pushinteger(L, result);
             return 1;
@@ -647,6 +658,197 @@ public:
             return 2; // Return two values: x, y
         };
         lua_register(L, "chunk_unindex", unindex_func);
+
+        lua_pushlightuserdata(L, this);
+        lua_setfield(L, LUA_REGISTRYINDEX, "__world__");
+        
+        lua_register(L, "poisson", [](lua_State* L) -> int {
+            World* world = get_world_from_lua(L);
+            if (!world)
+                return 0;
+            int num_args = lua_gettop(L);
+            if (num_args < 3) {
+                luaL_error(L, "poisson requires at least 3 arguments: chunk_x, chunk_y, radius");
+                return 0;
+            }
+
+            // Get chunk coordinates (can be either x,y or index)
+            long long chunk_x;
+            long long chunk_y;
+            if (num_args >= 4 && lua_isinteger(L, 1) && lua_isinteger(L, 2) && lua_isnumber(L, 3)) {
+                // Format: chunk_x, chunk_y, radius, [k], [invert], [region_x], [region_y], [region_w], [region_h]
+                chunk_x = luaL_checkinteger(L, 1);
+                chunk_y = luaL_checkinteger(L, 2);
+            } else {
+                // Format: chunk_index, radius, [k], [invert], [region_x], [region_y], [region_w], [region_h]
+                uint64_t chunk_index = luaL_checkinteger(L, 1);
+                auto coords = unindex(chunk_index);
+                chunk_x = coords.first;
+                chunk_y = coords.second;
+                // Shift all other arguments by 1
+                for (int i = 2; i <= num_args; i++)
+                    lua_pushvalue(L, i);
+                lua_remove(L, 1); // Remove the index
+                num_args--; // Adjust argument count
+            }
+
+            float radius = luaL_checknumber(L, (num_args >= 4) ? 3 : 2);
+            long long k = 30;
+            bool invert = false;
+            Rect region = Rect(0, 0, CHUNK_WIDTH, CHUNK_HEIGHT);
+            int arg_offset = (num_args >= 4) ? 4 : 3; // Starting position for optional args
+            if (num_args > arg_offset)
+                k = luaL_checkinteger(L, arg_offset);
+            if (num_args > arg_offset + 1)
+                invert = lua_toboolean(L, arg_offset + 1);
+            if (num_args > arg_offset + 2)
+                region.x = static_cast<int>(luaL_checkinteger(L, arg_offset + 2));
+            if (num_args > arg_offset + 3)
+                region.y = static_cast<int>(luaL_checkinteger(L, arg_offset + 3));
+            if (num_args > arg_offset + 4)
+                region.w = static_cast<int>(luaL_checkinteger(L, arg_offset + 4));
+            if (num_args > arg_offset + 5)
+                region.h = static_cast<int>(luaL_checkinteger(L, arg_offset + 5));
+
+            // Find the chunk
+            uint64_t chunk_id = index(static_cast<int>(chunk_x), static_cast<int>(chunk_y));
+            Chunk* chunk = nullptr;
+            {
+                std::shared_lock<std::shared_mutex> lock(world->_chunks_lock);
+                auto it = world->_chunks.find(chunk_id);
+                if (it != world->_chunks.end())
+                    chunk = it->second;
+            }
+            
+            if (!chunk || !chunk->is_filled()) {
+                lua_pushnil(L);
+                return 1; // Return nil if chunk not found or not filled
+            }
+
+            std::vector<glm::vec2> points = chunk->poisson(radius, static_cast<int>(k), invert, true, CHUNK_SIZE / 4, region);
+            lua_createtable(L, static_cast<int>(points.size()), 0);
+            for (size_t i = 0; i < points.size(); i++) {
+                lua_createtable(L, 2, 0);
+                lua_pushnumber(L, points[i].x);
+                lua_rawseti(L, -2, 1);
+                lua_pushnumber(L, points[i].y);
+                lua_rawseti(L, -2, 2);
+                lua_rawseti(L, -2, i + 1);
+            }
+            return 1;
+        });
+
+        lua_register(L, "camera_position", [](lua_State *L) -> int {
+            World* world = get_world_from_lua(L);
+            if (!world)
+                return 0;
+            glm::vec2 pos = world->_camera->position();
+            lua_pushnumber(L, pos.x);
+            lua_pushnumber(L, pos.y);
+            return 2;
+        });
+
+        lua_register(L, "camera_set_position", [](lua_State *L) -> int {
+            float x = static_cast<int>(luaL_checknumber(L, 1));
+            float y = static_cast<int>(luaL_checknumber(L, 2));
+            // Get World instance from Lua registry
+            World* world = get_world_from_lua(L);
+            if (!world)
+                return 0;
+            world->_camera->set_position(glm::vec2(x, y));
+            return 0;
+        });
+
+        lua_register(L, "camera_move", [](lua_State *L) -> int {
+            float x = static_cast<int>(luaL_checknumber(L, 1));
+            float y = static_cast<int>(luaL_checknumber(L, 2));
+            // Get World instance from Lua registry
+            World* world = get_world_from_lua(L);
+            if (!world)
+                return 0;
+            world->_camera->move_by(glm::vec2(x, y));
+            return 0;
+        });
+
+        lua_register(L, "camera_zoom", [](lua_State *L) -> int {
+            World* world = get_world_from_lua(L);
+            if (!world)
+                return 0;
+            lua_pushnumber(L, world->_camera->zoom());
+            return 1;
+        });
+
+        lua_register(L, "camera_set_zoom", [](lua_State *L) -> int {
+            float z = static_cast<float>(luaL_checknumber(L, 1));
+            World *world = get_world_from_lua(L);
+            if (!world)
+                return 0;
+            world->_camera->set_zoom(z);
+            return 0;
+        });
+
+        lua_register(L, "camera_zoom_by", [](lua_State *L) -> int {
+            float delta = static_cast<float>(luaL_checknumber(L, 1));
+            World *world = get_world_from_lua(L);
+            if (!world)
+                return 0;
+            world->_camera->zoom_by(delta);
+            return 0;
+        });
+
+        lua_register(L, "camera_bounds", [](lua_State *L) -> int {
+            World* world = get_world_from_lua(L);
+            if (!world)
+                return 0;
+            Rect bounds = world->_camera->bounds();
+            lua_pushnumber(L, bounds.x);
+            lua_pushnumber(L, bounds.y);
+            lua_pushnumber(L, bounds.w);
+            lua_pushnumber(L, bounds.h);
+            return 4;
+        });
+
+        lua_register(L, "world_to_screen", [](lua_State *L) -> int {
+            float world_x = static_cast<float>(luaL_checknumber(L, 1));
+            float world_y = static_cast<float>(luaL_checknumber(L, 2));
+            World* world = get_world_from_lua(L);
+            if (!world)
+                return 0;
+            glm::vec2 screen_pos = world->_camera->world_to_screen(glm::vec2(world_x, world_y));
+            lua_pushnumber(L, screen_pos.x);
+            lua_pushnumber(L, screen_pos.y);
+            return 2;
+        });
+
+        lua_register(L, "screen_to_world", [](lua_State *L) -> int {
+            float screen_x = static_cast<float>(luaL_checknumber(L, 1));
+            float screen_y = static_cast<float>(luaL_checknumber(L, 2));
+            World* world = get_world_from_lua(L);
+            if (!world)
+                return 0;
+            glm::vec2 world_pos = world->_camera->screen_to_world(glm::vec2(screen_x, screen_y));
+            lua_pushnumber(L, world_pos.x);
+            lua_pushnumber(L, world_pos.y);
+            return 2;
+        });
+
+        lua_register(L, "world_to_tile", [](lua_State *L) -> int {
+            float world_x = static_cast<float>(luaL_checknumber(L, 1));
+            float world_y = static_cast<float>(luaL_checknumber(L, 2));
+            glm::vec2 tile = Camera::world_to_tile(glm::vec2(world_x, world_y));
+            lua_pushnumber(L, tile.x);
+            lua_pushnumber(L, tile.y);
+            return 2;
+        });
+
+        lua_register(L, "world_to_chunk", [](lua_State *L) -> int {
+            float world_x = static_cast<float>(luaL_checknumber(L, 1));
+            float world_y = static_cast<float>(luaL_checknumber(L, 2));
+            glm::vec2 chunk = Camera::world_to_chunk(glm::vec2(world_x, world_y));
+            lua_pushnumber(L, chunk.x);
+            lua_pushnumber(L, chunk.y);
+            return 2;
+        });
 
         if (luaL_dostring(L, setup_lua) != LUA_OK) {
             const char* error_msg = lua_tostring(L, -1);

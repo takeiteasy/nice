@@ -615,12 +615,10 @@ public:
     }
 
     static Rect bounds(int _x, int _y) {
-        return {
-            .x = _x * CHUNK_WIDTH * TILE_WIDTH,
-            .y = _y * CHUNK_HEIGHT * TILE_HEIGHT,
-            .w = CHUNK_WIDTH * TILE_WIDTH,
-            .h = CHUNK_HEIGHT * TILE_HEIGHT
-        };
+        return Rect(_x * CHUNK_WIDTH * TILE_WIDTH,
+                    _y * CHUNK_HEIGHT * TILE_HEIGHT,
+                    CHUNK_WIDTH * TILE_WIDTH,
+                    CHUNK_HEIGHT * TILE_HEIGHT);
     }
 
     uint64_t id() const {
