@@ -16,7 +16,7 @@ local camera_dragging = false
 
 -- Mouse event handlers for camera control
 local function handle_mouse_down(event)
-    if event.button == 0 then -- Left mouse button
+    if event.button == MouseButton.LEFT then
         if not camera_dragging then
             camera_dragging = true
         end
@@ -24,7 +24,7 @@ local function handle_mouse_down(event)
 end
 
 local function handle_mouse_up(event)
-    if event.button == 0 then -- Left mouse button
+    if event.button == MouseButton.LEFT then
         if camera_dragging then
             camera_dragging = false
         end

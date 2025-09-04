@@ -36,6 +36,104 @@
     X(CLIPBOARD_PASTED, clipboard_pasted) \
     X(FILES_DROPPED, files_dropped)
 
+#define KEY_CODES                         \
+    X(INVALID, INVALID)                   \
+    X(SPACE, SPACE)                       \
+    X(APOSTROPHE, APOSTROPHE)             \
+    X(COMMA, COMMA)                       \
+    X(MINUS, MINUS)                       \
+    X(PERIOD, PERIOD)                     \
+    X(SLASH, SLASH)                       \
+    X(0, KEY_0)                           \
+    X(1, KEY_1)                           \
+    X(2, KEY_2)                           \
+    X(3, KEY_3)                           \
+    X(4, KEY_4)                           \
+    X(5, KEY_5)                           \
+    X(6, KEY_6)                           \
+    X(7, KEY_7)                           \
+    X(8, KEY_8)                           \
+    X(9, KEY_9)                           \
+    X(SEMICOLON, SEMICOLON)               \
+    X(EQUAL, EQUAL)                       \
+    X(A, A) X(B, B) X(C, C) X(D, D)       \
+    X(E, E) X(F, F) X(G, G) X(H, H)       \
+    X(I, I) X(J, J) X(K, K) X(L, L)       \
+    X(M, M) X(N, N) X(O, O) X(P, P)       \
+    X(Q, Q) X(R, R) X(S, S) X(T, T)       \
+    X(U, U) X(V, V) X(W, W) X(X, X)       \
+    X(Y, Y) X(Z, Z)                       \
+    X(LEFT_BRACKET, LEFT_BRACKET)         \
+    X(BACKSLASH, BACKSLASH)               \
+    X(RIGHT_BRACKET, RIGHT_BRACKET)       \
+    X(GRAVE_ACCENT, GRAVE_ACCENT)         \
+    X(WORLD_1, WORLD_1)                   \
+    X(WORLD_2, WORLD_2)                   \
+    X(ESCAPE, ESCAPE)                     \
+    X(ENTER, ENTER)                       \
+    X(TAB, TAB)                           \
+    X(BACKSPACE, BACKSPACE)               \
+    X(INSERT, INSERT)                     \
+    X(DELETE, DELETE)                     \
+    X(RIGHT, RIGHT)                       \
+    X(LEFT, LEFT)                         \
+    X(DOWN, DOWN)                         \
+    X(UP, UP)                             \
+    X(PAGE_UP, PAGE_UP)                   \
+    X(PAGE_DOWN, PAGE_DOWN)               \
+    X(HOME, HOME)                         \
+    X(END, END)                           \
+    X(CAPS_LOCK, CAPS_LOCK)               \
+    X(SCROLL_LOCK, SCROLL_LOCK)           \
+    X(NUM_LOCK, NUM_LOCK)                 \
+    X(PRINT_SCREEN, PRINT_SCREEN)         \
+    X(PAUSE, PAUSE)                       \
+    X(F1, F1) X(F2, F2) X(F3, F3)         \
+    X(F4, F4) X(F5, F5) X(F6, F6)         \
+    X(F7, F7) X(F8, F8) X(F9, F9)         \
+    X(F10, F10) X(F11, F11) X(F12, F12)   \
+    X(F13, F13) X(F14, F14) X(F15, F15)   \
+    X(F16, F16) X(F17, F17) X(F18, F18)   \
+    X(F19, F19) X(F20, F20) X(F21, F21)   \
+    X(F22, F22) X(F23, F23) X(F24, F24)   \
+    X(F25, F25)                           \
+    X(KP_0, KP_0) X(KP_1, KP_1)           \
+    X(KP_2, KP_2) X(KP_3, KP_3)           \
+    X(KP_4, KP_4) X(KP_5, KP_5)           \
+    X(KP_6, KP_6) X(KP_7, KP_7)           \
+    X(KP_8, KP_8) X(KP_9, KP_9)           \
+    X(KP_DECIMAL, KP_DECIMAL)             \
+    X(KP_DIVIDE, KP_DIVIDE)               \
+    X(KP_MULTIPLY, KP_MULTIPLY)           \
+    X(KP_SUBTRACT, KP_SUBTRACT)           \
+    X(KP_ADD, KP_ADD)                     \
+    X(KP_ENTER, KP_ENTER)                 \
+    X(KP_EQUAL, KP_EQUAL)                 \
+    X(LEFT_SHIFT, LEFT_SHIFT)             \
+    X(LEFT_CONTROL, LEFT_CONTROL)         \
+    X(LEFT_ALT, LEFT_ALT)                 \
+    X(LEFT_SUPER, LEFT_SUPER)             \
+    X(RIGHT_SHIFT, RIGHT_SHIFT)           \
+    X(RIGHT_CONTROL, RIGHT_CONTROL)       \
+    X(RIGHT_ALT, RIGHT_ALT)               \
+    X(RIGHT_SUPER, RIGHT_SUPER)           \
+    X(MENU, MENU)
+
+#define MOUSE_BUTTONS                     \
+    X(LEFT, LEFT)                         \
+    X(RIGHT, RIGHT)                       \
+    X(MIDDLE, MIDDLE)                     \
+    X(INVALID, INVALID)
+
+#define MODIFIERS                         \
+    X(SHIFT, SHIFT)                       \
+    X(CTRL, CTRL)                         \
+    X(ALT, ALT)                           \
+    X(SUPER, SUPER)                       \
+    X(LMB, LMB)                           \
+    X(RMB, RMB)                           \
+    X(MMB, MMB)
+
 class InputManager: public Global<InputManager> {
     struct InputState {
         bool _keyboard_state[349] = {false};
@@ -176,6 +274,33 @@ public:
         EVENT_TYPES
 #undef X
         lua_setglobal(L, "EventType");
+
+        // Expose key codes enum
+        lua_newtable(L);
+#define X(NAME, VAR) \
+        lua_pushinteger(L, SAPP_KEYCODE_##NAME); \
+        lua_setfield(L, -2, #VAR);
+        KEY_CODES
+#undef X
+        lua_setglobal(L, "KeyCode");
+
+        // Expose mouse button enum
+        lua_newtable(L);
+#define X(NAME, VAR) \
+        lua_pushinteger(L, SAPP_MOUSEBUTTON_##NAME); \
+        lua_setfield(L, -2, #VAR);
+        MOUSE_BUTTONS
+#undef X
+        lua_setglobal(L, "MouseButton");
+
+        // Expose modifier flags
+        lua_newtable(L);
+#define X(NAME, VAR) \
+        lua_pushinteger(L, SAPP_MODIFIER_##NAME); \
+        lua_setfield(L, -2, #VAR);
+        MODIFIERS
+#undef X
+        lua_setglobal(L, "Modifier");
 
         // Register callback management functions
         lua_register(L, "register_event_callback", [](lua_State *L) -> int {
