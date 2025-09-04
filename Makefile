@@ -1,96 +1,159 @@
+# =============================================================================
+# Nice Game Engine - Makefile
+# =============================================================================
+
+# Project Configuration
+# -----------------------------------------------------------------------------
 NAME := nice
+BUILD_DIR := build
+TOOLS_DIR := assets
+
+# Platform Detection
+# -----------------------------------------------------------------------------
 UNAME := $(shell uname -s)
+ARCH := $(shell uname -m)
+ifeq ($(ARCH),arm64)
+	ARCH := osx_arm64
+else
+	ARCH := osx
+endif
+
+# File Extensions
+# -----------------------------------------------------------------------------
 PROG_EXT :=
 LIB_EXT := dylib
 STATIC_LIB_EXT := a
-CFLAGS := -x objective-c++ -DSOKOL_METAL -fenable-matrix \
-		  -framework Metal -framework Cocoa -framework IOKit \
-		  -framework MetalKit -framework Quartz -framework AudioToolbox
-ARCH := $(shell uname -m)
-ifeq ($(ARCH),arm64)
-	ARCH:=osx_arm64
-else
-	ARCH:=osx
-endif
-SHDC_FLAGS := metal_macos
+
+# Build Tools
+# -----------------------------------------------------------------------------
 CXX := clang++
-IGNORE := -Wno-c99-designator -Wno-reorder-init-list -Wno-arc-bridge-casts-disallowed-in-nonarc
-CXXFLAGS := -std=c++17 -arch arm64 $(IGNORE)
+CC := clang
+ARCH_PATH := bin/$(ARCH)
+SHDC_PATH := $(ARCH_PATH)/sokol-shdc$(PROG_EXT)
+
+# Compiler Flags
+# -----------------------------------------------------------------------------
+IGNORE_WARNINGS := -Wno-c99-designator -Wno-reorder-init-list -Wno-arc-bridge-casts-disallowed-in-nonarc
+CXXFLAGS := -std=c++17 -arch arm64 $(IGNORE_WARNINGS)
 LDFLAGS := -arch arm64
+
+CFLAGS := -x objective-c++ -DSOKOL_METAL -fenable-matrix \
+          -framework Metal -framework Cocoa -framework IOKit \
+          -framework MetalKit -framework Quartz -framework AudioToolbox
+
+# Include Paths
+# -----------------------------------------------------------------------------
+INCLUDE_PATHS := -Iscenes -Isrc -Ideps -Ideps/flecs -Ideps/imgui
+INC := $(CXXFLAGS) $(INCLUDE_PATHS) $(LDFLAGS)
+
+# Source Files
+# -----------------------------------------------------------------------------
+SOURCE := $(wildcard src/*.cpp) \
+          deps/fmt/format.cc \
+          deps/fmt/os.cc \
+          deps/imgui/backends/imgui_impl_metal.mm
+
+# Build Targets
+# -----------------------------------------------------------------------------
+EXE := $(BUILD_DIR)/$(NAME)_$(ARCH)$(PROG_EXT)
+LUA := $(BUILD_DIR)/lua$(PROG_EXT)
+FLECS_LIB := $(BUILD_DIR)/libflecs_$(ARCH).$(LIB_EXT)
+NICEPKG := $(BUILD_DIR)/nicepkg.$(LIB_EXT)
+DAT_H := $(BUILD_DIR)/nice.dat.h
+
+# Shader Configuration
+# -----------------------------------------------------------------------------
+SHADERS_SRC := assets
+SHADER_DST := $(BUILD_DIR)
+SHDC_FLAGS := metal_macos
+SHADERS := $(wildcard $(SHADERS_SRC)/*.glsl)
+SHADER_OUTS := $(patsubst $(SHADERS_SRC)/%,$(SHADER_DST)/%.h,$(SHADERS))
+
+# Data Generation
+# -----------------------------------------------------------------------------
+DAT_SRC := $(TOOLS_DIR)/setup.lua
+
+# =============================================================================
+# Build Rules
+# =============================================================================
+
+# Default and Meta Targets
+# -----------------------------------------------------------------------------
+.PHONY: default all clean run test builddir shaders dat lua flecs nicepkg nice
 
 default: nice
 
 all: clean builddir shaders dat lua flecs nicepkg test nice
 
-BUILD_DIR := build
-TOOLS_DIR := assets
-
+# Directory Creation
+# -----------------------------------------------------------------------------
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
 builddir: $(BUILD_DIR)
 
-SOURCE := $(wildcard src/*.cpp) deps/fmt/format.cc deps/fmt/os.cc deps/imgui/backends/imgui_impl_metal.mm
-EXE := $(BUILD_DIR)/$(NAME)_$(ARCH)$(PROG_EXT)
-INC := $(CXXFLAGS) -Iscenes -Isrc -Ideps -Ideps/flecs -Ideps/imgui $(LDFLAGS)
-
-SHADERS_SRC := assets
-SHADER_DST := $(BUILD_DIR)
-ARCH_PATH := bin/$(ARCH)
-SHDC_PATH := $(ARCH_PATH)/sokol-shdc$(PROG_EXT)
-SHADERS := $(wildcard $(SHADERS_SRC)/*.glsl)
-SHADER_OUTS := $(patsubst $(SHADERS_SRC)/%,$(SHADER_DST)/%.h,$(SHADERS))
-
+# Shader Compilation
+# -----------------------------------------------------------------------------
 .SECONDEXPANSION:
-SHADER_OUT := $@
 $(SHADER_DST)/%.glsl.h: $(SHADERS_SRC)/%.glsl
 	$(SHDC_PATH) -i $< -o $@ -l $(SHDC_FLAGS)
 
 shaders: builddir $(SHADER_OUTS)
 
-DAT_H := $(BUILD_DIR)/nice.dat.h
-DAT_SRC := $(TOOLS_DIR)/setup.lua
-LUA := $(BUILD_DIR)/lua$(PROG_EXT)
-
-$(DAT_H): $(DAT_SRC)
-	./$(LUA) $(TOOLS_DIR)/embed.lua $(DAT_SRC) > $(DAT_H)
-
-dat: lua $(DAT_H)
-
-lua: builddir
+# Lua Interpreter
+# -----------------------------------------------------------------------------
+$(LUA): builddir
 	$(CC) -o $(LUA) -Ideps -DLUA_MAKE_LUA deps/minilua.c
 
-FLECS_LIB := $(BUILD_DIR)/libflecs_$(ARCH).$(LIB_EXT)
+lua: $(LUA)
 
+# Data Embedding
+# -----------------------------------------------------------------------------
+$(DAT_H): $(DAT_SRC) $(LUA)
+	./$(LUA) $(TOOLS_DIR)/embed.lua $(DAT_SRC) > $(DAT_H)
+
+dat: $(DAT_H)
+
+# Flecs Library
+# -----------------------------------------------------------------------------
 $(FLECS_LIB): builddir
 	$(CC) -shared -fpic -Ideps/flecs -Ideps deps/flecs/*.c deps/minilua.c -o $(FLECS_LIB)
 
 flecs: $(FLECS_LIB)
 
-$(EXE): builddir
+# NicePkg Library
+# -----------------------------------------------------------------------------
+$(NICEPKG): builddir
+	$(CC) -shared -fpic -Wno-tautological-compare -o $(NICEPKG) $(TOOLS_DIR)/nicepkg.c deps/minilua.c -Ideps
+
+nicepkg: $(NICEPKG)
+
+# Main Executable
+# -----------------------------------------------------------------------------
+$(EXE): builddir shaders dat flecs
 	$(CXX) $(INC) $(CFLAGS) $(SOURCE) -I$(SHADER_DST) -L$(BUILD_DIR) -lflecs_$(ARCH) -o $(EXE)
 
 nice: $(EXE)
 
-NICEPKG := $(BUILD_DIR)/nicepkg.$(LIB_EXT)
+# Test Asset Generation
+# -----------------------------------------------------------------------------
+test: lua nicepkg
+	./$(LUA) $(TOOLS_DIR)/nicepkg.lua test/hand.png -x test/tilemap.png test/test.lua -o test/assets.nice
 
-$(NICEPKG): builddir
-	$(CC) -shared -fpic -o $(NICEPKG) $(TOOLS_DIR)/nicepkg.c deps/minilua.c -Ideps
+# Run Application
+# -----------------------------------------------------------------------------
+run: test nice
+	./$(EXE); rm -f *.niceworld
 
-nicepkg: $(NICEPKG)
-
-test:
-	./build/lua assets/nicepkg.lua test/hand.png -x test/tilemap.png test/test.lua -o test/assets.nice
-
+# Cleanup
+# -----------------------------------------------------------------------------
 clean:
-	rm -f $(EXE) || true
-	rm -f $(BUILD_DIR)/lua$(PROG_EXT) || true
-	rm -f $(FLECS_LIB) || true
-	rm -f $(NICEPKG) || true
-	rm -r $(BUILD_DIR)/*.glsl.h || true
-	rm -r $(DAT_H) || true
-
-run: nice
-	./$(EXE)
-
-.PHONY: default all clean nice builddir
+	@echo "Cleaning build artifacts..."
+	@rm -f $(EXE) 2>/dev/null || true
+	@rm -f $(LUA) 2>/dev/null || true
+	@rm -f $(FLECS_LIB) 2>/dev/null || true
+	@rm -f $(NICEPKG) 2>/dev/null || true
+	@rm -f $(BUILD_DIR)/*.glsl.h 2>/dev/null || true
+	@rm -f $(DAT_H) 2>/dev/null || true
+	@rm -rf test/assets.nice 2>/dev/null || true
+	@echo "Clean complete."
