@@ -447,6 +447,8 @@ class World {
     void release_chunks() {
         std::vector<uint64_t> chunks_to_destroy;
         std::vector<Chunk*> chunks_to_delete;
+        std::vector<ChunkEvent> events_to_queue;
+        
         {
             std::unique_lock<std::shared_mutex> lock(_chunks_lock);
             // Iterate through chunks and check if they're marked for destruction
@@ -458,13 +460,18 @@ class World {
                     std::cout << fmt::format("Releasing chunk at ({}, {})\n", chunk->x(), chunk->y());
                     chunks_to_delete.push_back(chunk);
                     chunks_to_destroy.push_back(chunk_id);
-                    {
-                        std::lock_guard<std::mutex> lock(_event_queue_mutex);
-                        _chunk_event_queue.push({ChunkEvent::Deleted, chunk->x(), chunk->y()});
-                    }
+                    events_to_queue.push_back({ChunkEvent::Deleted, chunk->x(), chunk->y()});
                     it = _chunks.erase(it);
                 } else
                     ++it;
+            }
+        }
+
+        // Queue events outside of chunks lock to avoid potential deadlock
+        if (!events_to_queue.empty()) {
+            std::lock_guard<std::mutex> lock(_event_queue_mutex);
+            for (const auto& event : events_to_queue) {
+                _chunk_event_queue.push(event);
             }
         }
 
@@ -567,6 +574,7 @@ public:
             }
         }
         
+        // Queue event outside of any locks to avoid deadlocks
         {
             std::lock_guard<std::mutex> lock(_event_queue_mutex);
             _chunk_event_queue.push({ChunkEvent::Created, x, y});
@@ -611,7 +619,7 @@ public:
             }
         };
         _renderables_pipeline = sg_make_pipeline(&desc);
-        _tilemap = $Assets.get<Texture>("tilemap.exploded");
+        _tilemap = $Assets.get<Texture>("test/tilemap.exploded");
 
         if (path != nullptr)
             if (!_import(path))
@@ -1026,12 +1034,17 @@ public:
             throw std::runtime_error("Internal Error: Failed to execute `setup.lua`");
         }
 
-        const char *test_path = "test/test.lua";
-        if (luaL_dofile(L, test_path) != LUA_OK) {
-            const char* error_msg = lua_tostring(L, -1);
-            fprintf(stderr, "Lua error loading %s: %s\n", test_path, error_msg);
-            lua_pop(L, 1);
-        }
+        GenericAsset *main_lua = $Assets.get<>("main.lua");
+        if (main_lua && main_lua->is_valid() && !main_lua->data().empty()) {
+            if (luaL_loadbuffer(L, reinterpret_cast<const char*>(main_lua->raw_data()), main_lua->size(), "main.lua") != LUA_OK ||
+                lua_pcall(L, 0, LUA_MULTRET, 0) != LUA_OK) {
+                const char* error_msg = lua_tostring(L, -1);
+                std::cout << fmt::format("Lua error in main.lua: {}\n", error_msg);
+                lua_pop(L, 1); // Remove error message from stack
+                throw std::runtime_error("Failed to execute `main.lua`");
+            }
+        } else
+            std::cout << fmt::format("Warning: main.lua not found or invalid, skipping execution\n");
         ecs_assert(L != NULL, ECS_INTERNAL_ERROR, NULL);
     }
 

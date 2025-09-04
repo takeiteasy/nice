@@ -18,7 +18,6 @@ static struct {
 
 void game_enter(void) {
     $Assets.set_archive("test/assets.nice");
-    $Assets.set_base_path("assets");
     state.camera = new Camera();
     state.manager = new World(state.camera);
 }

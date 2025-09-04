@@ -67,6 +67,7 @@ public:
 
 class GenericAsset: public Asset<GenericAsset> {
     std::vector<unsigned char> _data;
+
 public:
     bool load(const unsigned char *data, size_t data_size) override {
         _data.resize(data_size);
@@ -85,6 +86,18 @@ public:
     std::string asset_extension() const override {
         return "";
     }
+
+    const std::vector<unsigned char>& data() const {
+        return _data;
+    }
+
+    const unsigned char* raw_data() const {
+        return _data.data();
+    }
+
+    size_t size() const {
+        return _data.size();
+    }
 };
 
 class Assets: public Global<Assets> {
@@ -92,36 +105,43 @@ class Assets: public Global<Assets> {
     mutable std::mutex _map_lock;
     zip *_archive = nullptr;
     mutable std::mutex _archive_lock;
-    std::string _base_path = "";
 
 public:
     Assets() = default;  // Add explicit default constructor
 
     bool set_archive(const std::string& path) {
-        std::unique_lock<std::mutex> lock(_archive_lock);
-        if (_archive != nullptr) {
-            lock.unlock();
-            clear();
-            lock.lock();
+        // To avoid deadlock, first close any existing archive without calling clear()
+        zip* old_archive = nullptr;
+        {
+            std::unique_lock<std::mutex> lock(_archive_lock);
+            old_archive = _archive;
+            _archive = nullptr;
         }
+        
+        // Close old archive outside of any locks
+        if (old_archive != nullptr)
+            zip_close(old_archive);
+
+        // Clear assets separately to avoid lock ordering issues
+        {
+            std::lock_guard<std::mutex> _m_lock(_map_lock);
+            _assets.clear();
+        }
+        
+        // Now set the new archive
+        std::unique_lock<std::mutex> lock(_archive_lock);
         bool result = (_archive = zip_open(path.c_str(), "r")) != NULL;
-        lock.unlock();
         return result;
     }
-
-    void set_base_path(const std::string& base_path) {
-        _base_path = base_path;
-    }
-
-    template<typename T, typename... Args>
+    
+    template<typename T=GenericAsset, typename... Args>
     T* get(const std::string& key, bool ensure = true, Args&&... args) {
         std::lock_guard<std::mutex> _a_lock(_archive_lock);
         if (!_archive)
             return nullptr;
         std::lock_guard<std::mutex> m_lock(_map_lock);
         std::string ext = T().asset_extension();
-        std::filesystem::path p(key);
-        std::string final_key = _base_path.empty() ? key : _base_path + "/" + key;
+        std::string final_key = key;
         if (key.substr(key.length() - ext.length()) != ext)
             final_key += ext;
         auto it = _assets.find(final_key);
@@ -161,9 +181,11 @@ public:
     };
 
     void clear() {
-        std::lock_guard<std::mutex> _m_lock(_map_lock);
-        _assets.clear();
+        // Always acquire locks in a consistent order: _archive_lock then _map_lock
         std::lock_guard<std::mutex> _a_lock(_archive_lock);
+        std::lock_guard<std::mutex> _m_lock(_map_lock);
+        
+        _assets.clear();
         if (_archive) {
             zip_close(_archive);
             _archive = nullptr;

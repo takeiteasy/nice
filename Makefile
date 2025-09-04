@@ -20,7 +20,7 @@ LDFLAGS := -arch arm64
 
 default: nice
 
-all: clean builddir shaders dat lua flecs nicepkg nice 
+all: clean builddir shaders dat lua flecs nicepkg test nice
 
 BUILD_DIR := build
 TOOLS_DIR := assets
@@ -79,6 +79,9 @@ $(NICEPKG): builddir
 
 nicepkg: $(NICEPKG)
 
+test:
+	./build/lua assets/nicepkg.lua test/hand.png -x test/tilemap.png test/test.lua -o test/assets.nice
+
 clean:
 	rm -f $(EXE) || true
 	rm -f $(BUILD_DIR)/lua$(PROG_EXT) || true
@@ -87,9 +90,7 @@ clean:
 	rm -r $(BUILD_DIR)/*.glsl.h || true
 	rm -r $(DAT_H) || true
 
-rerun:
+run: nice
 	./$(EXE)
 
-run: nice rerun
-
-.PHONY: rerun run default all clean nice shaders lua builddir
+.PHONY: default all clean nice builddir

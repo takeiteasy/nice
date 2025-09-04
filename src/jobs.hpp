@@ -34,12 +34,22 @@ public:
         _worker_thread = std::thread([this]() {
             while (true) {
                 std::unique_lock<std::mutex> lock(this->_queue_mutex);
-                this->_condition.wait(lock, [this] {
+                
+                // Use timeout to prevent indefinite blocking during shutdown
+                if (!this->_condition.wait_for(lock, std::chrono::milliseconds(100), [this] {
                     return this->_stop.load() || !this->_queue.empty();
-                });
+                })) {
+                    // Timeout occurred, check if we should stop
+                    if (this->_stop.load())
+                        return;
+                    continue;
+                }
                 
                 if (this->_stop.load() && this->_queue.empty())
                     return;
+                
+                if (this->_queue.empty())
+                    continue;
                     
                 T item = std::move(this->_queue.front());
                 this->_queue.pop_front();
@@ -89,7 +99,10 @@ public:
     }
 
     void stop() {
-        _stop.store(true);
+        {
+            std::lock_guard<std::mutex> lock(_queue_mutex);
+            _stop.store(true);
+        }
         _condition.notify_all();
         if (_worker_thread.joinable())
             _worker_thread.join();
@@ -121,18 +134,29 @@ public:
                 while (true) {
                     std::function<void()> job;
                     std::unique_lock<std::mutex> lock(this->queue_mutex);
-                    this->condition.wait(lock, [this] {
+                    
+                    // Use timeout to prevent indefinite blocking during shutdown
+                    if (!this->condition.wait_for(lock, std::chrono::milliseconds(100), [this] {
                         return this->stop || !this->priority_jobs.empty() || !this->jobs.empty();
-                    });
+                    })) {
+                        // Timeout occurred, check if we should stop
+                        if (this->stop)
+                            return;
+                        continue;
+                    }
+                    
                     if (this->stop && this->priority_jobs.empty() && this->jobs.empty())
                         return;
                     if (!this->priority_jobs.empty()) {
                         job = std::move(this->priority_jobs.front());
                         this->priority_jobs.pop();
-                    } else {
+                    } else if (!this->jobs.empty()) {
                         job = std::move(this->jobs.front());
                         this->jobs.pop();
+                    } else {
+                        continue; // No jobs available
                     }
+                    lock.unlock(); // Release lock before executing job
                     job();
                 }
             });
@@ -168,8 +192,10 @@ public:
             stop = true;
         }
         condition.notify_all();
-        for (std::thread &worker : workers)
-            worker.join();
+        for (std::thread &worker : workers) {
+            if (worker.joinable())
+                worker.join();
+        }
     }
 };
 
@@ -202,5 +228,11 @@ public:
     bool empty() const {
         std::shared_lock<std::shared_mutex> lock(_mutex);
         return _set.empty();
+    }
+
+    // Add a clear method for cleanup
+    void clear() {
+        std::unique_lock<std::shared_mutex> lock(_mutex);
+        _set.clear();
     }
 };

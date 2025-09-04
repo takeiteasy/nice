@@ -1,6 +1,6 @@
 local ecs = require "ecs"
 
-local test_texture = get_texture_id("hand")
+local test_texture = get_texture_id("test/hand")
 
 local test = ecs.new("Test", NiceEntity)
 ecs.set(test, NiceEntity, {

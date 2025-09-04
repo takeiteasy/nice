@@ -336,15 +336,15 @@ public:
         // Wait for any pending jobs to complete before clearing
         wait_for_jobs_completion();
         
-        // Acquire locks in consistent order to avoid deadlocks
+        // Acquire locks in consistent order to avoid deadlocks: texture -> entities -> batches
+        std::lock_guard<std::mutex> texture_lock(_texture_lock);
         std::lock_guard<std::mutex> entities_lock(_entities_lock);
         std::lock_guard<std::mutex> batch_lock(_batches_lock);
-        std::lock_guard<std::mutex> texture_lock(_texture_lock);
         
-        _entities.clear();
-        batches.clear();
         _textures.clear();
         _texture_paths.clear();
+        _entities.clear();
+        batches.clear();
         _next_texture_id.store(1);
     }
 };
