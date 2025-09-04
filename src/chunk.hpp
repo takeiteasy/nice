@@ -101,7 +101,7 @@ class Chunk {
     glm::mat4 _mvp;
     Camera *_camera;
     Texture *_texture;
-    bool _rebuild_mvp = true;
+    std::atomic<bool> _rebuild_mvp = true;
 
     static void cellular_automata(int width, int height, int fill_chance, int smooth_iterations, int survive, int starve, uint8_t* result) {
         memset(result, 0, width * height * sizeof(uint8_t));
@@ -195,206 +195,185 @@ class Chunk {
         return v;
     }
 
-    enum ChunkCompression {
-        Default = 0,
-        SPARSE,
-        DENSE,
-        RLE
-    };
-
     struct ChunkHeader {
         uint32_t magic;        // "NICE"
         uint32_t version;      // Version number
-        uint32_t compression;  // Compression type
         uint32_t width;        // Width in tiles
         uint32_t height;       // Height in tiles
+        uint32_t flags;        // Optimization flags
     };
 
     struct ChunkRLEEntry {
         uint32_t count;    // How many consecutive tiles
-        uint8_t value;     // The flag value for those tiles
+        uint8_t value;     // The field value
     };
 
-    std::unordered_map<int, uint8_t> _grid_flags() const {
-        std::unordered_map<int, uint8_t> flags;
-        for (int y = 0; y < CHUNK_HEIGHT; y++)
-            for (int x = 0; x < CHUNK_WIDTH; x++)
-                if (_tiles[x][y].extra > 0)
-                    flags[y * CHUNK_WIDTH + x] = _tiles[x][y].extra;
-        return flags;
-    }
+    struct ChunkSparseEntry {
+        uint32_t index;    // Tile index
+        uint8_t value;     // The field value
+    };
 
-    size_t _calculate_sparse_size() const {
-        std::unordered_map<int, uint8_t> flags = _grid_flags();
-        return sizeof(uint32_t) + flags.size() * (sizeof(uint32_t) + sizeof(uint8_t));
-    }
+    enum ChunkOptimizationFlags {
+        SOLID_RLE = 1 << 0,     // Solid field uses RLE
+        VISITED_RLE = 1 << 1,   // Visited field uses RLE  
+        EXTRA_RLE = 1 << 2,     // Extra field uses RLE
+        SOLID_SPARSE = 1 << 3,  // Solid field uses sparse
+        VISITED_SPARSE = 1 << 4,// Visited field uses sparse
+        EXTRA_SPARSE = 1 << 5   // Extra field uses sparse
+    };
 
-    size_t _calculate_rle_size() const {
-        std::unordered_map<int, uint8_t> _flags = _grid_flags();
-        if (_flags.empty())
-            return sizeof(uint32_t); // Just the count
-        
-        std::vector<uint8_t> flags(CHUNK_SIZE, 0);
-        for (const auto& pair : _flags)
-            flags[pair.first] = pair.second;
-
-        size_t run_count = 1;
-        uint8_t currentValue = flags[0];
-        for (size_t i = 1; i < flags.size(); ++i)
-            if (flags[i] != currentValue) {
-                run_count++;
-                currentValue = flags[i];
-            }
-        return sizeof(uint32_t) + run_count * (sizeof(uint32_t) + sizeof(uint8_t));
-    }
-
-    ChunkCompression _choose_optimal_compression() const {
-        size_t sparse_size = _calculate_sparse_size();
-        size_t dense_size = CHUNK_SIZE;
-        size_t rle_size = _calculate_rle_size();
-
-        if (sparse_size <= dense_size && sparse_size <= rle_size)
-            return ChunkCompression::SPARSE;
-        else if (dense_size <= rle_size)
-            return ChunkCompression::DENSE;
-        else
-            return ChunkCompression::RLE;
-    }
-
-    void _serialize_grid(std::ofstream& file) const {
-        int nbytes = CHUNK_SIZE / 8;
-        std::vector<uint8_t> buffer(nbytes, 0);
-
-        uint8_t packed_byte = 0;
+    // Calculate compression efficiency for a field
+    template<typename FieldGetter>
+    std::pair<size_t, size_t> _calculate_compression_efficiency(FieldGetter getter) const {
+        // Calculate RLE size
+        uint8_t current_value = getter(_tiles[0][0]);
+        size_t rle_runs = 1;
+        uint32_t current_count = 1;
         for (int y = 0; y < CHUNK_HEIGHT; y++)
             for (int x = 0; x < CHUNK_WIDTH; x++) {
-                int idx = y * CHUNK_WIDTH + x;
-                int bit = idx % 8;
-                if (_tiles[x][y].solid)
-                    packed_byte |= (1 << bit);
-                if (bit == 7 || idx == CHUNK_SIZE - 1) {
-                    buffer[idx / 8] = packed_byte;
-                    packed_byte = 0;
+                if (x == 0 && y == 0)
+                    continue;
+                uint8_t value = getter(_tiles[x][y]);
+                if (value == current_value && current_count < UINT32_MAX)
+                    current_count++;
+                else {
+                    rle_runs++;
+                    current_value = value;
+                    current_count = 1;
                 }
             }
-        file.write(reinterpret_cast<const char*>(buffer.data()), nbytes);
-    }
-
-    void _deserialize_grid(std::ifstream& file) {
-        int nbytes = CHUNK_SIZE / 8;
-        std::vector<uint8_t> buffer(nbytes);
-        file.read(reinterpret_cast<char*>(buffer.data()), nbytes);
         
-        for (int byteIdx = 0; byteIdx < nbytes; ++byteIdx) {
-            uint8_t packedByte = buffer[byteIdx];
-            for (int bit = 0; bit < 8; ++bit) {
-                int tileIdx = byteIdx * 8 + bit;
-                if (tileIdx >= CHUNK_SIZE) break;
-                int x = tileIdx % CHUNK_WIDTH;
-                int y = tileIdx / CHUNK_WIDTH;
-                _tiles[x][y].solid = (packedByte & (1 << bit)) != 0;
-            }
-        }
+        // Calculate sparse size (only non-zero values)
+        size_t sparse_count = 0;
+        for (int y = 0; y < CHUNK_HEIGHT; y++)
+            for (int x = 0; x < CHUNK_WIDTH; x++)
+                if (getter(_tiles[x][y]) != 0)
+                    sparse_count++;
+        size_t rle_size = sizeof(uint32_t) + rle_runs * sizeof(ChunkRLEEntry);
+        size_t sparse_size = sizeof(uint32_t) + sparse_count * sizeof(ChunkSparseEntry);
+        return {rle_size, sparse_size};
     }
 
-    // Sparse flags: count + (index, value) pairs
-    void _serialize_sparse(std::ofstream& file) const {
-        std::unordered_map<int, uint8_t> flags = _grid_flags();
-        uint32_t count = static_cast<uint32_t>(flags.size());
-        file.write(reinterpret_cast<const char*>(&count), sizeof(count));
-        for (const auto& pair : flags) {
-            uint32_t index = static_cast<uint32_t>(pair.first);
-            uint8_t value = pair.second;
-            file.write(reinterpret_cast<const char*>(&index), sizeof(index));
-            file.write(reinterpret_cast<const char*>(&value), sizeof(value));
-        }
-    }
-
-    void _serialize_dense(std::ofstream& file) const {
-        // Store all flags densely (1 byte per tile)
-        std::unordered_map<int, uint8_t> flags = _grid_flags();
-        std::vector<uint8_t> buffer(CHUNK_SIZE);
-        for (int i = 0; i < CHUNK_SIZE; ++i) {
-            auto it = flags.find(i);
-            buffer[i] = (it != flags.end()) ? it->second : 0;
-        }
-        file.write(reinterpret_cast<const char*>(buffer.data()), CHUNK_SIZE);
-    }
-
-    void _serialize_rle(std::ofstream& file) const {
+    template<typename FieldGetter>
+    void _serialize_field_rle(std::ofstream& file, FieldGetter getter) const {
         std::vector<ChunkRLEEntry> encoded;
-        std::unordered_map<int, uint8_t> _flags = _grid_flags();
-        if (_flags.empty())
-            return;
-        std::vector<uint8_t> flags(CHUNK_SIZE, 0);
-        for (const auto& pair : _flags)
-            flags[pair.first] = pair.second;
-
-        uint8_t currentValue = flags[0];
-        uint32_t currentCount = 1;
-        for (size_t i = 1; i < flags.size(); ++i)
-            if (flags[i] == currentValue && currentCount < UINT32_MAX)
-                currentCount++;
-            else {
-                // Value changed or max count reached, store current run
-                encoded.push_back({currentCount, currentValue});
-                currentValue = flags[i];
-                currentCount = 1;
+        uint8_t current_value = getter(_tiles[0][0]);
+        uint32_t current_count = 1;
+        for (int y = 0; y < CHUNK_HEIGHT; y++)
+            for (int x = 0; x < CHUNK_WIDTH; x++) {
+                if (x == 0 && y == 0)
+                    continue;
+                uint8_t value = getter(_tiles[x][y]);
+                if (value == current_value && current_count < UINT32_MAX)
+                    current_count++;
+                else {
+                    encoded.push_back({current_count, current_value});
+                    current_value = value;
+                    current_count = 1;
+                }
             }
-        // Don't forget the last run
-        encoded.push_back({currentCount, currentValue});
+        encoded.push_back({current_count, current_value});
 
         uint32_t entryCount = static_cast<uint32_t>(encoded.size());
         file.write(reinterpret_cast<const char*>(&entryCount), sizeof(entryCount));
-        for (const auto& entry : encoded) {
-            file.write(reinterpret_cast<const char*>(&entry.count), sizeof(entry.count));
-            file.write(reinterpret_cast<const char*>(&entry.value), sizeof(entry.value));
-        }
+        for (const auto& entry : encoded)
+            file.write(reinterpret_cast<const char*>(&entry), sizeof(entry));
     }
 
-    void _deserialize_sparse(std::ifstream& file) {
-        uint32_t count;
-        file.read(reinterpret_cast<char*>(&count), sizeof(count));
-        for (uint32_t i = 0; i < count; ++i) {
-            uint32_t index;
-            uint8_t value;
-            file.read(reinterpret_cast<char*>(&index), sizeof(index));
-            file.read(reinterpret_cast<char*>(&value), sizeof(value));
-            if (index < CHUNK_SIZE) {
-                int x = index % CHUNK_WIDTH;
-                int y = index / CHUNK_WIDTH;
-                _tiles[x][y].extra = value;
+    template<typename FieldGetter>
+    void _serialize_field_sparse(std::ofstream& file, FieldGetter getter) const {
+        std::vector<ChunkSparseEntry> sparse_data;
+        for (int y = 0; y < CHUNK_HEIGHT; y++)
+            for (int x = 0; x < CHUNK_WIDTH; x++) {
+                uint8_t value = getter(_tiles[x][y]);
+                if (value != 0) {
+                    uint32_t index = y * CHUNK_WIDTH + x;
+                    sparse_data.push_back({index, value});
+                }
             }
+
+        uint32_t entryCount = static_cast<uint32_t>(sparse_data.size());
+        file.write(reinterpret_cast<const char*>(&entryCount), sizeof(entryCount));
+        for (const auto& entry : sparse_data)
+            file.write(reinterpret_cast<const char*>(&entry), sizeof(entry));
+    }
+
+    // Generic field serializer that chooses compression method based on efficiency
+    template<typename FieldGetter>
+    uint32_t _serialize_field(std::ofstream& file, FieldGetter getter, uint32_t rle_flag, uint32_t sparse_flag) const {
+        auto [rle_size, sparse_size] = _calculate_compression_efficiency(getter);
+        if (rle_size <= sparse_size) {
+            _serialize_field_rle(file, getter);
+            return rle_flag;
+        } else {
+            _serialize_field_sparse(file, getter);
+            return sparse_flag;
         }
     }
 
-    void _deserialize_dense(std::ifstream& file) {
-        std::vector<uint8_t> buffer(CHUNK_SIZE);
-        file.read(reinterpret_cast<char*>(buffer.data()), CHUNK_SIZE);
-        for (int i = 0; i < CHUNK_SIZE; ++i) {
-            int x = i % CHUNK_WIDTH;
-            int y = i / CHUNK_WIDTH;
-            if (x < CHUNK_WIDTH && y < CHUNK_HEIGHT)
-                _tiles[x][y].extra = buffer[i];
-        }
-    }
-
-    void _deserialize_rle(std::ifstream& file) {
+    template<typename FieldSetter>
+    void _deserialize_field_rle(std::ifstream& file, FieldSetter setter) {
         uint32_t count;
         file.read(reinterpret_cast<char*>(&count), sizeof(count));
-        std::vector<ChunkRLEEntry> encoded(count);
-        for (uint32_t i = 0; i < count; ++i) {
-            file.read(reinterpret_cast<char*>(&encoded[i].count), sizeof(encoded[i].count));
-            file.read(reinterpret_cast<char*>(&encoded[i].value), sizeof(encoded[i].value));
-        }
         
         int tileIdx = 0;
-        for (const auto& entry : encoded)
+        for (uint32_t entryIdx = 0; entryIdx < count; ++entryIdx) {
+            ChunkRLEEntry entry;
+            file.read(reinterpret_cast<char*>(&entry), sizeof(entry));
             for (uint32_t i = 0; i < entry.count && tileIdx < CHUNK_SIZE; ++i, ++tileIdx) {
                 int x = tileIdx % CHUNK_WIDTH;
                 int y = tileIdx / CHUNK_WIDTH;
-                _tiles[x][y].extra = entry.value;
+                setter(_tiles[x][y], entry.value);
             }
+        }
+    }
+
+    template<typename FieldSetter>
+    void _deserialize_field_sparse(std::ifstream& file, FieldSetter setter) {
+        uint32_t count;
+        file.read(reinterpret_cast<char*>(&count), sizeof(count));
+        for (uint32_t i = 0; i < count; ++i) {
+            ChunkSparseEntry entry;
+            file.read(reinterpret_cast<char*>(&entry), sizeof(entry));
+            if (entry.index < CHUNK_SIZE) {
+                int x = entry.index % CHUNK_WIDTH;
+                int y = entry.index / CHUNK_WIDTH;
+                setter(_tiles[x][y], entry.value);
+            }
+        }
+    }
+
+    // Generic field deserializer that chooses method based on flags
+    template<typename FieldSetter>
+    void _deserialize_field(std::ifstream& file, FieldSetter setter, uint32_t flags, uint32_t rle_flag) {
+        if (flags & rle_flag)
+            _deserialize_field_rle(file, setter);
+        else
+            _deserialize_field_sparse(file, setter);
+    }
+
+    void _serialize(std::ofstream& file) const {
+        uint32_t flags = 0;
+        auto flags_pos = file.tellp();
+        file.write(reinterpret_cast<const char*>(&flags), sizeof(flags));
+        
+        // Serialize each field and accumulate flags
+        flags |= _serialize_field(file, [](const Tile& t) { return t.solid; }, SOLID_RLE, SOLID_SPARSE);
+        flags |= _serialize_field(file, [](const Tile& t) { return t.visited; }, VISITED_RLE, VISITED_SPARSE);
+        flags |= _serialize_field(file, [](const Tile& t) { return t.extra; }, EXTRA_RLE, EXTRA_SPARSE);
+        
+        // Go back and write the actual flags
+        auto end_pos = file.tellp();
+        file.seekp(flags_pos);
+        file.write(reinterpret_cast<const char*>(&flags), sizeof(flags));
+        file.seekp(end_pos);
+    }
+    
+    void _deserialize(std::ifstream& file, uint32_t flags) {
+        // Deserialize each field based on flags
+        _deserialize_field(file, [](Tile& t, uint8_t v) { t.solid = v; }, flags, SOLID_RLE);
+        _deserialize_field(file, [](Tile& t, uint8_t v) { t.visited = v; }, flags, VISITED_RLE);
+        _deserialize_field(file, [](Tile& t, uint8_t v) { t.extra = v; }, flags, EXTRA_RLE);
     }
 
 public:
@@ -429,6 +408,8 @@ public:
     }
 
     std::pair<ChunkVertex*, size_t> vertices() {
+        std::shared_lock<std::shared_mutex> lock(_chunk_mutex);
+        
         // First, count solid tiles to allocate the correct amount of memory
         size_t solid_count = 0;
         for (int x = 0; x < CHUNK_WIDTH; x++)
@@ -458,11 +439,16 @@ public:
     bool build() {
         if (!is_filled())
             return false;
-        std::unique_lock<std::shared_mutex> lock(_chunk_mutex);
+        
+        // Get vertices while holding the lock
         auto [_vertices, vertex_count] = vertices();
+        
+        // Now acquire unique lock for modification
+        std::unique_lock<std::shared_mutex> lock(_chunk_mutex);
         _batch.add_vertices(_vertices, vertex_count);
-        lock.unlock();
         _batch.build();
+        lock.unlock();
+        
         delete[] _vertices;
         _is_built.store(true);
         return true;
@@ -584,15 +570,15 @@ public:
         if (!is_ready())
             return;
 
-        if (_rebuild_mvp || force_update) {
+        if (_rebuild_mvp.load() || force_update) {
             _mvp = glm::translate(_camera->matrix(),
                                   glm::vec3(_x * CHUNK_WIDTH * TILE_WIDTH,
                                             _y * CHUNK_HEIGHT * TILE_HEIGHT,
                                             0.f));
-            _rebuild_mvp = false;
+            _rebuild_mvp.store(false);
         }
 
-        std::lock_guard<std::shared_mutex> lock(_chunk_mutex);
+        std::shared_lock<std::shared_mutex> lock(_chunk_mutex);
         vs_params_t vs_params = { .mvp = _mvp };
         sg_range params = SG_RANGE(vs_params);
         sg_apply_uniforms(UB_vs_params, &params);
@@ -656,11 +642,12 @@ public:
     ChunkVisibility visibility() const {
         return _visibility.load();
     }
+    
     void set_visibility(ChunkVisibility visibility) {
         _visibility.store(visibility);
     }
 
-    bool serialize(const char *path, ChunkCompression compression = ChunkCompression::Default) const {
+    bool serialize(const char *path) const {
         if (!_is_filled.load())
             return false;
 
@@ -671,34 +658,17 @@ public:
         if (!file)
             throw std::runtime_error(fmt::format("Failed to open file for writing: {}", path));
 
-        if (compression == ChunkCompression::Default)
-            compression = _choose_optimal_compression();
-
         ChunkHeader header = {
             .magic = 0x4543494E, // "NICE"
-            .version = 1,
-            .compression = static_cast<uint32_t>(compression),
+            .version = 1,        // Optimized RLE format
             .width = CHUNK_WIDTH,
-            .height = CHUNK_HEIGHT
+            .height = CHUNK_HEIGHT,
+            .flags = 0           // Will be written by _serialize
         };
         file.write(reinterpret_cast<const char*>(&header), sizeof(ChunkHeader));
 
         try {
-            _serialize_grid(file);
-            switch (compression) {
-                case ChunkCompression::DENSE:
-                    _serialize_dense(file);
-                    break;
-                case ChunkCompression::SPARSE:
-                    _serialize_sparse(file);
-                    break;
-                case ChunkCompression::Default:
-                case ChunkCompression::RLE:
-                    _serialize_rle(file);
-                    break;
-                default:
-                    throw std::runtime_error("Unknown compression type");
-            }
+            _serialize(file);
         } catch (const std::exception &e) {
             throw std::runtime_error(std::string("Failed to serialize chunk: ") + e.what());
         }
@@ -724,21 +694,11 @@ public:
 
         try {
             memset(_tiles, 0, sizeof(_tiles));
-            _deserialize_grid(file);
-            switch (header.compression) {
-                case ChunkCompression::SPARSE:
-                    _deserialize_sparse(file);
-                    break;
-                case ChunkCompression::DENSE:
-                    _deserialize_dense(file);
-                    break;
-                case ChunkCompression::Default:
-                case ChunkCompression::RLE:
-                    _deserialize_rle(file);
-                    break;
-                default:
-                    throw std::runtime_error("Unknown compression type");
-            }
+            
+            // Optimized format with field-specific compression
+            uint32_t flags;
+            file.read(reinterpret_cast<char*>(&flags), sizeof(flags));
+            _deserialize(file, flags);
             
             // Recalculate bitmasks after deserialization
             for (int y = 0; y < CHUNK_HEIGHT; y++)

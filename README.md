@@ -4,7 +4,6 @@
 
 ## TODO
 
-- [ ] Rewrite chunk serialization, must include tile.visited
 - [ ] Chunk queries from lua for things like hit detection and collision
 - [ ] Collision for entities with walls and each other, lua callback on collision
 - [ ] Tile destruction and chunk modification from lua 
@@ -26,6 +25,7 @@
 - [ ] Emscripten build
 - [ ] Windows build
 - [ ] Linux build
+- [X] ~~Rewrite chunk serialization, must include tile.visited~~
 - [x] ~~Rework camera, integrate with ECS~~
 - [x] ~~Expose poisson to lua~~
 - [X] ~~Add sokol_input, wrap for lua~~

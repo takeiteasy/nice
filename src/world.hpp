@@ -152,11 +152,31 @@ class World {
             
             zip_close(archive);
             std::cout << fmt::format("World loaded successfully from archive\n");
-            return true;
         } catch (const std::exception& e) {
             std::cout << fmt::format("Error loading world from archive: {}\n", e.what());
             return false;
         }
+
+        // Extract UUID from filename if possible
+        std::filesystem::path p;
+        std::string filename = std::filesystem::path(archive_path).filename().string();
+        _id = filename.substr(0, filename.find('.'));
+        // Loop through extracted chunk files and queue them
+        std::string world_dir = _get_world_directory();
+        for (const auto& entry : std::filesystem::directory_iterator(world_dir))
+            if (entry.is_regular_file() && entry.path().extension() == ".nicechunk") {
+                std::string file_path = entry.path().string();
+                std::string fname = entry.path().filename().string();
+                try {
+                    uint64_t chunk_index = std::stoull(fname.substr(0, fname.find('.')));
+                    auto [x, y] = unindex(chunk_index);
+                    ensure_chunk(x, y, false);
+                } catch (const std::exception& e) {
+                    std::cout << fmt::format("Failed to parse chunk filename {}: {}\n", fname, e.what());
+                    return false;
+                }
+            }
+        return true;
     }
 
     static void _log(int32_t level, const char *file, int32_t line, const char *msg) {
@@ -467,6 +487,25 @@ class World {
             _chunks_being_destroyed.erase(chunk_id);
     }
 
+    void fire_chunk_events() {
+        std::lock_guard<std::mutex> lock(_event_queue_mutex);
+        while (!_chunk_event_queue.empty()) {
+            ChunkEvent event = _chunk_event_queue.front();
+            _chunk_event_queue.pop();
+            switch (event.type) {
+                case ChunkEvent::Created:
+                    call_lua_chunk_event(ChunkEvent::Created, event.x, event.y);
+                    break;
+                case ChunkEvent::Deleted:
+                    call_lua_chunk_event(ChunkEvent::Deleted, event.x, event.y);
+                    break;
+                case ChunkEvent::VisibilityChanged:
+                    call_lua_chunk_event(ChunkEvent::VisibilityChanged, event.x, event.y, event.old_vis, event.new_vis);
+                    break;
+            }
+        }
+    }
+
     void draw_chunks() {
         // Collect valid chunks without holding the lock for too long
         std::vector<std::pair<uint64_t, Chunk*>> valid_chunks;
@@ -574,28 +613,10 @@ public:
         _renderables_pipeline = sg_make_pipeline(&desc);
         _tilemap = $Assets.get<Texture>("tilemap.exploded");
 
-        if (path != nullptr) {
+        if (path != nullptr)
             if (!_import(path))
                 throw std::runtime_error("Failed to import world from archive");
-            // Extract UUID from filename if possible
-            std::filesystem::path p;
-            std::string filename = std::filesystem::path(path).filename().string();
-            _id = filename.substr(0, filename.find('.'));
-            // Loop through extracted chunk files and queue them
-            std::string world_dir = _get_world_directory();
-            for (const auto& entry : std::filesystem::directory_iterator(world_dir))
-                if (entry.is_regular_file() && entry.path().extension() == ".nicechunk") {
-                    std::string file_path = entry.path().string();
-                    std::string fname = entry.path().filename().string();
-                    try {
-                        uint64_t chunk_index = std::stoull(fname.substr(0, fname.find('.')));
-                        auto [x, y] = unindex(chunk_index);
-                        ensure_chunk(x, y, false);
-                    } catch (const std::exception& e) {
-                        std::cout << fmt::format("Failed to parse chunk filename {}: {}\n", fname, e.what());
-                    }
-                }
-        }
+
         // Initialize world directory and print its location
         std::string world_dir = _get_world_directory();
         std::cout << fmt::format("World initialized with UUID: {}\n", _id.String());
@@ -997,7 +1018,8 @@ public:
         // Register input functions
         $Input.load_into_lua(L);
 
-        if (luaL_dostring(L, setup_lua) != LUA_OK) {
+        if (luaL_loadbuffer(L, reinterpret_cast<const char*>(setup_lua), setup_lua_size, "setup.lua") != LUA_OK ||
+            lua_pcall(L, 0, LUA_MULTRET, 0) != LUA_OK) {
             const char* error_msg = lua_tostring(L, -1);
             fprintf(stderr, "Lua error in setup.lua: %s\n", error_msg);
             lua_pop(L, 1); // Remove error message from stack
@@ -1061,24 +1083,7 @@ public:
         update_deletion_queue();
         scan_for_chunks();
         release_chunks();
-        {
-            std::lock_guard<std::mutex> lock(_event_queue_mutex);
-            while (!_chunk_event_queue.empty()) {
-                ChunkEvent event = _chunk_event_queue.front();
-                _chunk_event_queue.pop();
-                switch (event.type) {
-                    case ChunkEvent::Created:
-                        call_lua_chunk_event(ChunkEvent::Created, event.x, event.y);
-                        break;
-                    case ChunkEvent::Deleted:
-                        call_lua_chunk_event(ChunkEvent::Deleted, event.x, event.y);
-                        break;
-                    case ChunkEvent::VisibilityChanged:
-                        call_lua_chunk_event(ChunkEvent::VisibilityChanged, event.x, event.y, event.old_vis, event.new_vis);
-                        break;
-                }
-            }
-        }
+        fire_chunk_events();
         bool result = _world->progress(dt);
         if (result) {
             $Entities.finalize(_camera);

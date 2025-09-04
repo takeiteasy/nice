@@ -32,31 +32,37 @@ local function embed_file(filename)
     
     local var_name = get_variable_name(filename)
     
-    -- Output C string declaration
+    -- Output C byte array declaration
     print("\n// Embedded file: " .. filename)
     print("// Size: " .. #content .. " bytes")
-    print("static const char " .. var_name .. "[] = ")
+    print("static const unsigned char " .. var_name .. "[] = {")
     
-    -- Split content into lines for better readability
-    local lines = {}
-    local line_length = 80
-    local pos = 1
+    -- Convert content to hex bytes, 16 per line for readability
+    local bytes_per_line = 16
+    local hex_lines = {}
     
-    while pos <= #content do
-        local line_end = math.min(pos + line_length - 1, #content)
-        local line = content:sub(pos, line_end)
-        table.insert(lines, escape_string(line))
-        pos = line_end + 1
+    for i = 1, #content do
+        local byte = string.byte(content, i)
+        local hex = string.format("0x%02x", byte)
+        
+        local line_index = math.ceil(i / bytes_per_line)
+        if not hex_lines[line_index] then
+            hex_lines[line_index] = {}
+        end
+        table.insert(hex_lines[line_index], hex)
     end
     
-    -- Output each line
-    for i, line in ipairs(lines) do
-        if i == #lines then
-            print("    \"" .. line .. "\";")
+    -- Output each line of hex values
+    for i, line in ipairs(hex_lines) do
+        local line_str = "    " .. table.concat(line, ", ")
+        if i == #hex_lines then
+            print(line_str)
         else
-            print("    \"" .. line .. "\"")
+            print(line_str .. ",")
         end
     end
+    
+    print("};")
     
     -- Output size constant
     print("static const size_t " .. var_name .. "_size = " .. #content .. ";")
