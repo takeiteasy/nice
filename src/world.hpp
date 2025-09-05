@@ -254,6 +254,42 @@ class World {
         return world;
     }
 
+    static const LuaEntity* get_entity_from_lua(lua_State* L) {
+        World* world = get_world_from_lua(L);
+        if (!world)
+            throw std::runtime_error("Failed to get World instance from Lua");
+        uint64_t entity_id = static_cast<uint64_t>(luaL_checkinteger(L, 1));
+        flecs::entity entity = world->_world->entity(entity_id);
+        const LuaEntity* entity_data = entity.get<LuaEntity>();
+        if (!entity_data)
+            throw std::runtime_error("Entity does not have LuaEntity component");
+        return entity_data;
+    }
+
+    static LuaEntity* get_mutable_entity_from_lua(lua_State* L) {
+        World* world = get_world_from_lua(L);
+        if (!world)
+            throw std::runtime_error("Failed to get World instance from Lua");
+        uint64_t entity_id = static_cast<uint64_t>(luaL_checkinteger(L, 1));
+        flecs::entity entity = world->_world->entity(entity_id);
+        LuaEntity* entity_data = entity.get_mut<LuaEntity>();
+        if (!entity_data)
+            throw std::runtime_error("Entity does not have LuaEntity component");
+        return entity_data;
+    }
+
+    static flecs::entity get_flecs_entity_from_lua(lua_State* L) {
+        World* world = get_world_from_lua(L);
+        if (!world)
+            throw std::runtime_error("Failed to get World instance from Lua");
+        uint64_t entity_id = static_cast<uint64_t>(luaL_checkinteger(L, 1));
+        flecs::entity entity = world->_world->entity(entity_id);
+        const LuaEntity* entity_data = entity.get<LuaEntity>();
+        if (!entity_data)
+            throw std::runtime_error("Entity does not have LuaEntity component");
+        return entity;
+    }
+
     void call_lua_chunk_event(ChunkEvent::Type event_type, int x, int y, ChunkVisibility old_vis = ChunkVisibility::OutOfSign, ChunkVisibility new_vis = ChunkVisibility::OutOfSign) {
         auto it = _chunk_callbacks.find(static_cast<int>(event_type));
         if (it == _chunk_callbacks.end())
@@ -932,28 +968,173 @@ public:
             return 2;
         });
 
+        lua_register(L, "set_entity_position", [](lua_State *L) -> int {
+            LuaEntity* entity_data = get_mutable_entity_from_lua(L);
+            entity_data->x = static_cast<float>(luaL_checknumber(L, 2));
+            entity_data->y = static_cast<float>(luaL_checknumber(L, 3));
+            return 0;
+        });
+
+        lua_register(L, "get_entity_position", [](lua_State *L) -> int {
+            const LuaEntity* entity_data = get_entity_from_lua(L);
+            lua_pushnumber(L, entity_data->x);
+            lua_pushnumber(L, entity_data->y);
+            return 2;
+        });
+
+        lua_register(L, "set_entity_size", [](lua_State *L) -> int {
+            LuaEntity* entity_data = get_mutable_entity_from_lua(L);
+            switch (lua_gettop(L)) {
+                case 2:
+                    entity_data->width = entity_data->height = static_cast<float>(luaL_checknumber(L, 2));
+                    break;
+                case 3:
+                    entity_data->width = static_cast<float>(luaL_checknumber(L, 2));
+                    entity_data->height = static_cast<float>(luaL_checknumber(L, 3));
+                    break;
+                default:
+                    luaL_error(L, "set_entity_size expects either (entity, size) or (entity, width, height)");
+            }
+            return 0;
+        });
+
+        lua_register(L, "get_entity_size", [](lua_State *L) -> int {
+            const LuaEntity* entity_data = get_entity_from_lua(L);
+            lua_pushnumber(L, entity_data->width);
+            lua_pushnumber(L, entity_data->height);
+            return 2;
+        });
+
+        lua_register(L, "set_entity_z", [](lua_State *L) -> int {
+            LuaEntity* entity_data = get_mutable_entity_from_lua(L);
+            entity_data->z_index = static_cast<float>(luaL_checknumber(L, 2));
+            return 0;
+        });
+
+        lua_register(L, "get_entity_z", [](lua_State *L) -> int {
+            const LuaEntity* entity_data = get_entity_from_lua(L);
+            lua_pushnumber(L, entity_data->z_index);
+            return 1;
+        });
+
+        lua_register(L, "set_entity_rotation", [](lua_State *L) -> int {
+            LuaEntity* entity_data = get_mutable_entity_from_lua(L);
+            entity_data->rotation = static_cast<float>(luaL_checknumber(L, 2));
+            return 0;
+        });
+
+        lua_register(L, "get_entity_rotation", [](lua_State *L) -> int {
+            const LuaEntity* entity_data = get_entity_from_lua(L);
+            lua_pushnumber(L, entity_data->rotation);
+            return 1;
+        });
+
+        lua_register(L, "set_entity_scale", [](lua_State *L) -> int {
+            LuaEntity* entity_data = get_mutable_entity_from_lua(L);
+            switch (lua_gettop(L)) {
+                case 2:
+                    entity_data->scale_x = entity_data->scale_y = static_cast<float>(luaL_checknumber(L, 2));
+                    break;
+                case 3:
+                    entity_data->scale_x = static_cast<float>(luaL_checknumber(L, 2));
+                    entity_data->scale_y = static_cast<float>(luaL_checknumber(L, 3));
+                    break;
+                default:
+                    luaL_error(L, "set_entity_scale expects either (entity, scale) or (entity, scale_x, scale_y)");
+            }
+            return 0;
+        });
+
+        lua_register(L, "get_entity_scale", [](lua_State *L) -> int {
+            const LuaEntity* entity_data = get_entity_from_lua(L);
+            lua_pushnumber(L, entity_data->scale_x);
+            lua_pushnumber(L, entity_data->scale_y);
+            return 2;
+        });
+
+        lua_register(L, "set_entity_clip", [](lua_State *L) -> int {
+            LuaEntity* entity_data = get_mutable_entity_from_lua(L);
+            if (lua_gettop(L) == 1) {
+                entity_data->clip_x = 0;
+                entity_data->clip_y = 0;
+                entity_data->clip_width = 0;
+                entity_data->clip_height = 0;
+            } else {
+                entity_data->clip_x = static_cast<int>(luaL_checkinteger(L, 2));
+                entity_data->clip_y = static_cast<int>(luaL_checkinteger(L, 3));
+                entity_data->clip_width = static_cast<int>(luaL_checkinteger(L, 4));
+                entity_data->clip_height = static_cast<int>(luaL_checkinteger(L, 5));
+            }
+            return 0;
+        });
+
+        lua_register(L, "set_entity_clip_size", [](lua_State *L) -> int {
+            LuaEntity* entity_data = get_mutable_entity_from_lua(L);
+            entity_data->clip_width = static_cast<int>(luaL_checkinteger(L, 2));
+            entity_data->clip_height = static_cast<int>(luaL_checkinteger(L, 3));
+            return 0;
+        });
+
+        lua_register(L, "set_entity_clip_offset", [](lua_State *L) -> int {
+            LuaEntity* entity_data = get_mutable_entity_from_lua(L);
+            entity_data->clip_x = static_cast<int>(luaL_checkinteger(L, 2));
+            entity_data->clip_y = static_cast<int>(luaL_checkinteger(L, 3));
+            return 0;
+        });
+
+        lua_register(L, "get_entity_clip", [](lua_State *L) -> int {
+            const LuaEntity* entity_data = get_entity_from_lua(L);
+            lua_newtable(L);
+            lua_pushinteger(L, entity_data->clip_x);
+            lua_setfield(L, -2, "x");
+            lua_pushinteger(L, entity_data->clip_y);
+            lua_setfield(L, -2, "y");
+            lua_pushinteger(L, entity_data->clip_width);
+            lua_setfield(L, -2, "width");
+            lua_pushinteger(L, entity_data->clip_height);
+            lua_setfield(L, -2, "height");
+            return 1;
+        });
+
+        lua_register(L, "set_entity_speed", [](lua_State *L) -> int {
+            LuaEntity* entity_data = get_mutable_entity_from_lua(L);
+            entity_data->speed = static_cast<float>(luaL_checknumber(L, 2));
+            return 0;
+        });
+
+        lua_register(L, "get_entity_speed", [](lua_State *L) -> int {
+            const LuaEntity* entity_data = get_entity_from_lua(L);
+            lua_pushnumber(L, entity_data->speed);
+            return 1;
+        });
+
         lua_register(L, "set_entity_target", [](lua_State *L) -> int {
-            World *world = get_world_from_lua(L);
-            if (!world)
-                throw std::runtime_error("Failed to get World instance from Lua");
-            uint64_t entity_id = static_cast<uint64_t>(luaL_checkinteger(L, 1));
-            flecs::entity entity = world->_world->entity(entity_id);
+            flecs::entity entity = get_flecs_entity_from_lua(L);
             const LuaEntity *entity_data = entity.get<LuaEntity>();
-            if (!entity_data)
-                throw std::runtime_error("Entity does not have LuaEntity component");
             int target_x = static_cast<int>(luaL_checkinteger(L, 2));
             int target_y = static_cast<int>(luaL_checkinteger(L, 3));
-            if (std::abs(target_x - entity_data->x) >= 0.1f && std::abs(target_y - entity_data->y) >= 0.1f)
+            if (std::abs(target_x - entity_data->x) >= 0.1f &&
+                std::abs(target_y - entity_data->y) >= 0.1f)
                 entity.set<LuaTarget>({static_cast<float>(target_x), static_cast<float>(target_y)});
             return 0;
         });
 
+        lua_register(L, "get_entity_target", [](lua_State *L) -> int {
+            flecs::entity entity = get_flecs_entity_from_lua(L);
+            const LuaTarget *target = entity.get<LuaTarget>();
+            if (target) {
+                lua_pushnumber(L, target->x);
+                lua_pushnumber(L, target->y);
+                return 2;
+            } else {
+                lua_pushnil(L);
+                lua_pushnil(L);
+                return 2;
+            }
+        });
+
         lua_register(L, "clear_entity_target", [](lua_State *L) -> int {
-            World *world = get_world_from_lua(L);
-            if (!world)
-                throw std::runtime_error("Failed to get World instance from Lua");
-            uint64_t entity_id = static_cast<uint64_t>(luaL_checkinteger(L, 1));
-            flecs::entity entity = world->_world->entity(entity_id);
+            flecs::entity entity = get_flecs_entity_from_lua(L);
             entity.remove<LuaTarget>();
             return 0;
         });

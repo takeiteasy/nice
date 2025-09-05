@@ -67,17 +67,17 @@ class EntityManager: public Global<EntityManager> {
         int height = renderable->height > 0 ? renderable->height : _texture_height;
         float scaled_width = width * renderable->scale_x;
         float scaled_height = height * renderable->scale_y;
-        float center_x = renderable->x + scaled_width * 0.5f;
-        float center_y = renderable->y + scaled_height * 0.5f;
+        float center_x = renderable->x + scaled_width * .5f;
+        float center_y = renderable->y + scaled_height * .5f;
         glm::vec2 corners[4] = {
-            {-scaled_width * 0.5f, -scaled_height * 0.5f}, // Top-left
-            { scaled_width * 0.5f, -scaled_height * 0.5f}, // Top-right
-            { scaled_width * 0.5f,  scaled_height * 0.5f}, // Bottom-right
-            {-scaled_width * 0.5f,  scaled_height * 0.5f}, // Bottom-left
+            {-scaled_width * .5f, -scaled_height * .5f}, // Top-left
+            { scaled_width * .5f, -scaled_height * .5f}, // Top-right
+            { scaled_width * .5f,  scaled_height * .5f}, // Bottom-right
+            {-scaled_width * .5f,  scaled_height * .5f}, // Bottom-left
         };
         
         glm::vec2 _positions[4];
-        if (renderable->rotation != 0.0f) {
+        if (renderable->rotation != .0f) {
             float cos_rot = std::cos(renderable->rotation);
             float sin_rot = std::sin(renderable->rotation);
             for (int i = 0; i < 4; i++) {
@@ -191,24 +191,25 @@ public:
         std::lock_guard<std::mutex> lock(_entities_lock);
         LuaEntity *renderable = entity.get_mut<LuaEntity>();
         auto it = _entity_cache.find(entity);
-        if (it != _entity_cache.end()) {
-            auto [old_z_index, old_texture_id] = it->second;
-            if (old_z_index != renderable->z_index || old_texture_id != renderable->texture_id) {
-                // Remove from old location
-                auto &old_layer = _entities[old_z_index];
-                auto &old_vec = old_layer[old_texture_id];
-                old_vec.erase(std::remove(old_vec.begin(), old_vec.end(), entity), old_vec.end());
-                if (old_vec.empty())
-                    old_layer.erase(old_texture_id);
-                if (old_layer.empty())
-                    _entities.erase(old_z_index);
-                // Add to new location
-                _entities[renderable->z_index][renderable->texture_id].push_back(entity);
-                // Update cache
-                it->second = {renderable->z_index, renderable->texture_id};
-            }
-        } else
+        if (it == _entity_cache.end()) {
             entity.destruct();
+            return;
+        }
+        auto [old_z_index, old_texture_id] = it->second;
+        if (old_z_index == renderable->z_index && old_texture_id == renderable->texture_id)
+            return;
+        // Remove from old location
+        auto &old_layer = _entities[old_z_index];
+        auto &old_vec = old_layer[old_texture_id];
+        old_vec.erase(std::remove(old_vec.begin(), old_vec.end(), entity), old_vec.end());
+        if (old_vec.empty())
+            old_layer.erase(old_texture_id);
+        if (old_layer.empty())
+            _entities.erase(old_z_index);
+        // Add to new location
+        _entities[renderable->z_index][renderable->texture_id].push_back(entity);
+        // Update cache
+        it->second = {renderable->z_index, renderable->texture_id};
     }
 
     void move_entity_to_target(flecs::entity entity) {
