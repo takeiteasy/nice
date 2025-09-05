@@ -32,6 +32,11 @@ ECS_STRUCT(LuaEntity, {
 });
 
 ECS_STRUCT(LuaTarget, {
+    int x;
+    int y;
+});
+
+ECS_STRUCT(LuaDestination, {
     float x;
     float y;
 });

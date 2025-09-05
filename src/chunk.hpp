@@ -566,6 +566,99 @@ public:
         return points;
     }
 
+    struct AStarNode {
+        glm::ivec2 position;
+        AStarNode *parent;
+        float g;                          // Cost from start to current node
+        float h;                          // Heuristic cost from current node to end
+        float f() const { return g + h; } // Total cost
+    };
+
+    std::optional<std::vector<glm::vec2>> astar(glm::vec2 start, glm::vec2 end, int max_steps=3, bool lock=true) {
+        if (!is_filled())
+            return std::nullopt;
+        if (start.x < 0 || start.x >= CHUNK_WIDTH || start.y < 0 || start.y >= CHUNK_HEIGHT)
+            return std::nullopt;
+        if (end.x < 0 || end.x >= CHUNK_WIDTH || end.y < 0 || end.y >= CHUNK_HEIGHT)
+            return std::nullopt;
+        int start_x = static_cast<int>(start.x);
+        int start_y = static_cast<int>(start.y);
+        int end_x = static_cast<int>(end.x);
+        int end_y = static_cast<int>(end.y);
+        if (_tiles[start_x][start_y].solid || _tiles[end_x][end_y].solid)
+            return std::nullopt;
+        std::optional<std::shared_lock<std::shared_mutex>> _lock;
+        if (lock)
+            _lock.emplace(_chunk_mutex);
+        auto heuristic = [](glm::ivec2 a, glm::ivec2 b) {
+            return glm::length(glm::vec2(b - a));
+        };
+        std::vector<AStarNode*> open_list;
+        std::vector<glm::ivec2> closed_list;
+        AStarNode *start_node = new AStarNode{glm::ivec2(start_x, start_y), nullptr, 0.0f, heuristic(glm::ivec2(start_x, start_y), glm::ivec2(end_x, end_y))};
+        open_list.push_back(start_node);
+        AStarNode *end_node = nullptr;
+        int steps = 0;
+        while (!open_list.empty() && steps < max_steps) {
+            steps++;
+            // Find node with lowest f in open list
+            auto current_it = std::min_element(open_list.begin(), open_list.end(), [](AStarNode* a, AStarNode* b) {
+                return a->f() < b->f();
+            });
+            AStarNode *current_node = *current_it;
+            // If we reached the end, reconstruct path
+            if (current_node->position == glm::ivec2(end_x, end_y)) {
+                end_node = current_node;
+                break;
+            }
+            open_list.erase(current_it);
+            closed_list.push_back(current_node->position);
+            // Explore neighbors (4-directional)
+            std::vector<glm::ivec2> neighbors = {
+                current_node->position + glm::ivec2(0, -1),
+                current_node->position + glm::ivec2(1, 0),
+                current_node->position + glm::ivec2(0, 1),
+                current_node->position + glm::ivec2(-1, 0)
+            };
+            for (const auto& neighbor_pos : neighbors) {
+                if (neighbor_pos.x < 0 || neighbor_pos.x >= CHUNK_WIDTH || neighbor_pos.y < 0 || neighbor_pos.y >= CHUNK_HEIGHT)
+                    continue;
+                if (_tiles[neighbor_pos.x][neighbor_pos.y].solid)
+                    continue;
+                if (std::find(closed_list.begin(), closed_list.end(), neighbor_pos) != closed_list.end())
+                    continue;
+                float tentative_g = current_node->g + 1.0f; // Assume cost between nodes is 1
+                auto open_it = std::find_if(open_list.begin(), open_list.end(), [&neighbor_pos](AStarNode* node) {
+                    return node->position == neighbor_pos;
+                });
+                if (open_it == open_list.end()) {
+                    AStarNode *neighbor_node = new AStarNode{neighbor_pos, current_node, tentative_g, heuristic(neighbor_pos, glm::ivec2(end_x, end_y))};
+                    open_list.push_back(neighbor_node);
+                } else if (tentative_g < (*open_it)->g) {
+                    (*open_it)->g = tentative_g;
+                    (*open_it)->parent = current_node;
+                }
+            }
+        }
+        if (lock && _lock.has_value())
+            _lock.value().unlock();
+        std::vector<glm::vec2> path;
+        if (end_node != nullptr) {
+            AStarNode *node = end_node;
+            while (node != nullptr) {
+                path.push_back(glm::vec2(node->position));
+                node = node->parent;
+            }
+            std::reverse(path.begin(), path.end());
+        }
+        // Clean up allocated nodes
+        for (AStarNode* node : open_list)
+            delete node;
+        if (end_node != nullptr)
+            delete end_node;
+        return path.empty() ? std::nullopt : std::optional<std::vector<glm::vec2>>(path);
+    }
+
     void draw(bool force_update = false) {
         if (!is_ready())
             return;
@@ -645,6 +738,14 @@ public:
     
     void set_visibility(ChunkVisibility visibility) {
         _visibility.store(visibility);
+    }
+
+    bool is_walkable(int tx, int ty, bool lock=true) const {
+        if (tx < 0 || tx >= CHUNK_WIDTH || ty < 0 || ty >= CHUNK_HEIGHT)
+            return false;
+        if (lock)
+            std::shared_lock<std::shared_mutex> lock(_chunk_mutex);
+        return !_tiles[tx][ty].solid;
     }
 
     bool serialize(const char *path) const {

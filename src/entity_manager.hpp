@@ -12,11 +12,15 @@
 #include "components.hpp"
 #include "vertex_batch.hpp"
 #include "asset_manager.hpp"
-#include "jobs.hpp"
+#include "job_queue.hpp"
 #include "camera.hpp"
 #include "basic.glsl.h"
 #include "fmt/format.h"
 #include <iostream>
+#include <shared_mutex>
+#include <unordered_map>
+#include <vector>
+#include <atomic>
 
 struct BasicVertex {
     glm::vec2 position;
@@ -38,7 +42,7 @@ class EntityManager: public Global<EntityManager> {
 
     flecs::world *_world = nullptr;
     EntityMap _entities;
-    mutable std::mutex _entities_lock;
+    mutable std::shared_mutex _entities_lock;
     EntityMapCache _entity_cache;
     BatchMap batches;
     mutable std::mutex _batches_lock;
@@ -158,14 +162,16 @@ public:
     }
 
     void add_entity(flecs::entity entity) {
-        std::lock_guard<std::mutex> lock(_entities_lock);
+        std::lock_guard<std::shared_mutex> lock(_entities_lock);
         LuaEntity *entity_data = entity.get_mut<LuaEntity>();
         _entities[entity_data->z_index][entity_data->texture_id].push_back(entity);
         _entity_cache[entity] = {entity_data->z_index, entity_data->texture_id};
     }
 
-    void remove_entity(flecs::entity entity) {
-        std::lock_guard<std::mutex> lock(_entities_lock);
+    void remove_entity(flecs::entity entity, bool lock=true) {
+        std::shared_lock<std::shared_mutex> unlock;
+        if (lock)
+            unlock = std::shared_lock<std::shared_mutex>(_entities_lock);
         LuaEntity *entity_data = entity.get_mut<LuaEntity>();
         _entity_cache.erase(entity);
         auto &layer = _entities[entity_data->z_index];
@@ -175,21 +181,33 @@ public:
             layer.erase(entity_data->texture_id);
         if (layer.empty())
             _entities.erase(entity_data->z_index);
+        if (lock)
+            unlock.unlock();
     }
 
-    void update_entity(flecs::entity entity) {
+    void update_entity(flecs::entity entity, LuaEntity &entity_data, LuaChunk &chunk, bool lock=true) {
         if (!entity.is_alive())
             return;
-        std::lock_guard<std::mutex> lock(_entities_lock);
-        LuaEntity *entity_data = entity.get_mut<LuaEntity>();
+        std::shared_lock<std::shared_mutex> unlock;
+        if (lock)
+            unlock = std::shared_lock<std::shared_mutex>(_entities_lock);
         auto it = _entity_cache.find(entity);
         if (it == _entity_cache.end()) {
             entity.destruct();
+            if (lock)
+                unlock.unlock();
+        }
+
+        glm::vec2 world = Camera::tile_to_world(chunk.x, chunk.y, entity_data.x, entity_data.y);
+        entity_data.x = world.x;
+        entity_data.y = world.y;
+
+        auto [old_z_index, old_texture_id] = it->second;
+        if (old_z_index == entity_data.z_index && old_texture_id == entity_data.texture_id) {
+            if (lock)
+                unlock.unlock();
             return;
         }
-        auto [old_z_index, old_texture_id] = it->second;
-        if (old_z_index == entity_data->z_index && old_texture_id == entity_data->texture_id)
-            return;
         // Remove from old location
         auto &old_layer = _entities[old_z_index];
         auto &old_vec = old_layer[old_texture_id];
@@ -199,15 +217,18 @@ public:
         if (old_layer.empty())
             _entities.erase(old_z_index);
         // Add to new location
-        _entities[entity_data->z_index][entity_data->texture_id].push_back(entity);
+        _entities[entity_data.z_index][entity_data.texture_id].push_back(entity);
         // Update cache
-        it->second = {entity_data->z_index, entity_data->texture_id};
+        it->second = {entity_data.z_index, entity_data.texture_id};
+
+        if (lock)
+            unlock.unlock();
     }
 
     void move_entity_to_target(flecs::entity entity) {
         if (!entity.is_alive())
             return;
-        std::lock_guard<std::mutex> lock(_entities_lock);
+        std::lock_guard<std::shared_mutex> lock(_entities_lock);
         LuaTarget *target = entity.get_mut<LuaTarget>();
         if (!target)
             throw std::runtime_error("LuaTarget component missing in move_entity_to_target");
@@ -247,7 +268,7 @@ public:
         
         // Copy entities while holding lock, then release it quickly
         {
-            std::lock_guard<std::mutex> lock(_entities_lock);
+            std::shared_lock<std::shared_mutex> lock(_entities_lock);
             map_copy = _entities;
             
             // Build a filtered snapshot into map_copy while holding the lock
@@ -339,7 +360,7 @@ public:
         
         // Acquire locks in consistent order to avoid deadlocks: texture -> entities -> batches
         std::lock_guard<std::mutex> texture_lock(_texture_lock);
-        std::lock_guard<std::mutex> entities_lock(_entities_lock);
+        std::lock_guard<std::shared_mutex> entities_lock(_entities_lock);
         std::lock_guard<std::mutex> batch_lock(_batches_lock);
         
         _textures.clear();
@@ -347,6 +368,10 @@ public:
         _entities.clear();
         batches.clear();
         _next_texture_id.store(1);
+    }
+
+    std::shared_mutex& entities_lock() {
+        return _entities_lock;
     }
 };
 
@@ -359,6 +384,7 @@ struct Entity {
         ECS_META_COMPONENT(w, LuaChunk);
         ECS_META_COMPONENT(w, LuaEntity);
         ECS_META_COMPONENT(w, LuaTarget);
+        ECS_META_COMPONENT(w, LuaDestination);
         ecs_set_scope(w, scope);
 
         // Set up observers to automatically manage entity_data entities
@@ -372,50 +398,77 @@ struct Entity {
                     entity_data.scale_y = 1.0f;
                 if (entity_data.speed == 0.0f)
                     entity_data.speed = 100.0f;
-
                 glm::vec2 chunk = Camera::world_to_chunk(glm::vec2(entity_data.x, entity_data.y));
                 entity.set<LuaChunk>({static_cast<uint32_t>(chunk.x), static_cast<uint32_t>(chunk.y)});
                 $Entities.add_entity(entity);
             });
 
-        world.observer<LuaChunk, LuaEntity>()
+        world.observer<LuaEntity, LuaChunk>()
             .event(flecs::OnSet)
-            .each([](flecs::entity entity, LuaChunk& chunk, LuaEntity& entity_data) {
+            .each([](flecs::entity entity, LuaEntity& entity_data, LuaChunk& chunk) {
+                std::lock_guard<std::shared_mutex> lock($Entities.entities_lock());
                 glm::vec2 chunk_pos = Camera::world_to_chunk(glm::vec2(entity_data.x, entity_data.y));
                 if (chunk.x != static_cast<uint32_t>(chunk_pos.x) ||
                     chunk.y != static_cast<uint32_t>(chunk_pos.y)) {
-                    chunk.x = static_cast<uint32_t>(chunk_pos.x);
-                    chunk.y = static_cast<uint32_t>(chunk_pos.y);
+                    chunk.x  = static_cast<uint32_t>(chunk_pos.x);
+                    chunk.y  = static_cast<uint32_t>(chunk_pos.y);
                     entity.set(chunk); // Update the component
                 }
             });
 
         world.observer<LuaEntity>()
             .event(flecs::OnRemove)
+            .run([](flecs::iter_t *it) {
+                std::lock_guard<std::shared_mutex> lock($Entities.entities_lock());
+                while (ecs_iter_next(it))
+                    it->callback(it);
+            })
             .each([](flecs::entity entity, LuaEntity& entity_data) {
-                $Entities.remove_entity(entity);
+                $Entities.remove_entity(entity, false);
             });
 
 
-        world.observer<LuaChunk, LuaEntity>()
+        world.observer<LuaEntity, LuaChunk>()
             .event(flecs::OnSet)
-            .each([](flecs::entity entity, LuaChunk& chunk, LuaEntity& entity_data) {
-                $Entities.update_entity(entity);
+            .run([](flecs::iter_t *it) {
+                std::lock_guard<std::shared_mutex> lock($Entities.entities_lock());
+                while (ecs_iter_next(it))
+                    it->callback(it);
+            })
+            .each([](flecs::entity entity, LuaEntity& entity_data, LuaChunk& chunk) {
+                $Entities.update_entity(entity, entity_data, chunk, false);;
+            });
+        
+        world.observer<LuaEntity, LuaChunk, LuaTarget>()
+            .event(flecs::OnAdd)
+            .run([](flecs::iter_t *it) {
+                std::lock_guard<std::shared_mutex> lock($Entities.entities_lock());
+                while (ecs_iter_next(it))
+                    it->callback(it);
+            })
+            .each([](flecs::entity entity, LuaEntity& entity_data, LuaChunk& chunk,  LuaTarget& target) {
+                glm::vec2 world = Camera::tile_to_world(chunk.x, chunk.y, target.x, target.y);
+                entity.set<LuaDestination>({world.x, world.y});
             });
 
-        world.system<LuaEntity, LuaTarget>()
-            .each([](flecs::entity entity, LuaEntity& entity_data, LuaTarget& target) {
+        world.system<LuaEntity, LuaDestination>()
+            .run([](flecs::iter_t *it) {
+                std::lock_guard<std::shared_mutex> lock($Entities.entities_lock());
+                while (ecs_iter_next(it))
+                    it->callback(it);
+            })
+            .each([](flecs::entity entity, LuaEntity& entity_data, LuaDestination& destination) {
                 float dt = entity.world().delta_time();
                 if (dt <= 0.0f)
                     return; // Skip if no delta time
-                
-                glm::vec2 direction = glm::vec2(target.x - entity_data.x, target.y - entity_data.y);
+
+                glm::vec2 direction = glm::vec2(destination.x - entity_data.x, destination.y - entity_data.y);
                 float distance = glm::length(direction);
                 
                 if (distance < 1.0f) {
                     // Close enough, snap to target and remove component
-                    entity_data.x = target.x;
-                    entity_data.y = target.y;
+                    entity_data.x = destination.x;
+                    entity_data.y = destination.y;
                     entity.remove<LuaTarget>();
                 } else {
                     // Normalize direction and move at constant speed
@@ -426,8 +479,8 @@ struct Entity {
                     float movement_distance = glm::length(delta);
                     if (movement_distance >= distance) {
                         // We would overshoot, so just move directly to target
-                        entity_data.x = target.x;
-                        entity_data.y = target.y;
+                        entity_data.x = destination.x;
+                        entity_data.y = destination.y;
                         entity.remove<LuaTarget>();
                     } else {
                         // Move towards target at constant speed

@@ -8,7 +8,7 @@
 #pragma once
 
 #include "chunk.hpp"
-#include "jobs.hpp"
+#include "job_queue.hpp"
 #include "texture.hpp"
 #include "fmt/format.h"
 #include <unordered_map>
@@ -28,6 +28,45 @@
 #include "sokol/sokol_time.h"
 #include "camera.hpp"
 #include "input_manager.hpp"
+#include <unordered_set>
+
+template<typename T>
+class ThreadSafeSet {
+    std::unordered_set<T> _set;
+    mutable std::shared_mutex _mutex;
+
+public:
+    bool contains(const T& value) const {
+        std::shared_lock<std::shared_mutex> lock(_mutex);
+        return _set.find(value) != _set.end();
+    }
+
+    bool insert(const T& value) {
+        std::unique_lock<std::shared_mutex> lock(_mutex);
+        return _set.insert(value).second;
+    }
+
+    bool erase(const T& value) {
+        std::unique_lock<std::shared_mutex> lock(_mutex);
+        return _set.erase(value) > 0;
+    }
+
+    size_t size() const {
+        std::shared_lock<std::shared_mutex> lock(_mutex);
+        return _set.size();
+    }
+
+    bool empty() const {
+        std::shared_lock<std::shared_mutex> lock(_mutex);
+        return _set.empty();
+    }
+
+    // Add a clear method for cleanup
+    void clear() {
+        std::unique_lock<std::shared_mutex> lock(_mutex);
+        _set.clear();
+    }
+};
 
 class World {
     uuid::v4::UUID _id;
@@ -59,6 +98,8 @@ class World {
     flecs::world *_world = nullptr;
     lua_State *L = nullptr;
     std::unordered_map<int, int> _chunk_callbacks;
+
+    
 
     static void _abort(void) {
         std::cerr << "ECS: ecs_os_abort() was called!\n";
@@ -1138,20 +1179,25 @@ public:
 
         lua_register(L, "set_entity_target", [](lua_State *L) -> int {
             flecs::entity entity = get_flecs_entity_from_lua(L);
-            const LuaEntity *entity_data = entity.get<LuaEntity>();
-            if (!entity_data)
-                throw std::runtime_error("Entity is missing LuaEntity component");
-            int target_x = static_cast<int>(luaL_checkinteger(L, 2));
-            int target_y = static_cast<int>(luaL_checkinteger(L, 3));
-            if (std::abs(target_x - entity_data->x) >= 0.1f &&
-                std::abs(target_y - entity_data->y) >= 0.1f) {
-                entity.set<LuaTarget>({static_cast<float>(target_x), static_cast<float>(target_y)});
-                LuaChunk *chunk = entity.get_mut<LuaChunk>();
-                if (!chunk)
-                    throw std::runtime_error("Entity is missing LuaChunk component");
-                glm::vec2 _chunk = Camera::world_to_chunk({static_cast<float>(target_x), static_cast<float>(target_y)});
-                chunk->x = static_cast<int>(_chunk.x);
-                chunk->y = static_cast<int>(_chunk.y);
+            int x = static_cast<int>(luaL_checkinteger(L, 2));
+            int y = static_cast<int>(luaL_checkinteger(L, 3));
+            if (x < 0 || y < 0 || x >= CHUNK_WIDTH || y >= CHUNK_HEIGHT)
+                throw std::runtime_error("Target coordinates must be within chunk bounds");
+            LuaChunk *lchunk = entity.get_mut<LuaChunk>();
+            if (!lchunk)
+                throw std::runtime_error("Entity is missing LuaChunk component");
+            World* world = get_world_from_lua(L);
+            if (!world)
+                throw std::runtime_error("Internal Error: World instance not found in Lua registry");
+            bool set_target = false;
+            world->get_chunk(lchunk->x, lchunk->y, [&](Chunk* chunk) {
+                set_target = chunk->is_walkable(x, y, false);
+            });
+            if (set_target) {
+                entity.set<LuaTarget>({x, y});
+                // TODO:
+                // 1. Queue for pathfinding
+                // 2. Add LuaDestination component
             }
             return 0;
         });
@@ -1339,6 +1385,18 @@ public:
             _chunks.clear();
         }
         _export();
+    }
+
+    void get_chunk(int x, int y, std::function<void(Chunk*)> callback) {
+        Chunk* chunk = nullptr;
+        uint64_t idx = index(x, y);
+        {
+            std::shared_lock<std::shared_mutex> lock(_chunks_lock);
+            auto it = _chunks.find(idx);
+            if (it != _chunks.end())
+                if ((chunk = it->second) != nullptr && chunk->is_filled())
+                    callback(it->second);
+        }
     }
 
     bool update(float dt) {
