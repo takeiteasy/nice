@@ -53,22 +53,15 @@ class EntityManager: public Global<EntityManager> {
     std::atomic<uint32_t> _next_texture_id{1}; // Start from 1, 0 can be reserved for "no texture"
     mutable std::mutex _texture_lock;
 
-    static Rect renderable_bounds(const LuaEntity& renderable) {
-        return Rect(static_cast<int>(renderable.x),
-                    static_cast<int>(renderable.y),
-                    static_cast<int>(renderable.width * renderable.scale_x),
-                    static_cast<int>(renderable.height * renderable.scale_y));
-    }
-
-    BasicVertex* generate_quad(LuaEntity *renderable, Texture* texture) {
+    BasicVertex* generate_quad(LuaEntity *entity_data, Texture* texture) {
         int _texture_width = texture->width();
         int _texture_height = texture->height();
-        int width = renderable->width > 0 ? renderable->width : _texture_width;
-        int height = renderable->height > 0 ? renderable->height : _texture_height;
-        float scaled_width = width * renderable->scale_x;
-        float scaled_height = height * renderable->scale_y;
-        float center_x = renderable->x + scaled_width * .5f;
-        float center_y = renderable->y + scaled_height * .5f;
+        int width = entity_data->width > 0 ? entity_data->width : _texture_width;
+        int height = entity_data->height > 0 ? entity_data->height : _texture_height;
+        float scaled_width = width * entity_data->scale_x;
+        float scaled_height = height * entity_data->scale_y;
+        float center_x = entity_data->x + scaled_width * .5f;
+        float center_y = entity_data->y + scaled_height * .5f;
         glm::vec2 corners[4] = {
             {-scaled_width * .5f, -scaled_height * .5f}, // Top-left
             { scaled_width * .5f, -scaled_height * .5f}, // Top-right
@@ -77,9 +70,9 @@ class EntityManager: public Global<EntityManager> {
         };
         
         glm::vec2 _positions[4];
-        if (renderable->rotation != .0f) {
-            float cos_rot = std::cos(renderable->rotation);
-            float sin_rot = std::sin(renderable->rotation);
+        if (entity_data->rotation != .0f) {
+            float cos_rot = std::cos(entity_data->rotation);
+            float sin_rot = std::sin(entity_data->rotation);
             for (int i = 0; i < 4; i++) {
                 float rotated_x = corners[i].x * cos_rot - corners[i].y * sin_rot;
                 float rotated_y = corners[i].x * sin_rot + corners[i].y * cos_rot;
@@ -91,12 +84,12 @@ class EntityManager: public Global<EntityManager> {
 
         float iw = 1.f / _texture_width;
         float ih = 1.f / _texture_height;
-        float clip_width = renderable->clip_width ? renderable->clip_width : _texture_width;
-        float clip_height = renderable->clip_height ? renderable->clip_height : _texture_height;
-        float tl = renderable->clip_x * iw;
-        float tt = renderable->clip_y * ih;
-        float tr = (renderable->clip_x + clip_width) * iw;
-        float tb = (renderable->clip_y + clip_height) * ih;
+        float clip_width = entity_data->clip_width ? entity_data->clip_width : _texture_width;
+        float clip_height = entity_data->clip_height ? entity_data->clip_height : _texture_height;
+        float tl = entity_data->clip_x * iw;
+        float tt = entity_data->clip_y * ih;
+        float tr = (entity_data->clip_x + clip_width) * iw;
+        float tb = (entity_data->clip_y + clip_height) * ih;
         glm::vec2 _texcoords[4] = {
             {tl, tt}, // top left
             {tr, tt}, // top right
@@ -120,10 +113,10 @@ public:
             for (const auto& entity : call.entities) {
                 if (!entity.is_alive())
                     continue;
-                LuaEntity *renderable = entity.get_mut<LuaEntity>();
+                LuaEntity *entity_data = entity.get_mut<LuaEntity>();
                 if (!call.texture) // Safety check
                     continue;
-                BasicVertex *vertices = generate_quad(renderable, call.texture);
+                BasicVertex *vertices = generate_quad(entity_data, call.texture);
                 call.batch->add_vertices(vertices, 6);
                 delete[] vertices;
             }
@@ -166,37 +159,36 @@ public:
 
     void add_entity(flecs::entity entity) {
         std::lock_guard<std::mutex> lock(_entities_lock);
-        LuaEntity *renderable = entity.get_mut<LuaEntity>();
-        _entities[renderable->z_index][renderable->texture_id].push_back(entity);
-        _entity_cache[entity] = {renderable->z_index, renderable->texture_id};
+        LuaEntity *entity_data = entity.get_mut<LuaEntity>();
+        _entities[entity_data->z_index][entity_data->texture_id].push_back(entity);
+        _entity_cache[entity] = {entity_data->z_index, entity_data->texture_id};
     }
 
     void remove_entity(flecs::entity entity) {
         std::lock_guard<std::mutex> lock(_entities_lock);
-        LuaChunk *chunk = entity.get_mut<LuaChunk>();
-        LuaEntity *renderable = entity.get_mut<LuaEntity>();
+        LuaEntity *entity_data = entity.get_mut<LuaEntity>();
         _entity_cache.erase(entity);
-        auto &layer = _entities[renderable->z_index];
-        auto &vec = layer[renderable->texture_id];
+        auto &layer = _entities[entity_data->z_index];
+        auto &vec = layer[entity_data->texture_id];
         vec.erase(std::remove(vec.begin(), vec.end(), entity), vec.end());
         if (vec.empty())
-            layer.erase(renderable->texture_id);
+            layer.erase(entity_data->texture_id);
         if (layer.empty())
-            _entities.erase(renderable->z_index);
+            _entities.erase(entity_data->z_index);
     }
 
     void update_entity(flecs::entity entity) {
         if (!entity.is_alive())
             return;
         std::lock_guard<std::mutex> lock(_entities_lock);
-        LuaEntity *renderable = entity.get_mut<LuaEntity>();
+        LuaEntity *entity_data = entity.get_mut<LuaEntity>();
         auto it = _entity_cache.find(entity);
         if (it == _entity_cache.end()) {
             entity.destruct();
             return;
         }
         auto [old_z_index, old_texture_id] = it->second;
-        if (old_z_index == renderable->z_index && old_texture_id == renderable->texture_id)
+        if (old_z_index == entity_data->z_index && old_texture_id == entity_data->texture_id)
             return;
         // Remove from old location
         auto &old_layer = _entities[old_z_index];
@@ -207,9 +199,9 @@ public:
         if (old_layer.empty())
             _entities.erase(old_z_index);
         // Add to new location
-        _entities[renderable->z_index][renderable->texture_id].push_back(entity);
+        _entities[entity_data->z_index][entity_data->texture_id].push_back(entity);
         // Update cache
-        it->second = {renderable->z_index, renderable->texture_id};
+        it->second = {entity_data->z_index, entity_data->texture_id};
     }
 
     void move_entity_to_target(flecs::entity entity) {
@@ -241,6 +233,14 @@ public:
         }
     }
 
+    static Rect entity_bounds(const LuaEntity& entity_data) {
+        return Rect(static_cast<int>(entity_data.x),
+                    static_cast<int>(entity_data.y),
+                    static_cast<int>(entity_data.width * entity_data.scale_x),
+                    static_cast<int>(entity_data.height * entity_data.scale_y));
+    }
+
+
     void finalize(Camera *camera) {
         Rect camera_bounds = camera->bounds();
         EntityMap map_copy;
@@ -262,8 +262,8 @@ public:
                     for (auto &entity : vec) {
                         if (!entity.is_alive())
                             continue;
-                        LuaEntity *renderable = entity.get_mut<LuaEntity>();
-                        Rect bounds = renderable_bounds(*renderable);
+                        LuaEntity *entity_data = entity.get_mut<LuaEntity>();
+                        Rect bounds = entity_bounds(*entity_data);
                         if (bounds.intersects(camera_bounds))
                             copy_vec.push_back(entity);
                     }
@@ -361,33 +361,45 @@ struct Entity {
         ECS_META_COMPONENT(w, LuaTarget);
         ecs_set_scope(w, scope);
 
-        // Set up observers to automatically manage renderable entities
+        // Set up observers to automatically manage entity_data entities
         world.observer<LuaEntity>()
             .event(flecs::OnAdd)
-            .each([](flecs::entity entity, LuaEntity& renderable) {
+            .each([](flecs::entity entity, LuaEntity& entity_data) {
                 // Set default values if they haven't been set
-                if (renderable.scale_x == 0.0f)
-                    renderable.scale_x = 1.0f;
-                if (renderable.scale_y == 0.0f)
-                    renderable.scale_y = 1.0f;
-                if (renderable.speed == 0.0f)
-                    renderable.speed = 100.0f;
+                if (entity_data.scale_x == 0.0f)
+                    entity_data.scale_x = 1.0f;
+                if (entity_data.scale_y == 0.0f)
+                    entity_data.scale_y = 1.0f;
+                if (entity_data.speed == 0.0f)
+                    entity_data.speed = 100.0f;
 
-                glm::vec2 chunk = Camera::world_to_chunk(glm::vec2(renderable.x, renderable.y));
+                glm::vec2 chunk = Camera::world_to_chunk(glm::vec2(entity_data.x, entity_data.y));
                 entity.set<LuaChunk>({static_cast<uint32_t>(chunk.x), static_cast<uint32_t>(chunk.y)});
                 $Entities.add_entity(entity);
             });
 
+        world.observer<LuaChunk, LuaEntity>()
+            .event(flecs::OnSet)
+            .each([](flecs::entity entity, LuaChunk& chunk, LuaEntity& entity_data) {
+                glm::vec2 chunk_pos = Camera::world_to_chunk(glm::vec2(entity_data.x, entity_data.y));
+                if (chunk.x != static_cast<uint32_t>(chunk_pos.x) ||
+                    chunk.y != static_cast<uint32_t>(chunk_pos.y)) {
+                    chunk.x = static_cast<uint32_t>(chunk_pos.x);
+                    chunk.y = static_cast<uint32_t>(chunk_pos.y);
+                    entity.set(chunk); // Update the component
+                }
+            });
+
         world.observer<LuaEntity>()
             .event(flecs::OnRemove)
-            .each([](flecs::entity entity, LuaEntity& renderable) {
+            .each([](flecs::entity entity, LuaEntity& entity_data) {
                 $Entities.remove_entity(entity);
             });
 
 
         world.observer<LuaChunk, LuaEntity>()
             .event(flecs::OnSet)
-            .each([](flecs::entity entity, LuaChunk& chunk, LuaEntity& renderable) {
+            .each([](flecs::entity entity, LuaChunk& chunk, LuaEntity& entity_data) {
                 $Entities.update_entity(entity);
             });
 

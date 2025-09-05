@@ -735,14 +735,13 @@ public:
             return 1;
         });
 
-        auto unindex_func = [](lua_State* L) -> int {
+        lua_register(L, "chunk_unindex", [](lua_State* L) -> int {
             uint64_t i = luaL_checkinteger(L, 1);
             auto coords = unindex(i);
             lua_pushinteger(L, coords.first);
             lua_pushinteger(L, coords.second);
             return 2; // Return two values: x, y
-        };
-        lua_register(L, "chunk_unindex", unindex_func);
+        });
 
         lua_pushlightuserdata(L, this);
         lua_setfield(L, LUA_REGISTRYINDEX, "__world__");
@@ -946,40 +945,69 @@ public:
 
         lua_register(L, "tile_to_world", [](lua_State *L) -> int {
             glm::vec2 world_pos;
-            if (lua_gettop(L) == 4) {
-                int chunk_x = static_cast<int>(luaL_checkinteger(L, 1));
-                int chunk_y = static_cast<int>(luaL_checkinteger(L, 2));
-                int tile_x = static_cast<int>(luaL_checkinteger(L, 3));
-                int tile_y = static_cast<int>(luaL_checkinteger(L, 4));
-                world_pos = Camera::tile_to_world(chunk_x, chunk_y, tile_x, tile_y);
-            } else if (lua_gettop(L) == 3) {
-                // entity, tile_x, tile_y
-                flecs::entity e = static_cast<flecs::entity>(luaL_checkinteger(L, 1));
-                const LuaChunk *chunk = e.get<LuaChunk>();
-                int tile_x = static_cast<int>(luaL_checkinteger(L, 2));
-                int tile_y = static_cast<int>(luaL_checkinteger(L, 3));
-                world_pos = Camera::tile_to_world(chunk->x, chunk->y, tile_x, tile_y);
-            } else {
-                luaL_error(L, "tile_to_world expects either (entity, tile_x, tile_y) or (entity, chunk_x, chunk_y, tile_x, tile_y)");
-                return 0;
-            }
+            flecs::entity e = get_flecs_entity_from_lua(L);
+            // entity, tile_x, tile_y
+            const LuaChunk *chunk = e.get<LuaChunk>();
+            int tile_x = static_cast<int>(luaL_checkinteger(L, 2));
+            int tile_y = static_cast<int>(luaL_checkinteger(L, 3));
+            world_pos = Camera::tile_to_world(chunk->x, chunk->y, tile_x, tile_y);
             lua_pushnumber(L, world_pos.x);
             lua_pushnumber(L, world_pos.y);
             return 2;
         });
 
-        lua_register(L, "set_entity_position", [](lua_State *L) -> int {
-            LuaEntity* entity_data = get_mutable_entity_from_lua(L);
+        lua_register(L, "set_entity_world_position", [](lua_State *L) -> int {
+            flecs::entity e = get_flecs_entity_from_lua(L);
+            LuaEntity* entity_data = e.get_mut<LuaEntity>();
+            if (!entity_data)
+                throw std::runtime_error("Entity is missing LuaEntity component");
+            LuaChunk *chunk = e.get_mut<LuaChunk>();
+            if (!chunk)
+                throw std::runtime_error("Entity is missing LuaChunk component");
             entity_data->x = static_cast<float>(luaL_checknumber(L, 2));
             entity_data->y = static_cast<float>(luaL_checknumber(L, 3));
+            glm::vec2 _chunk = Camera::world_to_chunk({entity_data->x, entity_data->y});
+            chunk->x = static_cast<int>(_chunk.x);
+            chunk->y = static_cast<int>(_chunk.y);
+            return 0;
+        });
+
+        lua_register(L, "get_entity_world_position", [](lua_State *L) -> int {
+            const LuaEntity* entity_data = get_entity_from_lua(L);
+            lua_pushnumber(L, entity_data->x);
+            lua_pushnumber(L, entity_data->y);
+            return 2;
+        });
+
+        lua_register(L, "set_entity_position", [](lua_State *L) -> int {
+            flecs::entity e = get_flecs_entity_from_lua(L);
+            LuaEntity* entity_data = e.get_mut<LuaEntity>();
+            if (!entity_data)
+                throw std::runtime_error("Entity is missing LuaEntity component");
+            LuaChunk *chunk = e.get_mut<LuaChunk>();
+            if (!chunk)
+                throw std::runtime_error("Entity is missing LuaChunk component");
+            int chunk_x = static_cast<int>(luaL_checkinteger(L, 2));
+            int chunk_y = static_cast<int>(luaL_checkinteger(L, 3));
+            int tile_x = static_cast<int>(luaL_checkinteger(L, 4));
+            int tile_y = static_cast<int>(luaL_checkinteger(L, 5));
+            glm::vec2 world_pos = Camera::tile_to_world(chunk_x, chunk_y, tile_x, tile_y);
+            entity_data->x = world_pos.x;
+            entity_data->y = world_pos.y;
+            chunk->x = chunk_x;
+            chunk->y = chunk_y;
             return 0;
         });
 
         lua_register(L, "get_entity_position", [](lua_State *L) -> int {
             const LuaEntity* entity_data = get_entity_from_lua(L);
-            lua_pushnumber(L, entity_data->x);
-            lua_pushnumber(L, entity_data->y);
-            return 2;
+            glm::vec2 chunk = Camera::world_to_chunk({entity_data->x, entity_data->y});
+            glm::vec2 tile = Camera::world_to_tile({entity_data->x, entity_data->y});
+            lua_pushinteger(L, static_cast<int>(chunk.x));
+            lua_pushinteger(L, static_cast<int>(chunk.y));
+            lua_pushinteger(L, static_cast<int>(tile.x));
+            lua_pushinteger(L, static_cast<int>(tile.y));
+            return 4;
         });
 
         lua_register(L, "set_entity_size", [](lua_State *L) -> int {
@@ -1111,11 +1139,20 @@ public:
         lua_register(L, "set_entity_target", [](lua_State *L) -> int {
             flecs::entity entity = get_flecs_entity_from_lua(L);
             const LuaEntity *entity_data = entity.get<LuaEntity>();
+            if (!entity_data)
+                throw std::runtime_error("Entity is missing LuaEntity component");
             int target_x = static_cast<int>(luaL_checkinteger(L, 2));
             int target_y = static_cast<int>(luaL_checkinteger(L, 3));
             if (std::abs(target_x - entity_data->x) >= 0.1f &&
-                std::abs(target_y - entity_data->y) >= 0.1f)
+                std::abs(target_y - entity_data->y) >= 0.1f) {
                 entity.set<LuaTarget>({static_cast<float>(target_x), static_cast<float>(target_y)});
+                LuaChunk *chunk = entity.get_mut<LuaChunk>();
+                if (!chunk)
+                    throw std::runtime_error("Entity is missing LuaChunk component");
+                glm::vec2 _chunk = Camera::world_to_chunk({static_cast<float>(target_x), static_cast<float>(target_y)});
+                chunk->x = static_cast<int>(_chunk.x);
+                chunk->y = static_cast<int>(_chunk.y);
+            }
             return 0;
         });
 
@@ -1137,6 +1174,38 @@ public:
             flecs::entity entity = get_flecs_entity_from_lua(L);
             entity.remove<LuaTarget>();
             return 0;
+        });
+
+        lua_register(L, "entity_has_target", [](lua_State *L) -> int {
+            flecs::entity entity = get_flecs_entity_from_lua(L);
+            lua_pushboolean(L, entity.has<LuaTarget>());
+            return 1;
+        });
+
+        lua_register(L, "get_entity_bounds", [](lua_State *L) -> int {
+            const LuaEntity* entity_data = get_entity_from_lua(L);
+            Rect bounds = EntityManager::entity_bounds(*entity_data);
+            lua_newtable(L);
+            lua_pushinteger(L, bounds.x);
+            lua_setfield(L, -2, "x");
+            lua_pushinteger(L, bounds.y);
+            lua_setfield(L, -2, "y");
+            lua_pushinteger(L, bounds.w);
+            lua_setfield(L, -2, "width");
+            lua_pushinteger(L, bounds.h);
+            lua_setfield(L, -2, "height");
+            return 1;
+        });
+
+        lua_register(L, "is_entity_visible", [](lua_State *L) -> int {
+            const LuaEntity* entity_data = get_entity_from_lua(L);
+            World* world = get_world_from_lua(L);
+            if (!world)
+                throw std::runtime_error("Internal Error: World instance not found in Lua registry");
+            Rect entity_bounds = EntityManager::entity_bounds(*entity_data);
+            Rect camera_bounds = world->_camera->bounds();
+            lua_pushboolean(L, camera_bounds.intersects(entity_bounds));
+            return 1;
         });
 
         // Expose ChunkEvent types to Lua
@@ -1258,7 +1327,7 @@ public:
             for (auto& [id, chunk] : _chunks) {
                 if (chunk == nullptr)
                     continue;
-                    std::string chunk_filepath = _get_chunk_filepath(chunk->x(), chunk->y());
+                std::string chunk_filepath = _get_chunk_filepath(chunk->x(), chunk->y());
                 try {
                     chunk->serialize(chunk_filepath.c_str());
                     std::cout << fmt::format("Saved chunk at ({}, {}) to {} on shutdown\n", chunk->x(), chunk->y(), chunk_filepath);

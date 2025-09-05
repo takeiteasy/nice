@@ -542,9 +542,9 @@ public:
         }
         
         lua_rawgeti(L, LUA_REGISTRYINDEX, it->second); // Get the callback function
-        if (!lua_isfunction(L, -1)) {
+        if (!lua_isfunction(L, -1))
             lua_pop(L, 1); // Remove non-function from stack
-        } else {
+        else {
             lua_pushvalue(L, -2); // Push the event table
             if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
                 const char* error_msg = lua_tostring(L, -1);
