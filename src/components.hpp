@@ -9,11 +9,6 @@
 
 #include "flecs.h"
 
-ECS_STRUCT(LuaChunk, {
-    uint32_t x;
-    uint32_t y;
-});
-
 ECS_STRUCT(LuaEntity, {
     float x;
     float y;
@@ -31,12 +26,17 @@ ECS_STRUCT(LuaEntity, {
     float speed;
 });
 
-ECS_STRUCT(LuaTarget, {
+struct LuaChunk {
+    uint32_t x;
+    uint32_t y;
+};
+
+struct LuaTarget {
     int x;
     int y;
-});
+};
 
-ECS_STRUCT(LuaDestination, {
-    float x;
-    float y;
-});
+struct LuaWaypoint {
+    int x;
+    int y;
+};

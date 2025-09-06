@@ -92,7 +92,8 @@ struct ChunkVertex {
 class Chunk {
     int _x, _y;
     Tile _tiles[CHUNK_WIDTH][CHUNK_HEIGHT];
-    mutable std::shared_mutex _chunk_mutex;
+    mutable std::shared_mutex _read_mutex;
+    mutable std::mutex _write_mutex;
     VertexBatch<ChunkVertex, CHUNK_SIZE * 6, false> _batch;
     std::atomic<bool> _is_filled = false;
     std::atomic<bool> _is_built = false;
@@ -105,6 +106,14 @@ class Chunk {
 
     static void cellular_automata(int width, int height, int fill_chance, int smooth_iterations, int survive, int starve, uint8_t* result) {
         memset(result, 0, width * height * sizeof(uint8_t));
+#if 1
+        for (int x = 0; x < width; x++)
+            if (x == 0 || x == width - 1)
+                result[x * height] = 1;
+        for (int y = 0; y < height; y++)
+            if (y == 0 || y == height - 1)
+                result[height + y] = 1;
+#else
         // Randomly fill the grid
         std::random_device seed;
         std::mt19937 gen{seed()};
@@ -136,6 +145,7 @@ class Chunk {
                     else if (neighbours < starve)
                         result[y * width + x] = 0;
                 }
+#endif
     }
 
     static uint8_t tile_bitmask(Chunk *chunk, int cx, int cy, int oob) {
@@ -389,7 +399,7 @@ public:
         if (is_filled())
             return false;
 
-        std::unique_lock<std::shared_mutex> lock(_chunk_mutex);
+        std::unique_lock<std::mutex> write_lock(_write_mutex);
 
         uint8_t _grid[CHUNK_SIZE];
         cellular_automata(CHUNK_WIDTH, CHUNK_HEIGHT,
@@ -408,7 +418,7 @@ public:
     }
 
     std::pair<ChunkVertex*, size_t> vertices() {
-        std::shared_lock<std::shared_mutex> lock(_chunk_mutex);
+        std::shared_lock<std::shared_mutex> read_lock(_read_mutex);
         
         // First, count solid tiles to allocate the correct amount of memory
         size_t solid_count = 0;
@@ -440,14 +450,14 @@ public:
         if (!is_filled())
             return false;
         
-        // Get vertices while holding the lock
+        // Get vertices while holding the read lock
         auto [_vertices, vertex_count] = vertices();
         
-        // Now acquire unique lock for modification
-        std::unique_lock<std::shared_mutex> lock(_chunk_mutex);
+        // Now acquire write lock for modification
+        std::unique_lock<std::mutex> write_lock(_write_mutex);
         _batch.add_vertices(_vertices, vertex_count);
         _batch.build();
-        lock.unlock();
+        write_lock.unlock();
         
         delete[] _vertices;
         _is_built.store(true);
@@ -490,7 +500,7 @@ public:
         std::uniform_real_distribution<float> random_dis(0.0f, 1.0f);
         std::optional<std::shared_lock<std::shared_mutex>> _lock;
         if (lock)
-            _lock.emplace(_chunk_mutex);
+            _lock.emplace(_read_mutex);
         int tries = 0;
         glm::vec2 p;
         while (tries++ < max_tries) {
@@ -589,7 +599,7 @@ public:
             return std::nullopt;
         std::optional<std::shared_lock<std::shared_mutex>> _lock;
         if (lock)
-            _lock.emplace(_chunk_mutex);
+            _lock.emplace(_read_mutex);
         auto heuristic = [](glm::ivec2 a, glm::ivec2 b) {
             return glm::length(glm::vec2(b - a));
         };
@@ -671,7 +681,7 @@ public:
             _rebuild_mvp.store(false);
         }
 
-        std::shared_lock<std::shared_mutex> lock(_chunk_mutex);
+        std::shared_lock<std::shared_mutex> read_lock(_read_mutex);
         vs_params_t vs_params = { .mvp = _mvp };
         sg_range params = SG_RANGE(vs_params);
         sg_apply_uniforms(UB_vs_params, &params);
@@ -744,7 +754,7 @@ public:
         if (tx < 0 || tx >= CHUNK_WIDTH || ty < 0 || ty >= CHUNK_HEIGHT)
             return false;
         if (lock)
-            std::shared_lock<std::shared_mutex> lock(_chunk_mutex);
+            std::shared_lock<std::shared_mutex> read_lock(_read_mutex);
         return !_tiles[tx][ty].solid;
     }
 
@@ -753,7 +763,7 @@ public:
             return false;
 
         // Acquire shared lock to prevent modifications during serialization
-        std::shared_lock<std::shared_mutex> lock(_chunk_mutex);
+        std::shared_lock<std::shared_mutex> read_lock(_read_mutex);
 
         std::ofstream file(path, std::ios::binary);
         if (!file)
@@ -778,7 +788,7 @@ public:
 
     void deserialize(const char *path) {
         // Acquire unique lock to prevent other operations during deserialization
-        std::unique_lock<std::shared_mutex> lock(_chunk_mutex);
+        std::unique_lock<std::mutex> write_lock(_write_mutex);
 
         std::ifstream file(path, std::ios::binary);
         if (!file)

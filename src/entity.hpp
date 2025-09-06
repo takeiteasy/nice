@@ -1,0 +1,152 @@
+//
+//  entity.hpp
+//  nice
+//
+//  Created by George Watson on 06/09/2025.
+//
+
+#pragma once
+
+#include "entity_manager.hpp"
+
+struct Entity {
+    Entity(flecs::world &world) {
+        world.module<Entity>();
+        ecs_world_t *w = world.c_ptr();
+        ECS_IMPORT(w, FlecsMeta);
+        ecs_entity_t scope = ecs_set_scope(w, 0);
+        ECS_META_COMPONENT(w, LuaEntity);
+        ecs_set_scope(w, scope);
+
+        world.component<LuaChunk>();
+        world.component<LuaTarget>();
+        world.component<LuaWaypoint>();
+
+        // Set up observers to automatically manage entity_data entities
+        world.observer<LuaEntity>()
+            .event(flecs::OnAdd)
+            .each([](flecs::entity entity, LuaEntity& entity_data) {
+                // Set default values if they haven't been set
+                if (entity_data.scale_x == 0.0f)
+                    entity_data.scale_x = 1.0f;
+                if (entity_data.scale_y == 0.0f)
+                    entity_data.scale_y = 1.0f;
+                if (entity_data.speed == 0.0f)
+                    entity_data.speed = 100.0f;
+                glm::vec2 chunk = Camera::world_to_chunk(glm::vec2(entity_data.x, entity_data.y));
+                entity.set<LuaChunk>({static_cast<uint32_t>(chunk.x), static_cast<uint32_t>(chunk.y)});
+                $Entities.add_entity(entity);
+            });
+
+        world.observer<LuaEntity, LuaChunk>()
+            .event(flecs::OnSet)
+            .each([](flecs::entity entity, LuaEntity& entity_data, LuaChunk& chunk) {
+                std::lock_guard<std::shared_mutex> lock($Entities.entities_lock());
+                glm::vec2 chunk_pos = Camera::world_to_chunk(glm::vec2(entity_data.x, entity_data.y));
+                if (chunk.x != static_cast<uint32_t>(chunk_pos.x) ||
+                    chunk.y != static_cast<uint32_t>(chunk_pos.y)) {
+                    chunk.x  = static_cast<uint32_t>(chunk_pos.x);
+                    chunk.y  = static_cast<uint32_t>(chunk_pos.y);
+                    entity.set(chunk); // Update the component
+                }
+            });
+
+#define RUN_LOCK(LOCK) \
+        .run([](flecs::iter_t *it) { \
+            std::lock_guard<std::shared_mutex> lock(LOCK); \
+            while (ecs_iter_next(it)) \
+                it->callback(it); \
+        })
+
+        world.observer<LuaEntity>()
+            .event(flecs::OnRemove)
+            RUN_LOCK($Entities.entities_lock())
+            .each([](flecs::entity entity, LuaEntity& entity_data) {
+                $Entities.remove_entity(entity, false);
+            });
+
+
+        world.observer<LuaEntity, LuaChunk>()
+            .event(flecs::OnSet)
+            RUN_LOCK($Entities.entities_lock())
+            .each([](flecs::entity entity, LuaEntity& entity_data, LuaChunk& chunk) {
+                $Entities.update_entity(entity, entity_data, chunk, false);;
+            });
+        
+        world.observer<LuaEntity, LuaTarget>()
+            .event(flecs::OnSet)
+            RUN_LOCK($Entities.entities_lock())
+            .each([](flecs::entity entity, LuaEntity& entity_data, LuaTarget& target) {
+                $Entities.clear_target(entity);
+                $Entities.add_entity_target(entity, {target.x, target.y});
+            });
+        
+        world.observer<LuaEntity, LuaTarget>()
+            .event(flecs::OnSet)
+            RUN_LOCK($Entities.entities_lock())
+            .each([](flecs::entity entity, LuaEntity& entity_data, LuaTarget& target) {
+                if (entity.has<LuaWaypoint>())
+                    return;
+                auto [status, waypoint] = $Entities.get_next_waypoint(entity).value_or(std::make_pair(PathRequestResult::TargetUnreachable, glm::ivec2(0,0)));
+                if (status == PathRequestResult::StillSearching)
+                    entity.set<LuaWaypoint>({static_cast<int>(waypoint.x), static_cast<int>(waypoint.y)});
+                else
+                    entity.remove<LuaTarget>();
+            });
+
+        world.system<LuaEntity, LuaWaypoint>()
+            RUN_LOCK($Entities.entities_lock())
+            .each([](flecs::entity entity, LuaEntity& entity_data, LuaWaypoint& waypoint) {
+                float dt = entity.world().delta_time();
+                if (dt <= 0.0f)
+                    return; // Skip if no delta time
+
+                glm::vec2 direction = glm::vec2(waypoint.x - entity_data.x, waypoint.y - entity_data.y);
+                float distance = glm::length(direction);
+                if (distance < 1.0f) {
+                    // Close enough, snap to target and remove component
+                    entity_data.x = waypoint.x;
+                    entity_data.y = waypoint.y;
+                    entity.remove<LuaWaypoint>();
+                } else {
+                    // Normalize direction and move at constant speed
+                    glm::vec2 normalized_direction = glm::normalize(direction);
+                    glm::vec2 delta = normalized_direction * entity_data.speed * dt;
+                    
+                    // Check if we would overshoot the target
+                    float movement_distance = glm::length(delta);
+                    if (movement_distance >= distance) {
+                        // We would overshoot, so just move directly to target
+                        entity_data.x = waypoint.x;
+                        entity_data.y = waypoint.y;
+                        entity.remove<LuaWaypoint>();
+                    } else {
+                        // Move towards target at constant speed
+                        entity_data.x += delta.x;
+                        entity_data.y += delta.y;
+                    }
+                }
+            });
+        
+        world.observer<LuaWaypoint>()
+            .event(flecs::OnRemove)
+            RUN_LOCK($Entities.entities_lock())
+            .each([](flecs::entity entity, LuaWaypoint& waypoint) {
+                auto [status, next_waypoint] = $Entities.get_next_waypoint(entity).value_or(std::make_pair(PathRequestResult::TargetUnreachable, glm::ivec2(0,0)));
+                if (status == PathRequestResult::StillSearching)
+                    entity.set<LuaWaypoint>({static_cast<int>(next_waypoint.x), static_cast<int>(next_waypoint.y)});
+                else
+                    if (entity.has<LuaTarget>())
+                        entity.remove<LuaTarget>();
+            });
+        
+        world.observer<LuaTarget>()
+            .event(flecs::OnRemove)
+            RUN_LOCK($Entities.entities_lock())
+            .each([](flecs::entity entity, LuaTarget& target) {
+                $Entities.clear_target(entity);
+                if (entity.has<LuaWaypoint>())
+                    entity.remove<LuaWaypoint>();
+            });
+    }
+};

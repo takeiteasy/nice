@@ -12,6 +12,45 @@
 #include <chrono>
 #include <mutex>
 #include <thread>
+#include <unordered_set>
+
+template<typename T>
+class ThreadSafeSet {
+    std::unordered_set<T> _set;
+    mutable std::shared_mutex _mutex;
+
+public:
+    bool contains(const T& value) const {
+        std::shared_lock<std::shared_mutex> lock(_mutex);
+        return _set.find(value) != _set.end();
+    }
+
+    bool insert(const T& value) {
+        std::unique_lock<std::shared_mutex> lock(_mutex);
+        return _set.insert(value).second;
+    }
+
+    bool erase(const T& value) {
+        std::unique_lock<std::shared_mutex> lock(_mutex);
+        return _set.erase(value) > 0;
+    }
+
+    size_t size() const {
+        std::shared_lock<std::shared_mutex> lock(_mutex);
+        return _set.size();
+    }
+
+    bool empty() const {
+        std::shared_lock<std::shared_mutex> lock(_mutex);
+        return _set.empty();
+    }
+
+    // Add a clear method for cleanup
+    void clear() {
+        std::unique_lock<std::shared_mutex> lock(_mutex);
+        _set.clear();
+    }
+};
 
 template<typename T>
 class JobQueue {

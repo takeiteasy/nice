@@ -9,7 +9,7 @@ ecs.set(test, NiceEntity, {
     y = 50
 })
 
-set_entity_target(test, 100, 100)
+-- set_entity_target(test, 100, 100)
 
 -- Camera state variables
 local camera_dragging = false

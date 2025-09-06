@@ -21,6 +21,7 @@
 #include "flecs.h"
 #include "flecs_lua.h"
 #include "entity_manager.hpp"
+#include "entity.hpp"
 #include "imgui.h"
 #include "sol/sol_imgui.h"
 #include "nice.dat.h"
@@ -28,45 +29,7 @@
 #include "sokol/sokol_time.h"
 #include "camera.hpp"
 #include "input_manager.hpp"
-#include <unordered_set>
-
-template<typename T>
-class ThreadSafeSet {
-    std::unordered_set<T> _set;
-    mutable std::shared_mutex _mutex;
-
-public:
-    bool contains(const T& value) const {
-        std::shared_lock<std::shared_mutex> lock(_mutex);
-        return _set.find(value) != _set.end();
-    }
-
-    bool insert(const T& value) {
-        std::unique_lock<std::shared_mutex> lock(_mutex);
-        return _set.insert(value).second;
-    }
-
-    bool erase(const T& value) {
-        std::unique_lock<std::shared_mutex> lock(_mutex);
-        return _set.erase(value) > 0;
-    }
-
-    size_t size() const {
-        std::shared_lock<std::shared_mutex> lock(_mutex);
-        return _set.size();
-    }
-
-    bool empty() const {
-        std::shared_lock<std::shared_mutex> lock(_mutex);
-        return _set.empty();
-    }
-
-    // Add a clear method for cleanup
-    void clear() {
-        std::unique_lock<std::shared_mutex> lock(_mutex);
-        _set.clear();
-    }
-};
+#include "uuid.h"
 
 class World {
     uuid::v4::UUID _id;
@@ -98,8 +61,6 @@ class World {
     flecs::world *_world = nullptr;
     lua_State *L = nullptr;
     std::unordered_map<int, int> _chunk_callbacks;
-
-    
 
     static void _abort(void) {
         std::cerr << "ECS: ecs_os_abort() was called!\n";
@@ -714,6 +675,7 @@ public:
         ecs_os_set_api(&os_api);
         ecs_log_enable_colors(false);
 
+#pragma region Lua Bindings
         _world = new flecs::world();
         $Entities.set_world(_world);
         // FlecsLua still uses C API for import
@@ -1189,16 +1151,10 @@ public:
             World* world = get_world_from_lua(L);
             if (!world)
                 throw std::runtime_error("Internal Error: World instance not found in Lua registry");
-            bool set_target = false;
             world->get_chunk(lchunk->x, lchunk->y, [&](Chunk* chunk) {
-                set_target = chunk->is_walkable(x, y, false);
+                if (chunk->is_walkable(x, y, false))
+                    entity.set<LuaTarget>({x, y});
             });
-            if (set_target) {
-                entity.set<LuaTarget>({x, y});
-                // TODO:
-                // 1. Queue for pathfinding
-                // 2. Add LuaDestination component
-            }
             return 0;
         });
 
@@ -1321,6 +1277,7 @@ public:
 
         // Register input functions
         $Input.load_into_lua(L);
+#pragma endregion
 
         if (luaL_loadbuffer(L, reinterpret_cast<const char*>(setup_lua), setup_lua_size, "setup.lua") != LUA_OK ||
             lua_pcall(L, 0, LUA_MULTRET, 0) != LUA_OK) {
