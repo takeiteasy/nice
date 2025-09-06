@@ -67,8 +67,6 @@ namespace uuid::v4
             return *this;
         }
 
-
-    private:
         UUID() {}
 
         unsigned char _data[16] = {0};

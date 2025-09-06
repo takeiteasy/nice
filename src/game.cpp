@@ -16,6 +16,10 @@ static struct {
     World *manager;
 } state;
 
+World* get_world() {
+    return state.manager;
+}
+
 void game_enter(void) {
     $Assets.set_archive("test/assets.nice");
     state.camera = new Camera();

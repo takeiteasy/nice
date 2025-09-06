@@ -5,11 +5,15 @@ local test_texture = get_texture_id("test/hand")
 local test = ecs.new("Test", NiceEntity)
 ecs.set(test, NiceEntity, {
     texture_id = test_texture,
-    x = 50,
-    y = 50
+    x = 5,
+    y = 5,
+    clip_width = 16,
+    clip_height = 16,
+    width = 16,
+    height = 16
 })
 
--- set_entity_target(test, 100, 100)
+set_entity_target(test, 10, 10)
 
 -- Camera state variables
 local camera_dragging = false

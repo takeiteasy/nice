@@ -60,6 +60,7 @@ LUA := $(BUILD_DIR)/lua$(PROG_EXT)
 FLECS_LIB := $(BUILD_DIR)/libflecs_$(ARCH).$(LIB_EXT)
 NICEPKG := $(BUILD_DIR)/nicepkg.$(LIB_EXT)
 DAT_H := $(BUILD_DIR)/nice.dat.h
+ASSETS := test/assets.nice
 
 # Shader Configuration
 # -----------------------------------------------------------------------------
@@ -79,7 +80,7 @@ DAT_SRC := $(TOOLS_DIR)/setup.lua
 
 # Default and Meta Targets
 # -----------------------------------------------------------------------------
-.PHONY: default all clean run test builddir shaders dat lua flecs nicepkg nice
+.PHONY: default all clean run makerun test builddir shaders dat lua flecs nicepkg nice
 
 default: nice
 
@@ -137,13 +138,17 @@ nice: $(EXE)
 
 # Test Asset Generation
 # -----------------------------------------------------------------------------
-test: lua nicepkg
+$(ASSETS): $(LUA) $(NICEPKG)
 	./$(LUA) $(TOOLS_DIR)/nicepkg.lua test/hand.png -x test/tilemap.png test/test.lua -o test/assets.nice
+
+test: $(ASSETS)
 
 # Run Application
 # -----------------------------------------------------------------------------
-run: test nice
+run:
 	./$(EXE); rm -f *.niceworld
+
+makerun: test nice run
 
 # Cleanup
 # -----------------------------------------------------------------------------

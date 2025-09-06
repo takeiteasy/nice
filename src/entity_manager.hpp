@@ -15,12 +15,16 @@
 #include "job_queue.hpp"
 #include "camera.hpp"
 #include "basic.glsl.h"
+#include "chunk_manager.hpp"
 #include "fmt/format.h"
 #include <iostream>
 #include <shared_mutex>
 #include <unordered_map>
 #include <vector>
 #include <atomic>
+
+// Forward declaration
+class Chunk;
 
 struct BasicVertex {
     glm::vec2 position;
@@ -29,7 +33,7 @@ struct BasicVertex {
 
 struct PathRequest {
     flecs::entity entity;
-    Chunk *chunk;
+    LuaChunk chunk;
     glm::vec2 start;
     glm::vec2 end;
 };
@@ -158,9 +162,15 @@ public:
         _completion_cv.notify_all();
     })
     , _path_request_queue([&](PathRequest request) {
-        auto path = request.chunk->astar(request.start, request.end);
+        std::cout << fmt::format("Processing path request for entity {}\n", request.entity.id());
+        std::optional<std::vector<glm::vec2>> path = std::nullopt;
+        $Chunks.get_chunk(request.chunk.x, request.chunk.y, [&](Chunk *c) {
+            if (c)
+                path = c->astar(request.start, request.end);
+        });
         std::lock_guard<std::mutex> lock(_waypoints_mutex);
         if (!path.has_value() || path->empty()) {
+            std::cout << fmt::format("Pathfinding failed for entity {}\n", request.entity.id());
             _waypoints[request.entity].first = PathRequestResult::TargetUnreachable;
             _entities_requesting_paths.erase(request.entity);
         } else {
@@ -170,15 +180,32 @@ public:
                 path->end()->y == request.end.y) {
                 _waypoints[request.entity].first = PathRequestResult::TargetReached;
                 _entities_requesting_paths.erase(request.entity);
-            } else
+                std::cout << fmt::format("Pathfinding succeeded for entity {}, target reached\n", request.entity.id());
+            } else {
                 _path_request_queue.enqueue({request.entity, request.chunk, path->back(), request.end});
+                std::cout << fmt::format("Pathfinding partial for entity {}, continuing search\n", request.entity.id());
+            }
         }
     }) {}
 
-    void add_entity_target(flecs::entity entity, LuaTarget target) {
+    void add_entity_target(flecs::entity entity, LuaChunk chunk, LuaTarget target) {
         std::lock_guard<std::mutex> lock(_waypoints_mutex);
         _waypoints[entity] = {PathRequestResult::StillSearching, {}};
         _entities_requesting_paths.insert(entity);
+        
+        // Get entity's current position
+        LuaEntity *entity_data = entity.get_mut<LuaEntity>();
+        if (!entity_data) {
+            std::cerr << "Warning: Entity missing LuaEntity component in add_entity_target\n";
+            return;
+        }
+        
+        // Convert world position to tile position within the chunk
+        glm::vec2 world_pos = {entity_data->x, entity_data->y};
+        glm::vec2 tile_pos = Camera::world_to_tile(world_pos);
+        
+        // Enqueue the path request with proper start and end positions
+        _path_request_queue.enqueue({entity, chunk, {tile_pos.x, tile_pos.y}, {target.x, target.y}});
     }
 
     std::optional<std::pair<PathRequestResult, glm::vec2>> get_next_waypoint(flecs::entity entity) {
@@ -197,8 +224,6 @@ public:
         std::lock_guard<std::mutex> lock(_waypoints_mutex);
         _waypoints.erase(entity);
         _entities_requesting_paths.erase(entity);
-        if (entity.has<LuaTarget>())
-            entity.remove<LuaTarget>();
     }
 
     void set_world(flecs::world *world) {
