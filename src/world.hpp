@@ -43,7 +43,6 @@ class World {
 
     flecs::world *_world = nullptr;
     lua_State *L = nullptr;
-    std::unordered_map<int, int> _chunk_callbacks;
 
     static void _abort(void) {
         std::cerr << "ECS: ecs_os_abort() was called!\n";
@@ -275,32 +274,6 @@ class World {
         return entity;
     }
 
-    void call_lua_chunk_event(ChunkEvent event_type, int x, int y, ChunkVisibility old_vis = ChunkVisibility::OutOfSign, ChunkVisibility new_vis = ChunkVisibility::OutOfSign) {
-        auto it = _chunk_callbacks.find(static_cast<int>(event_type));
-        if (it == _chunk_callbacks.end())
-            return;
-        lua_rawgeti(L, LUA_REGISTRYINDEX, it->second); // Get the callback function
-        if (lua_isfunction(L, -1)) {
-            lua_pushinteger(L, x);
-            lua_pushinteger(L, y);
-            if (event_type == ChunkEvent::VisibilityChanged) {
-                lua_pushinteger(L, static_cast<int>(old_vis));
-                lua_pushinteger(L, static_cast<int>(new_vis));
-                if (lua_pcall(L, 4, 0, 0) != LUA_OK) {
-                    const char* error_msg = lua_tostring(L, -1);
-                    std::cout << fmt::format("Error in chunk callback for type {}: {}\n", static_cast<int>(event_type), error_msg);
-                    lua_pop(L, 1); // Remove error message
-                }
-            } else
-                if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
-                    const char* error_msg = lua_tostring(L, -1);
-                    std::cout << fmt::format("Error in chunk callback for type {}: {}\n", static_cast<int>(event_type), error_msg);
-                    lua_pop(L, 1); // Remove error message
-                }
-        } else
-            lua_pop(L, 1); // Remove non-function from stack
-    }
-
 public:
     World(Camera *camera, const char *path = nullptr): _camera(camera), _id(uuid::v4::UUID::New()) {
         // Initialize graphics resources
@@ -366,6 +339,9 @@ public:
 #undef X
         L = ecs_lua_get_state(_world->c_ptr());
         ecs_assert(L != NULL, ECS_INTERNAL_ERROR, NULL);
+        
+        // Set Lua state in ChunkManager
+        $Chunks.set_lua_state(L);
 
         luaL_openlibs(L);
         lua_getglobal(L, "package");
@@ -482,9 +458,8 @@ public:
             std::vector<glm::vec2> points;
             
             $Chunks.get_chunk(static_cast<int>(chunk_x), static_cast<int>(chunk_y), [&](Chunk* chunk) {
-                if (!chunk || !chunk->is_filled()) {
+                if (!chunk || !chunk->is_filled())
                     return; // Will result in empty points vector
-                }
                 points = chunk->poisson(radius, static_cast<int>(k), invert, true, CHUNK_SIZE / 4, region);
             });
             
@@ -914,21 +889,12 @@ public:
             }
             
             int event_type = static_cast<int>(luaL_checkinteger(L, 1));
-            World* world = get_world_from_lua(L);
-            if (!world)
-                return 0;
 
             // Store the function in the registry and get a reference
             lua_pushvalue(L, 2); // Duplicate the function
             int ref = luaL_ref(L, LUA_REGISTRYINDEX);
             
-            // Clear any existing callback for this event
-            auto& callbacks = world->_chunk_callbacks;
-            auto it = callbacks.find(event_type);
-            if (it != callbacks.end())
-                luaL_unref(L, LUA_REGISTRYINDEX, it->second);
-
-            callbacks[event_type] = ref;
+            $Chunks.register_lua_callback(event_type, ref);
             return 0;
         });
 
@@ -939,15 +905,7 @@ public:
             }
             
             int event_type = static_cast<int>(luaL_checkinteger(L, 1));
-            World* world = get_world_from_lua(L);
-            if (!world) return 0;
-            
-            auto& callbacks = world->_chunk_callbacks;
-            auto it = callbacks.find(event_type);
-            if (it != callbacks.end()) {
-                luaL_unref(L, LUA_REGISTRYINDEX, it->second);
-                callbacks.erase(it);
-            }
+            $Chunks.unregister_lua_callback(event_type);
             return 0;
         });
 
@@ -981,12 +939,6 @@ public:
         // Clean up InputManager callbacks before cleaning up chunk callbacks
         $Input.cleanup_lua_callbacks();
         
-        // Clean up chunk callback references
-        if (L) {
-            for (auto& [event_type, ref] : _chunk_callbacks)
-                luaL_unref(L, LUA_REGISTRYINDEX, ref);
-            _chunk_callbacks.clear();
-        }
         $Entities.clear();
         $Chunks.clear();
         if (_world)
@@ -1007,7 +959,9 @@ public:
         $Chunks.update_chunks(camera_bounds, max_bounds);
         $Chunks.update_deletion_queue();
         $Chunks.scan_for_chunks(camera_bounds, max_bounds);
-        $Chunks.release_chunks();
+        auto events_to_queue = $Chunks.release_chunks();
+        $Chunks.queue_events(events_to_queue);
+        $Chunks.fire_chunk_events();
         
         bool result = _world->progress(dt);
         if (result) {

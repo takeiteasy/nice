@@ -17,16 +17,20 @@
 #include <shared_mutex>
 #include <iostream>
 #include <filesystem>
+#include <queue>
+#include <mutex>
 #include "uuid.h"
 #include "sokol/sokol_time.h"
-
-enum class ChunkEvent {
-    Created,
-    Deleted,
-    VisibilityChanged
-};
+#include "minilua.h"
 
 #define $Chunks ChunkManager::instance()
+
+struct ChunkEvent {
+    enum Type { Created, Deleted, VisibilityChanged } type;
+    int x, y;
+    ChunkVisibility old_vis = ChunkVisibility::OutOfSign;
+    ChunkVisibility new_vis = ChunkVisibility::OutOfSign;
+};
 
 class ChunkManager: public Global<ChunkManager> {
     std::unordered_map<uint64_t, Chunk*> _chunks;
@@ -43,6 +47,12 @@ class ChunkManager: public Global<ChunkManager> {
     Texture *_tilemap = nullptr;
     uuid::v4::UUID _world_id;
     
+    // Lua event handling
+    lua_State *_lua_state = nullptr;
+    std::unordered_map<int, int> _chunk_callbacks;
+    std::queue<ChunkEvent> _chunk_event_queue;
+    std::mutex _event_queue_mutex;
+    
     std::string _get_world_directory() {
         std::filesystem::path temp_dir = std::filesystem::temp_directory_path();
         std::filesystem::path world_dir = temp_dir / _world_id.String();
@@ -58,11 +68,37 @@ class ChunkManager: public Global<ChunkManager> {
         return (world_dir / filename).string();
     }
     
+    void call_lua_chunk_event(ChunkEvent::Type event_type, int x, int y, ChunkVisibility old_vis = ChunkVisibility::OutOfSign, ChunkVisibility new_vis = ChunkVisibility::OutOfSign) {
+        if (!_lua_state) return;
+        
+        auto it = _chunk_callbacks.find(static_cast<int>(event_type));
+        if (it == _chunk_callbacks.end())
+            return;
+        lua_rawgeti(_lua_state, LUA_REGISTRYINDEX, it->second); // Get the callback function
+        if (lua_isfunction(_lua_state, -1)) {
+            lua_pushinteger(_lua_state, x);
+            lua_pushinteger(_lua_state, y);
+            if (event_type == ChunkEvent::VisibilityChanged) {
+                lua_pushinteger(_lua_state, static_cast<int>(old_vis));
+                lua_pushinteger(_lua_state, static_cast<int>(new_vis));
+                lua_pcall(_lua_state, 4, 0, 0);
+            } else {
+                lua_pcall(_lua_state, 2, 0, 0);
+            }
+        } else
+            lua_pop(_lua_state, 1); // Remove non-function from stack
+    }
+    
 public:
     ~ChunkManager() {
         clear();
         delete _create_chunk_queue;
         delete _build_chunk_queue;
+    }
+
+    bool is_empty() const {
+        return _build_chunk_queue->empty() && _create_chunk_queue->empty() &&
+                _chunks_being_built.empty() && _chunks_being_created.empty();
     }
 
     void initialize(Camera *camera, Texture *tilemap, uuid::v4::UUID world_id) {
@@ -96,6 +132,12 @@ public:
                 _chunks_being_built.insert(idx);  // Mark as being built
             }
             
+            // Queue chunk created event
+            {
+                std::lock_guard<std::mutex> lock(_event_queue_mutex);
+                _chunk_event_queue.push({ChunkEvent::Created, x, y});
+            }
+            
             // Only fill if we didn't load from disk
             if (!loaded_from_disk) {
                 chunk->fill();
@@ -118,6 +160,10 @@ public:
             uint64_t idx = chunk->id();
             _chunks_being_built.erase(idx);
         });
+    }
+    
+    void set_lua_state(lua_State *L) {
+        _lua_state = L;
     }
     
     void get_chunk(int x, int y, std::function<void(Chunk*)> callback) {
@@ -184,9 +230,11 @@ public:
                 chunks_to_update.push_back(chunk);
         }
 
-        // Collect deletion updates
+        // Collect deletion updates and events
         std::vector<std::pair<uint64_t, bool>> deletion_updates;
+        std::vector<ChunkEvent> events;
         deletion_updates.reserve(chunks_to_update.size());
+        events.reserve(chunks_to_update.size());
 
         // Update chunks without holding any locks
         for (auto chunk : chunks_to_update) {
@@ -218,6 +266,9 @@ public:
                         deletion_updates.emplace_back(chunk_id, true);
                         break;
                 }
+                
+                // Collect events to process later
+                events.push_back({ChunkEvent::VisibilityChanged, chunk->x(), chunk->y(), last_visibility, new_visibility});
             }
         }
 
@@ -232,12 +283,18 @@ public:
                     _deletion_queue.erase(chunk_id);
             }
         }
+        
+        // Apply events in batch
+        if (!events.empty()) {
+            std::lock_guard<std::mutex> lock(_event_queue_mutex);
+            for (const auto& event : events)
+                _chunk_event_queue.push(event);
+        }
     }
 
     void update_deletion_queue() {
         auto now = stm_now();
         std::vector<uint64_t> chunks_to_destroy;
-        
         {
             std::unique_lock<std::shared_mutex> lock(_deletion_queue_lock);
             for (auto it = _deletion_queue.begin(); it != _deletion_queue.end();) {
@@ -274,21 +331,21 @@ public:
             }
     }
 
-    void release_chunks() {
+    std::vector<ChunkEvent> release_chunks() {
         std::vector<uint64_t> chunks_to_destroy;
         std::vector<Chunk*> chunks_to_delete;
-        
+        std::vector<ChunkEvent> events_to_queue;
         {
             std::unique_lock<std::shared_mutex> lock(_chunks_lock);
             // Iterate through chunks and check if they're marked for destruction
             for (auto it = _chunks.begin(); it != _chunks.end();) {
                 uint64_t chunk_id = it->first;
                 Chunk* chunk = it->second;
-
                 if (_chunks_being_destroyed.contains(chunk_id)) {
                     std::cout << fmt::format("Releasing chunk at ({}, {})\n", chunk->x(), chunk->y());
                     chunks_to_delete.push_back(chunk);
                     chunks_to_destroy.push_back(chunk_id);
+                    events_to_queue.push_back({ChunkEvent::Deleted, chunk->x(), chunk->y()});
                     it = _chunks.erase(it);
                 } else
                     ++it;
@@ -312,6 +369,8 @@ public:
         // Remove from destroyed set
         for (uint64_t chunk_id : chunks_to_destroy)
             _chunks_being_destroyed.erase(chunk_id);
+
+        return events_to_queue;
     }
 
     void draw_chunks(sg_pipeline pipeline, bool force_update_mvp) {
@@ -334,7 +393,61 @@ public:
         }
     }
     
+    void fire_chunk_events() {
+        std::lock_guard<std::mutex> lock(_event_queue_mutex);
+        while (!_chunk_event_queue.empty()) {
+            ChunkEvent event = _chunk_event_queue.front();
+            _chunk_event_queue.pop();
+            switch (event.type) {
+                case ChunkEvent::Created:
+                    call_lua_chunk_event(ChunkEvent::Created, event.x, event.y);
+                    break;
+                case ChunkEvent::Deleted:
+                    call_lua_chunk_event(ChunkEvent::Deleted, event.x, event.y);
+                    break;
+                case ChunkEvent::VisibilityChanged:
+                    call_lua_chunk_event(ChunkEvent::VisibilityChanged, event.x, event.y, event.old_vis, event.new_vis);
+                    break;
+            }
+        }
+    }
+    
+    void queue_events(const std::vector<ChunkEvent>& events) {
+        if (!events.empty()) {
+            std::lock_guard<std::mutex> lock(_event_queue_mutex);
+            for (const auto& event : events)
+                _chunk_event_queue.push(event);
+        }
+    }
+    
+    void register_lua_callback(int event_type, int lua_ref) {
+        // Clear any existing callback for this event
+        auto it = _chunk_callbacks.find(event_type);
+        if (it != _chunk_callbacks.end() && _lua_state)
+            luaL_unref(_lua_state, LUA_REGISTRYINDEX, it->second);
+
+        _chunk_callbacks[event_type] = lua_ref;
+    }
+    
+    void unregister_lua_callback(int event_type) {
+        auto it = _chunk_callbacks.find(event_type);
+        if (it != _chunk_callbacks.end()) {
+            if (_lua_state)
+                luaL_unref(_lua_state, LUA_REGISTRYINDEX, it->second);
+            _chunk_callbacks.erase(it);
+        }
+    }
+    
+    void cleanup_lua_callbacks() {
+        if (_lua_state) {
+            for (auto& [event_type, ref] : _chunk_callbacks)
+                luaL_unref(_lua_state, LUA_REGISTRYINDEX, ref);
+            _chunk_callbacks.clear();
+        }
+    }
+    
     void clear() {
+        cleanup_lua_callbacks();
         {
             std::unique_lock<std::shared_mutex> lock(_deletion_queue_lock);
             _deletion_queue.clear();

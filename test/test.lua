@@ -2,19 +2,6 @@ local ecs = require "ecs"
 
 local test_texture = get_texture_id("test/hand")
 
-local test = ecs.new("Test", NiceEntity)
-ecs.set(test, NiceEntity, {
-    texture_id = test_texture,
-    x = 5,
-    y = 5,
-    clip_width = 16,
-    clip_height = 16,
-    width = 16,
-    height = 16
-})
-
-set_entity_target(test, 10, 10)
-
 -- Camera state variables
 local camera_dragging = false
 
@@ -85,6 +72,19 @@ end
 -- Updated chunk event callbacks using new callback system
 local function on_chunk_created(x, y)
     print("(LUA) Chunk created at (" .. x .. ", " .. y .. ")")
+    if x == 0 and y == 0 then
+        local test = ecs.new("Test", NiceEntity)
+        ecs.set(test, NiceEntity, {
+            texture_id = test_texture,
+            x = 5,
+            y = 5,
+            clip_width = 16,
+            clip_height = 16,
+            width = 16,
+            height = 16
+        })
+        set_entity_target(test, 10, 10)
+    end
 end
 
 local function on_chunk_deleted(x, y)
