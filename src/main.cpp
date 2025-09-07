@@ -26,6 +26,7 @@
 #include "passthru.glsl.h"
 #include "input_manager.hpp"
 #include "argparse.hpp"
+#include "INIReader.h"
 
 #define X(NAME)                                     \
 extern void NAME##_enter(void);                     \

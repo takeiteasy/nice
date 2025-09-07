@@ -77,13 +77,13 @@
         "**/build/**": false,
         "**/.git": true,
         "**/.DS_Store": true,
-        "**/rpg.xcodeproj/**": true
+        "**/nice.xcodeproj/**": true
     },
     "search.exclude": {
         "**/build/**": true,
         "**/.git": true,
         "**/deps/**": true,
-        "**/rpg.xcodeproj/**": true
+        "**/nice.xcodeproj/**": true
     },
     "terminal.integrated.defaultProfile.osx": "fish",
     "terminal.integrated.cwd": "${workspaceFolder}"

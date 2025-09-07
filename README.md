@@ -12,9 +12,9 @@
 - [ ] Cursor + tile selection
 - [ ] Arguments, settings, configs
     - [ ] Handle arguments from lua?
-    - [ ] Add .ini loader
-    - [ ] Check for configs in zip or disk
+    - [ ] Check for configs (.ini) in zip or disk
     - [ ] Expose settings to lua
+- [ ] Auto-cleanup of entities on destroyed chunks (optional)
 - [ ] Proper save path destination 
 - [ ] Audio manager
 - [ ] Menu scene
@@ -44,7 +44,7 @@
 - [ ] Networking built in, sync world+ECS in background automatically
 - [ ] Embed zip inside binary
 - [ ] Cellular automata optional, override in lua or add alternative methods 
-- [ ] Chunk loading rules
+- [ ] Chunk loading rules + manual chunk management from lua
 - [ ] Sandboxing with lua amalgm?
 - [ ] Default texture instead of crashing
 

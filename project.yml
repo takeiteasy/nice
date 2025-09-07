@@ -27,6 +27,8 @@ targets:
           excludes:
             - "fmt.cc"
         - path: deps/imgui/backends/imgui_impl_metal.mm
+        - path: deps/ini.c
+        - path: deps/INIReader.cpp
         - path: deps/
           type: folder
         - path: assets/

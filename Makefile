@@ -51,7 +51,9 @@ INC := $(CXXFLAGS) $(INCLUDE_PATHS) $(LDFLAGS)
 SOURCE := $(wildcard src/*.cpp) \
           deps/fmt/format.cc \
           deps/fmt/os.cc \
-          deps/imgui/backends/imgui_impl_metal.mm
+          deps/imgui/backends/imgui_impl_metal.mm \
+		  deps/ini.c \
+		  deps/INIReader.cpp
 
 # Build Targets
 # -----------------------------------------------------------------------------
@@ -84,7 +86,7 @@ DAT_SRC := $(TOOLS_DIR)/setup.lua
 
 default: nice
 
-all: clean builddir shaders lua dat flecs nicepkg testpkg nice
+all: builddir shaders lua dat flecs nicepkg testpkg nice
 
 # Directory Creation
 # -----------------------------------------------------------------------------

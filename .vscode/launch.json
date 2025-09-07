@@ -2,10 +2,10 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug RPG",
+            "name": "Debug Nice",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/rpg_osx_arm64",
+            "program": "${workspaceFolder}/build/nice_osx_arm64",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
@@ -27,10 +27,10 @@
             }
         },
         {
-            "name": "Run RPG (No Debug)",
+            "name": "Run Nice (No Debug)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/rpg_osx_arm64",
+            "program": "${workspaceFolder}/build/nice_osx_arm64",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",

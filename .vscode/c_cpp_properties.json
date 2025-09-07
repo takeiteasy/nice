@@ -6,13 +6,14 @@
             "includePath": [
                 "${workspaceFolder}/build/**",
                 "${workspaceFolder}/src/**",
-                "${workspaceFolder}/scenes/**",
+                "${workspaceFolder}/assets/**",
                 "${workspaceFolder}/deps/**",
                 "${workspaceFolder}/deps/sokol/**",
                 "${workspaceFolder}/deps/glm/**",
-                "${workspaceFolder}/deps/rapidjson/**",
                 "${workspaceFolder}/deps/fmt/**",
                 "${workspaceFolder}/deps/flecs/**",
+                "${workspaceFolder}/deps/imgui/**",
+                "${workspaceFolder}/deps/imgui/backends/**",
                 "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include",
                 "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include"
             ],
@@ -48,7 +49,8 @@
                 "-arch",
                 "arm64",
                 "-Wno-c99-designator",
-                "-Wno-reorder-init-list"
+                "-Wno-reorder-init-list",
+                "-Wno-arc-bridge-casts-disallowed-in-nonarc"
             ],
             "browse": {
                 "path": [
