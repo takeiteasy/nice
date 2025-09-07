@@ -4,27 +4,28 @@
 
 ## TODO
 
-- [ ] Chunk queries from lua for things like hit detection and collision
-- [ ] Collision for entities with walls and each other, lua callback on collision
-- [ ] Tile destruction and chunk modification from lua 
+- [ ] Clean up coordinate system for entity set position
+    - [ ] Add set_entity_position_(screen|world|grid) etc
+- [ ] Find random empty tile function for lua
+- [ ] Cross-chunk pathfinding
+- [ ] Chunk modification/queries from lua
 - [ ] Cursor + tile selection
-- [ ] Thread pooled A*
 - [ ] Arguments, settings, configs
     - [ ] Handle arguments from lua?
-    - [ ] Check for configs in zip
-    - [ ] Configs in lua instead of JSON? Both?
+    - [ ] Add .ini loader
+    - [ ] Check for configs in zip or disk
     - [ ] Expose settings to lua
-- [ ] Default texture instead of crashing
 - [ ] Proper save path destination 
 - [ ] Audio manager
-- [ ] Menu scene (minimal)
+- [ ] Menu scene
 - [ ] Scene transition, loading screen
 - [ ] Debug tools, chunk monitor, entity monitor, console, modify lua file, lua repl, assets, settings, draw call monitor
 - [ ] Fonts, text rendering
-- [ ] Package binary into app, release builds for Make
+- [ ] Package binary into app, release builds
 - [ ] Emscripten build
 - [ ] Windows build
 - [ ] Linux build
+- [X] ~~Thread pooled A*~~
 - [X] ~~Rewrite chunk serialization, must include tile.visited~~
 - [x] ~~Rework camera, integrate with ECS~~
 - [x] ~~Expose poisson to lua~~
@@ -33,6 +34,7 @@
 
 ### Ideas:
 
+- [ ] Entity 'collision' (modify astar walkable check to query entities?)
 - [ ] Rework scenes, handle in lua instead
     - [ ] Maybe lua scenes could be used in tandem with cpp scenes?
 - [ ] Support fennel + teal
@@ -44,6 +46,7 @@
 - [ ] Cellular automata optional, override in lua or add alternative methods 
 - [ ] Chunk loading rules
 - [ ] Sandboxing with lua amalgm?
+- [ ] Default texture instead of crashing
 
 ## LICENSE
 ```

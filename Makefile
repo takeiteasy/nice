@@ -80,11 +80,11 @@ DAT_SRC := $(TOOLS_DIR)/setup.lua
 
 # Default and Meta Targets
 # -----------------------------------------------------------------------------
-.PHONY: default all clean run makerun test builddir shaders dat lua flecs nicepkg nice
+.PHONY: default all clean run testpkg test builddir shaders dat lua flecs nicepkg nice
 
 default: nice
 
-all: clean builddir shaders dat lua flecs nicepkg test nice
+all: clean builddir shaders lua dat flecs nicepkg testpkg nice
 
 # Directory Creation
 # -----------------------------------------------------------------------------
@@ -110,7 +110,7 @@ lua: $(LUA)
 
 # Data Embedding
 # -----------------------------------------------------------------------------
-$(DAT_H): $(DAT_SRC) $(LUA)
+$(DAT_H): $(DAT_SRC)
 	./$(LUA) $(TOOLS_DIR)/embed.lua $(DAT_SRC) > $(DAT_H)
 
 dat: $(DAT_H)
@@ -131,24 +131,24 @@ nicepkg: $(NICEPKG)
 
 # Main Executable
 # -----------------------------------------------------------------------------
-$(EXE): builddir shaders dat flecs
+$(EXE): builddir
 	$(CXX) $(INC) $(CFLAGS) $(SOURCE) -I$(SHADER_DST) -L$(BUILD_DIR) -lflecs_$(ARCH) -o $(EXE)
 
 nice: $(EXE)
 
 # Test Asset Generation
 # -----------------------------------------------------------------------------
-$(ASSETS): $(LUA) $(NICEPKG)
+$(ASSETS): builddir 
 	./$(LUA) $(TOOLS_DIR)/nicepkg.lua test/hand.png -x test/tilemap.png test/test.lua -o test/assets.nice
 
-test: $(ASSETS)
+testpkg: $(ASSETS)
 
 # Run Application
 # -----------------------------------------------------------------------------
 run:
 	./$(EXE); rm -f *.niceworld
 
-makerun: test nice run
+test: testpkg nice run
 
 # Cleanup
 # -----------------------------------------------------------------------------

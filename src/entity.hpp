@@ -81,19 +81,23 @@ struct Entity {
                 $Entities.add_entity_target(entity, chunk, target);
             });
         
-        world.observer<LuaTarget>()
-            .event(flecs::OnSet)
+        // System to assign next waypoint when entity doesn't have one but has a target
+        world.system<LuaTarget>("AssignWaypoint")
+            .without<LuaWaypoint>()
             RUN_LOCK($Entities.entities_lock())
             .each([](flecs::entity entity, LuaTarget& target) {
-                if (entity.has<LuaWaypoint>())
-                    return;
-                auto [status, waypoint] = $Entities.get_next_waypoint(entity).value_or(std::make_pair(PathRequestResult::TargetUnreachable, glm::ivec2(0,0)));
-                if (status == PathRequestResult::StillSearching) {
-                    std::cout << fmt::format("Entity {} moving to waypoint ({}, {})\n", entity.id(), waypoint.x, waypoint.y);
-                    entity.set<LuaWaypoint>({static_cast<int>(waypoint.x), static_cast<int>(waypoint.y)});
-                } else {
-                    std::cout << fmt::format("Entity {} target {}, clearing target\n", status == PathRequestResult::TargetUnreachable ? "unreachable" : "reached", entity.id());
-                    entity.remove<LuaTarget>();
+                auto waypoint_result = $Entities.get_next_waypoint(entity);
+                if (waypoint_result.has_value()) {
+                    auto [status, waypoint] = waypoint_result.value();
+                    if (status == PathRequestResult::StillSearching || status == PathRequestResult::TargetReached) {
+                        std::cout << fmt::format("Entity {} moving to waypoint ({}, {}) - Status: {}\n", 
+                            entity.id(), waypoint.x, waypoint.y, 
+                            status == PathRequestResult::StillSearching ? "StillSearching" : "TargetReached");
+                        entity.set<LuaWaypoint>({static_cast<int>(waypoint.x), static_cast<int>(waypoint.y)});
+                    } else if (status == PathRequestResult::TargetUnreachable) {
+                        std::cout << fmt::format("Entity {} target unreachable, clearing target\n", entity.id());
+                        entity.remove<LuaTarget>();
+                    }
                 }
             });
 
@@ -104,29 +108,34 @@ struct Entity {
                 if (dt <= 0.0f)
                     return; // Skip if no delta time
 
-                glm::vec2 direction = glm::vec2(waypoint.x - entity_data.x, waypoint.y - entity_data.y);
+                glm::vec2 current_pos = {entity_data.x, entity_data.y};
+                glm::vec2 target_pos = {static_cast<float>(waypoint.x), static_cast<float>(waypoint.y)};
+                glm::vec2 direction = target_pos - current_pos;
                 float distance = glm::length(direction);
-                if (distance < 1.0f) {
-                    // Close enough, snap to target and remove component
+                
+                const float ARRIVAL_THRESHOLD = 2.0f; // World units, adjust based on your tile size
+                
+                if (distance < ARRIVAL_THRESHOLD) {
+                    // Close enough, snap to target and remove waypoint
                     std::cout << fmt::format("Entity {} reached waypoint ({}, {})\n", entity.id(), waypoint.x, waypoint.y);
-                    entity_data.x = waypoint.x;
-                    entity_data.y = waypoint.y;
+                    entity_data.x = target_pos.x;
+                    entity_data.y = target_pos.y;
                     entity.remove<LuaWaypoint>();
                 } else {
-                    // Normalize direction and move at constant speed
+                    // Move towards target at constant speed
                     glm::vec2 normalized_direction = glm::normalize(direction);
                     glm::vec2 delta = normalized_direction * entity_data.speed * dt;
                     
                     // Check if we would overshoot the target
                     float movement_distance = glm::length(delta);
                     if (movement_distance >= distance) {
-                        std::cout << fmt::format("Entity {} overshooting waypoint, snapping to ({}, {})\n", entity.id(), waypoint.x, waypoint.y);
                         // We would overshoot, so just move directly to target
-                        entity_data.x = waypoint.x;
-                        entity_data.y = waypoint.y;
+                        std::cout << fmt::format("Entity {} overshooting waypoint, snapping to ({}, {})\n", entity.id(), waypoint.x, waypoint.y);
+                        entity_data.x = target_pos.x;
+                        entity_data.y = target_pos.y;
                         entity.remove<LuaWaypoint>();
                     } else {
-                        // Move towards target at constant speed
+                        // Move towards target
                         entity_data.x += delta.x;
                         entity_data.y += delta.y;
                     }
@@ -137,14 +146,23 @@ struct Entity {
             .event(flecs::OnRemove)
             RUN_LOCK($Entities.entities_lock())
             .each([](flecs::entity entity, LuaWaypoint& waypoint) {
-                auto [status, next_waypoint] = $Entities.get_next_waypoint(entity).value_or(std::make_pair(PathRequestResult::TargetUnreachable, glm::ivec2(0,0)));
-                if (status == PathRequestResult::StillSearching) {
-                    entity.set<LuaWaypoint>({static_cast<int>(next_waypoint.x), static_cast<int>(next_waypoint.y)});
-                    std::cout << fmt::format("Entity {} moving to next waypoint ({}, {})\n", entity.id(), next_waypoint.x, next_waypoint.y);
-                } else {
-                    if (entity.has<LuaTarget>())
+                // Only continue if entity still has a target
+                if (!entity.has<LuaTarget>())
+                    return;
+                
+                auto waypoint_result = $Entities.get_next_waypoint(entity);
+                if (waypoint_result.has_value()) {
+                    auto [status, next_waypoint] = waypoint_result.value();
+                    if (status == PathRequestResult::StillSearching) {
+                        std::cout << fmt::format("Entity {} continuing to next waypoint ({}, {})\n", entity.id(), next_waypoint.x, next_waypoint.y);
+                        entity.set<LuaWaypoint>({static_cast<int>(next_waypoint.x), static_cast<int>(next_waypoint.y)});
+                    } else if (status == PathRequestResult::TargetReached) {
+                        std::cout << fmt::format("Entity {} reached target, clearing target\n", entity.id());
                         entity.remove<LuaTarget>();
-                    std::cout << fmt::format("Entity {} target {}, clearing target\n", status == PathRequestResult::TargetUnreachable ? "unreachable" : "reached", entity.id());
+                    } else if (status == PathRequestResult::TargetUnreachable) {
+                        std::cout << fmt::format("Entity {} target unreachable, clearing target\n", entity.id());
+                        entity.remove<LuaTarget>();
+                    }
                 }
             });
         

@@ -164,26 +164,78 @@ public:
     , _path_request_queue([&](PathRequest request) {
         std::cout << fmt::format("Processing path request for entity {}\n", request.entity.id());
         std::optional<std::vector<glm::vec2>> path = std::nullopt;
+        
         $Chunks.get_chunk(request.chunk.x, request.chunk.y, [&](Chunk *c) {
-            if (c)
-                path = c->astar(request.start, request.end);
+            if (!c)
+                return;
+            // Convert world coordinates to tile coordinates within the chunk
+            glm::vec2 start_world = request.start;
+            glm::vec2 end_world = request.end;
+            // Convert to chunk-local tile coordinates
+            glm::vec2 chunk_world_pos = Camera::chunk_to_world(request.chunk.x, request.chunk.y);
+            glm::vec2 start_tile = Camera::world_to_tile(start_world);
+            glm::vec2 end_tile = Camera::world_to_tile(end_world);
+            // Get tile coordinates relative to chunk
+            int start_x = static_cast<int>(start_tile.x) % CHUNK_WIDTH;
+            int start_y = static_cast<int>(start_tile.y) % CHUNK_HEIGHT;
+            int end_x = static_cast<int>(end_tile.x) % CHUNK_WIDTH;
+            int end_y = static_cast<int>(end_tile.y) % CHUNK_HEIGHT;
+            // Ensure coordinates are within chunk bounds
+            start_x = glm::clamp(start_x, 0, CHUNK_WIDTH - 1);
+            start_y = glm::clamp(start_y, 0, CHUNK_HEIGHT - 1);
+            end_x = glm::clamp(end_x, 0, CHUNK_WIDTH - 1);
+            end_y = glm::clamp(end_y, 0, CHUNK_HEIGHT - 1);
+            path = c->astar(glm::vec2(start_x, start_y), glm::vec2(end_x, end_y));
+            // Convert path back to world coordinates
+            if (path.has_value())
+                for (auto& point : path.value()) {
+                    glm::vec2 world_pos = Camera::tile_to_world(request.chunk.x, request.chunk.y, 
+                                                                static_cast<int>(point.x), static_cast<int>(point.y));
+                    point = world_pos;
+                }
         });
+        
         std::lock_guard<std::mutex> lock(_waypoints_mutex);
         if (!path.has_value() || path->empty()) {
             std::cout << fmt::format("Pathfinding failed for entity {}\n", request.entity.id());
             _waypoints[request.entity].first = PathRequestResult::TargetUnreachable;
             _entities_requesting_paths.erase(request.entity);
         } else {
+            std::cout << fmt::format("Pathfinding succeeded for entity {}, found path with {} points\n", 
+                                   request.entity.id(), path->size());
             _waypoints[request.entity].first = PathRequestResult::StillSearching;
-            _waypoints[request.entity].second.insert(_waypoints[request.entity].second.end(), path->begin(), path->end());
-            if (path->end()->x == request.end.x &&
-                path->end()->y == request.end.y) {
+            
+            // Store up to 3 waypoints ahead for caching
+            int max_cache = std::min(3, static_cast<int>(path->size()));
+            auto& waypoint_cache = _waypoints[request.entity].second;
+            // Don't clear the cache - append new waypoints to existing ones
+            
+            for (int i = 1; i < max_cache + 1 && i < path->size(); ++i) { // Skip first point (current position)
+                waypoint_cache.push_back(path->at(i));
+                std::cout << fmt::format("Cached waypoint {}: ({}, {})\n", i, path->at(i).x, path->at(i).y);
+            }
+            
+            // Check if the cached waypoints include the final target or if we're close enough
+            bool target_reached = false;
+            if (!waypoint_cache.empty()) {
+                glm::vec2 last_cached = waypoint_cache.back();
+                target_reached = (glm::distance(last_cached, request.end) < 1.0f) || 
+                                (path->size() <= max_cache + 1);  // +1 because we skip the first point
+            }
+            
+            if (target_reached) {
                 _waypoints[request.entity].first = PathRequestResult::TargetReached;
                 _entities_requesting_paths.erase(request.entity);
-                std::cout << fmt::format("Pathfinding succeeded for entity {}, target reached\n", request.entity.id());
+                std::cout << fmt::format("Pathfinding completed for entity {}, target reached\n", request.entity.id());
             } else {
-                _path_request_queue.enqueue({request.entity, request.chunk, path->back(), request.end});
-                std::cout << fmt::format("Pathfinding partial for entity {}, continuing search\n", request.entity.id());
+                // Continue pathfinding from the last cached waypoint
+                glm::vec2 continuation_start = path->at(max_cache);
+                glm::vec2 target_chunk_pos = Camera::world_to_chunk(request.end);
+                LuaChunk target_chunk = {static_cast<uint32_t>(target_chunk_pos.x), static_cast<uint32_t>(target_chunk_pos.y)};
+                
+                _path_request_queue.enqueue({request.entity, target_chunk, continuation_start, request.end});
+                std::cout << fmt::format("Pathfinding partial for entity {}, continuing search from ({}, {})\n", 
+                                       request.entity.id(), continuation_start.x, continuation_start.y);
             }
         }
     }) {}
@@ -200,12 +252,17 @@ public:
             return;
         }
         
-        // Convert world position to tile position within the chunk
-        glm::vec2 world_pos = {entity_data->x, entity_data->y};
-        glm::vec2 tile_pos = Camera::world_to_tile(world_pos);
+        // Convert target tile coordinates to world coordinates
+        glm::vec2 target_world = Camera::tile_to_world(chunk.x, chunk.y, target.x, target.y);
         
-        // Enqueue the path request with proper start and end positions
-        _path_request_queue.enqueue({entity, chunk, {tile_pos.x, tile_pos.y}, {target.x, target.y}});
+        // Current position is already in world coordinates
+        glm::vec2 start_world = {entity_data->x, entity_data->y};
+        
+        std::cout << fmt::format("Setting target for entity {} from ({}, {}) to ({}, {}) in world coords\n", 
+                                entity.id(), start_world.x, start_world.y, target_world.x, target_world.y);
+        
+        // Enqueue the path request with proper world coordinates
+        _path_request_queue.enqueue({entity, chunk, start_world, target_world});
     }
 
     std::optional<std::pair<PathRequestResult, glm::vec2>> get_next_waypoint(flecs::entity entity) {
@@ -213,11 +270,31 @@ public:
         auto it = _waypoints.find(entity);
         if (it == _waypoints.end() || it->second.second.empty())
             return std::nullopt;
+        
         glm::vec2 next = it->second.second.front();
         it->second.second.erase(it->second.second.begin());
-        if (it->second.first == PathRequestResult::TargetReached || it->second.first == PathRequestResult::TargetUnreachable)
+        
+        PathRequestResult status = it->second.first;
+        
+        // If this is the last waypoint and pathfinding is complete, return TargetReached
+        if (it->second.second.empty() && status == PathRequestResult::TargetReached) {
             _waypoints.erase(it);
-        return {{it->second.first, next}};
+            return {{PathRequestResult::TargetReached, next}};
+        }
+        
+        // If this is the last waypoint but pathfinding is still in progress, keep searching
+        if (it->second.second.empty() && status == PathRequestResult::StillSearching) {
+            return {{PathRequestResult::StillSearching, next}};
+        }
+        
+        // Clean up if target is unreachable
+        if (it->second.second.empty() && status == PathRequestResult::TargetUnreachable) {
+            _waypoints.erase(it);
+            return {{PathRequestResult::TargetUnreachable, next}};
+        }
+        
+        // More waypoints available, keep searching
+        return {{PathRequestResult::StillSearching, next}};
     }
 
     void clear_target(flecs::entity entity) {
