@@ -16,13 +16,13 @@
 - [ ] Proper save path destination 
 - [ ] Audio manager
 - [ ] Menu scene
-- [ ] Scene transition, loading screen
 - [ ] Debug tools, chunk monitor, entity monitor, console, modify lua file, lua repl, assets, settings, draw call monitor
 - [ ] Fonts, text rendering
 - [ ] Package binary into app, release builds
 - [ ] Emscripten build
 - [ ] Windows build
 - [ ] Linux build
+- [X] ~~Rework scenes, handle in lua instead~~
 - [X] ~~Clean up coordinate system for entity set position~~
 - [X] ~~Thread pooled A*~~
 - [X] ~~Rewrite chunk serialization, must include tile.visited~~
@@ -33,9 +33,6 @@
 
 ### Ideas:
 
-- [ ] Entity 'collision' (modify astar walkable check to query entities?)
-- [ ] Rework scenes, handle in lua instead
-    - [ ] Maybe lua scenes could be used in tandem with cpp scenes?
 - [ ] Support fennel + teal
 - [ ] Optional autotile, different autotile configuration, autotile tool
 - [ ] Isometric rendering

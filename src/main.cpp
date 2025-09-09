@@ -27,24 +27,9 @@
 #include "input_manager.hpp"
 #include "argparse.hpp"
 #include "INIReader.h"
-
-#define X(NAME)                                     \
-extern void NAME##_enter(void);                     \
-extern void NAME##_exit(void);                      \
-extern void NAME##_step(void);                      \
-extern void NAME##_event(const sapp_event *event);  \
-struct scene NAME##_scene = {                       \
-    .name = #NAME,                                  \
-    .enter = NAME##_enter,                          \
-    .exit = NAME##_exit,                            \
-    .step = NAME##_step,                            \
-    .event = NAME##_event                           \
-};
-SCENES
-#undef X
+#include "world.hpp"
 
 static struct {
-    struct scene *scene_prev, *scene_current, *next_scene;
     sg_pipeline pipeline;
     sg_pass_action pass_action;
     sg_bindings bind;
@@ -54,36 +39,8 @@ static struct {
     sg_shader shader;
     int framebuffer_width = DEFAULT_WINDOW_WIDTH;
     int framebuffer_height = DEFAULT_WINDOW_HEIGHT;
+    World *world;
 } state;
-
-static struct scene* find_scene(const char *name) {
-    size_t name_len = strlen(name);
-#define X(NAME) \
-    if (!strncmp(name, #NAME, name_len)) \
-        return &NAME##_scene;
-    SCENES
-#undef X
-    fprintf(stderr, "[ERROR] Unknown scene '%s'", name);
-    abort();
-}
-
-void set_scene(struct scene *scene) {
-    if (!scene) {
-        sapp_quit();
-        return;
-    }
-
-    if (!state.scene_current) {
-        state.scene_current = scene;
-        state.scene_current->enter();
-    } else
-        if (strncmp(scene->name, state.scene_current->name, strlen(scene->name)))
-            state.next_scene = scene;
-}
-
-void set_scene_named(const char *name) {
-    set_scene(find_scene(name));
-}
 
 int framebuffer_width(void) {
     return state.framebuffer_width;
@@ -162,13 +119,14 @@ static void init(void) {
         .logger.func = slog_func,
     };
     sg_setup(&desc);
-
     sdtx_desc_t dtx_desc = {
         .fonts = { sdtx_font_oric() }
     };
     sdtx_setup(&dtx_desc);
-
     stm_setup();
+
+    $Assets.set_archive("test/assets.nice");
+    state.world = new World();
 
     state.shader = sg_make_shader(passthru_shader_desc(sg_query_backend()));
 
@@ -228,26 +186,33 @@ static void init(void) {
     simgui_desc_t simgui_desc = { };
     simgui_desc.logger.func = slog_func;
     simgui_setup(&simgui_desc);
-
-#define _STRINGIFY(s) #s
-#define STRINGIFY(S) _STRINGIFY(S)
-    set_scene_named(STRINGIFY(FIRST_SCENE));
 }
 
 static void frame(void) {
-    if (!state.scene_current) {
-        sapp_quit();
-        return;
-    }
-
     int width = sapp_width();
     int height = sapp_height();
     simgui_new_frame({ width, height, sapp_frame_duration(), sapp_dpi_scale() });
+    sdtx_canvas(width, height);
+    sdtx_home();
+    sdtx_printf("fps:    %.2f\n", 1.f / sapp_frame_duration());
+    sdtx_printf("pos:    (%.2f, %.2f)\n", state.world->camera()->position().x, state.world->camera()->position().y);
+    sdtx_printf("zoom:   %.2f\n", state.world->camera()->zoom());
+    glm::vec2 mouse_position = $Input.mouse_position();
+    sdtx_printf("mouse:  (%.2f, %.2f)\n", mouse_position.x, mouse_position.y);
+    glm::vec2 mouse_world = state.world->camera()->screen_to_world(mouse_position);
+    sdtx_printf("world:  (%.2f, %.2f)\n", mouse_world.x, mouse_world.y);
+    glm::vec2 mouse_chunk = Camera::world_to_chunk(mouse_world);
+    sdtx_printf("chunk:  (%d, %d)\n", (int)mouse_chunk.x, (int)mouse_chunk.y);
+    glm::vec2 mouse_tile = Camera::world_to_tile(mouse_world);
+    sdtx_printf("tile:   (%d, %d)\n", (int)mouse_tile.x, (int)mouse_tile.y);
+    Rect bounds = state.world->camera()->bounds();
+    sdtx_printf("camera: (%d, %d, %d, %d)\n", bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h);
 
     sg_begin_pass(&state.pass);
-    sdtx_canvas(width, height);
-    state.scene_current->step();
+    if (!state.world->update(sapp_frame_duration()))
+        sapp_quit();
     sg_end_pass();
+
     sg_pass pass_desc = {
         .action = state.pass_action,
         .swapchain = sglue_swapchain()
@@ -261,28 +226,16 @@ static void frame(void) {
     sg_end_pass();
     sg_commit();
     $Input.update();
-
-    if (state.next_scene) {
-        if ((state.scene_prev = state.scene_current)) {
-            state.scene_current->exit();
-            $Assets.clear();
-        }
-        if ((state.scene_current = state.next_scene))
-            state.scene_current->enter();
-        state.next_scene = NULL;
-    }
 }
 
 static void event(const sapp_event *event) {
-    if (!simgui_handle_event(event)) {
-        if (state.scene_current != NULL)
-            state.scene_current->event(event);
+    if (!simgui_handle_event(event))
         $Input.handle(event);
-    }
 }
 
 static void cleanup(void) {
-    state.scene_current->exit();
+    if (state.world)
+        delete state.world;
     $Assets.clear();
     sg_shutdown();
 }

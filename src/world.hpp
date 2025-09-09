@@ -35,7 +35,7 @@
 class World {
     uuid::v4::UUID _id;
 
-    Camera *_camera;
+    Camera _camera;
     Texture *_tilemap;
     sg_shader _shader;
     sg_pipeline _pipeline;
@@ -287,7 +287,7 @@ class World {
     }
 
 public:
-    World(Camera *camera, const char *path = nullptr): _camera(camera), _id(uuid::v4::UUID::New()) {
+    World(const char *path = nullptr): _id(uuid::v4::UUID::New()) {
         // Initialize graphics resources
         _shader = sg_make_shader(basic_shader_desc(sg_query_backend()));
         sg_pipeline_desc desc = {
@@ -322,7 +322,7 @@ public:
         _tilemap = $Assets.get<Texture>("test/tilemap.exploded");
 
         // Initialize chunk manager
-        $Chunks.initialize(_camera, _tilemap, _id);
+        $Chunks.initialize(&_camera, _tilemap, _id);
 
         if (path != nullptr)
             if (!_import(path))
@@ -495,7 +495,7 @@ public:
             World* world = get_world_from_lua(L);
             if (!world)
                 return 0;
-            glm::vec2 pos = world->_camera->position();
+            glm::vec2 pos = world->camera()->position();
             lua_newtable(L);
             lua_pushnumber(L, pos.x);
             lua_setfield(L, -2, "x");
@@ -519,7 +519,7 @@ public:
             }
             World* world = get_world_from_lua(L);
             if (world)
-                world->_camera->set_position(glm::vec2(x, y));
+                world->camera()->set_position(glm::vec2(x, y));
             return 0;
         });
 
@@ -538,13 +538,13 @@ public:
             }
             World* world = get_world_from_lua(L);
             if (world)
-                world->_camera->move_by(glm::vec2(x, y));
+                world->camera()->move_by(glm::vec2(x, y));
             return 0;
         });
 
         lua_register(L, "camera_zoom", [](lua_State *L) -> int {
             World* world = get_world_from_lua(L);
-            lua_pushnumber(L, world ? world->_camera->zoom() : 0.f);
+            lua_pushnumber(L, world ? world->camera()->zoom() : 0.f);
             return 1;
         });
 
@@ -552,7 +552,7 @@ public:
             float z = static_cast<float>(luaL_checknumber(L, 1));
             World *world = get_world_from_lua(L);
             if (world)
-                world->_camera->set_zoom(z);
+                world->camera()->set_zoom(z);
             return 0;
         });
 
@@ -560,7 +560,7 @@ public:
             float delta = static_cast<float>(luaL_checknumber(L, 1));
             World *world = get_world_from_lua(L);
             if (world)
-                world->_camera->zoom_by(delta);
+                world->camera()->zoom_by(delta);
             return 0;
         });
 
@@ -570,7 +570,7 @@ public:
                 lua_pushnil(L);
                 return 1;
             } else {
-                Rect bounds = world->_camera->bounds();
+                Rect bounds = world->camera()->bounds();
                 lua_newtable(L);
                 lua_pushnumber(L, bounds.x);
                 lua_setfield(L, -2, "x");
@@ -602,7 +602,7 @@ public:
                     world_x = static_cast<float>(luaL_checknumber(L, 1));
                     world_y = static_cast<float>(luaL_checknumber(L, 2));
                 }
-                glm::vec2 screen_pos = world->_camera->world_to_screen(glm::vec2(world_x, world_y));
+                glm::vec2 screen_pos = world->camera()->world_to_screen(glm::vec2(world_x, world_y));
                 lua_newtable(L);
                 lua_pushnumber(L, screen_pos.x);
                 lua_setfield(L, -2, "x");
@@ -630,7 +630,7 @@ public:
                     screen_x = static_cast<float>(luaL_checknumber(L, 1));
                     screen_y = static_cast<float>(luaL_checknumber(L, 2));
                 }
-                glm::vec2 world_pos = world->_camera->screen_to_world(glm::vec2(screen_x, screen_y));
+                glm::vec2 world_pos = world->camera()->screen_to_world(glm::vec2(screen_x, screen_y));
                 lua_newtable(L);
                 lua_pushnumber(L, world_pos.x);
                 lua_setfield(L, -2, "x");
@@ -1189,7 +1189,7 @@ public:
                 return 1;
             }
             Rect entity_bounds = EntityManager::entity_bounds(*entity_data);
-            Rect camera_bounds = world->_camera->bounds();
+            Rect camera_bounds = world->camera()->bounds();
             lua_pushboolean(L, camera_bounds.intersects(entity_bounds));
             return 1;
         });
@@ -1286,8 +1286,8 @@ public:
     }
 
     bool update(float dt) {
-        Rect camera_bounds = _camera->bounds();
-        Rect max_bounds = _camera->max_bounds();
+        Rect camera_bounds = _camera.bounds();
+        Rect max_bounds = _camera.max_bounds();
         
         $Chunks.update_chunks(camera_bounds, max_bounds);
         $Chunks.update_deletion_queue();
@@ -1298,11 +1298,13 @@ public:
         
         bool result = _world->progress(dt);
         if (result) {
-            $Entities.finalize(_camera);
-            $Chunks.draw_chunks(_pipeline, _camera->is_dirty());
+            $Entities.finalize(&_camera);
+            $Chunks.draw_chunks(_pipeline, _camera.is_dirty());
             sg_apply_pipeline(_renderables_pipeline);
-            $Entities.flush(_camera);
+            $Entities.flush(&_camera);
         }
         return result;
     }
+
+    Camera* camera() { return &_camera; }
 };
