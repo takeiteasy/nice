@@ -8,7 +8,6 @@
 #pragma once
 
 #include "global.hpp"
-#include "components.hpp"
 #include "vertex_batch.hpp"
 #include "asset_manager.hpp"
 #include "job_queue.hpp"
@@ -24,6 +23,38 @@
 
 // Forward declaration
 class Chunk;
+
+ECS_STRUCT(LuaEntity, {
+    float x;
+    float y;
+    float width;
+    float height;
+    uint32_t texture_id;
+    uint32_t z_index;
+    float rotation;
+    float scale_x;
+    float scale_y;
+    uint32_t clip_x;
+    uint32_t clip_y;
+    uint32_t clip_width;
+    uint32_t clip_height;
+    float speed;
+});
+
+struct LuaChunk {
+    uint32_t x;
+    uint32_t y;
+};
+
+struct LuaTarget {
+    int x;
+    int y;
+};
+
+struct LuaWaypoint {
+    int x;
+    int y;
+};
 
 struct BasicVertex {
     glm::vec2 position;
