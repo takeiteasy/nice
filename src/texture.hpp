@@ -7,7 +7,6 @@
 
 #pragma once
 
-#include "nice.hpp"
 #include "sokol/sokol_gfx.h"
 #include "qoi.h"
 #include <string>

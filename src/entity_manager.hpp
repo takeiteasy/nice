@@ -7,7 +7,6 @@
 
 #pragma once
 
-#include "nice.hpp"
 #include "global.hpp"
 #include "components.hpp"
 #include "vertex_batch.hpp"

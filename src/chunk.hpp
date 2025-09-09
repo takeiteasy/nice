@@ -7,7 +7,6 @@
 
 #pragma once
 
-#include "nice.hpp"
 #include "vertex_batch.hpp"
 #include "camera.hpp"
 #include <unordered_map>
@@ -20,6 +19,9 @@
 #include <queue>
 #include "fmt/format.h"
 #include "basic.glsl.h"
+
+extern uint64_t index(int x, int y);
+extern std::pair<int, int> unindex(uint64_t i);
 
 static const glm::vec2 Autotile3x3Simplified[256] = {
     [0] = {0, 3},

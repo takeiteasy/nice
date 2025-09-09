@@ -7,11 +7,14 @@
 
 #pragma once
 
-#include "nice.hpp"
 #include "glm/vec2.hpp"
 #include "glm/mat4x4.hpp"
 #include "glm/gtc/matrix_transform.hpp"
 #include "sokol/sokol_app.h"
+
+extern int framebuffer_width(void);
+extern int framebuffer_height(void);
+extern void framebuffer_resize(int width, int height);
 
 struct Rect {
     int x, y, w, h;

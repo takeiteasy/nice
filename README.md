@@ -9,7 +9,6 @@
 - [ ] Chunk modification/queries from lua
 - [ ] Cursor + tile selection
 - [ ] Arguments, settings, configs
-    - [ ] Handle arguments from lua?
     - [ ] Check for configs (.ini) in zip or disk
     - [ ] Expose settings to lua
 - [ ] Auto-cleanup of entities on destroyed chunks (optional)
@@ -23,7 +22,7 @@
 - [ ] Windows build
 - [ ] Linux build
 - [X] ~~Rework scenes, handle in lua instead~~
-- [X] ~~Clean up coordinate system for entity set position~~
+- [X] ~~Clean up lua entity functions~~
 - [X] ~~Thread pooled A*~~
 - [X] ~~Rewrite chunk serialization, must include tile.visited~~
 - [x] ~~Rework camera, integrate with ECS~~

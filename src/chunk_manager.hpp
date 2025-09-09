@@ -7,7 +7,6 @@
 
 #pragma once
 
-#include "nice.hpp"
 #include "global.hpp"
 #include "chunk.hpp"
 #include "job_queue.hpp"
