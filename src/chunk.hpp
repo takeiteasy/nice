@@ -870,4 +870,23 @@ public:
             throw std::runtime_error(std::string("Failed to deserialize chunk: ") + e.what());
         }
     }
+
+    std::optional<std::pair<int, int>> random_walkable_tile(bool lock=true) const {
+        if (lock)
+            std::shared_lock<std::shared_mutex> read_lock(_read_mutex);
+        
+        std::vector<std::pair<int, int>> walkable_tiles;
+        for (int x = 0; x < CHUNK_WIDTH; x++)
+            for (int y = 0; y < CHUNK_HEIGHT; y++)
+                if (!_tiles[x][y].solid)
+                    walkable_tiles.emplace_back(x, y);
+        
+        if (walkable_tiles.empty())
+            return std::nullopt;
+        
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<> dis(0, static_cast<int>(walkable_tiles.size()) - 1);
+        return walkable_tiles[dis(gen)];
+    }
 };

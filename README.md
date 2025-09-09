@@ -4,7 +4,6 @@
 
 ## TODO
 
-- [ ] Find random empty tile function for lua
 - [ ] Cross-chunk pathfinding
 - [ ] Chunk modification/queries from lua
 - [ ] Cursor + tile selection
@@ -21,6 +20,7 @@
 - [ ] Emscripten build
 - [ ] Windows build
 - [ ] Linux build
+- [X] ~~Find random empty tile function for lua~~
 - [X] ~~Rework scenes, handle in lua instead~~
 - [X] ~~Clean up lua entity functions~~
 - [X] ~~Thread pooled A*~~

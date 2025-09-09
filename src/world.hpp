@@ -1242,6 +1242,38 @@ public:
             return 0;
         });
 
+        lua_register(L, "random_empty_tile_in_chunk", [](lua_State *L) -> int {
+            int cx = 0;
+            int cy = 0;
+            if (lua_istable(L, 1)) {
+                lua_getfield(L, 1, "x");
+                lua_getfield(L, 1, "y");
+                cx = static_cast<int>(luaL_checkinteger(L, -2));
+                cy = static_cast<int>(luaL_checkinteger(L, -1));
+                lua_pop(L, 2); // Remove x and y from stack
+            } else {
+                cx = static_cast<int>(luaL_checkinteger(L, 1));
+                cy = static_cast<int>(luaL_checkinteger(L, 2));
+            }
+            World* world = get_world_from_lua(L);
+            if (!world) {
+                std::cout << "ERROR! World instance not found in Lua registry in random_empty_tile_in_chunk\n";
+                lua_pushnil(L);
+                return 1;
+            }
+            auto p = $Chunks.random_walkable_tile_in_chunk(cx, cy);
+            if (!p.has_value()) {
+                lua_pushnil(L);
+                return 1;
+            }
+            lua_newtable(L);
+            lua_pushinteger(L, p->first);
+            lua_setfield(L, -2, "x");
+            lua_pushinteger(L, p->second);
+            lua_setfield(L, -2, "y");
+            return 1;
+        });
+
         // Register input functions
         $Input.load_into_lua(L);
 #pragma endregion

@@ -444,6 +444,20 @@ public:
             _chunk_callbacks.clear();
         }
     }
+
+    std::optional<std::pair<int, int>> random_walkable_tile_in_chunk(int cx, int cy) {
+        Chunk* chunk = nullptr;
+        uint64_t idx = index(cx, cy);
+        {
+            std::shared_lock<std::shared_mutex> lock(_chunks_lock);
+            auto it = _chunks.find(idx);
+            if (it != _chunks.end())
+                chunk = it->second;
+        }
+        if (chunk && chunk->is_filled())
+            return chunk->random_walkable_tile();
+        return std::nullopt;
+    }
     
     void clear() {
         cleanup_lua_callbacks();
