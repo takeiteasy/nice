@@ -232,7 +232,7 @@ class World {
         World* world = static_cast<World*>(lua_touserdata(L, -1));
         lua_pop(L, 1); // Remove the userdata from stack
         if (!world) {
-            luaL_error(L, "World instance not found");
+            std::cout << "World instance not found in Lua registry\n";
             return nullptr;
         }
         return world;
@@ -240,37 +240,49 @@ class World {
 
     static const LuaEntity* get_entity_from_lua(lua_State* L) {
         World* world = get_world_from_lua(L);
-        if (!world)
-            throw std::runtime_error("Failed to get World instance from Lua");
+        if (!world) {
+            std::cout << "Failed to get World instance from Lua\n";
+            return nullptr;
+        }
         uint64_t entity_id = static_cast<uint64_t>(luaL_checkinteger(L, 1));
         flecs::entity entity = world->_world->entity(entity_id);
         const LuaEntity* entity_data = entity.get<LuaEntity>();
-        if (!entity_data)
-            throw std::runtime_error("Entity does not have LuaEntity component");
+        if (!entity_data) {
+            std::cout << "Entity does not have LuaEntity component\n";
+            return nullptr;
+        }
         return entity_data;
     }
 
     static LuaEntity* get_mutable_entity_from_lua(lua_State* L) {
         World* world = get_world_from_lua(L);
-        if (!world)
-            throw std::runtime_error("Failed to get World instance from Lua");
+        if (!world) {
+            std::cout << "Failed to get World instance from Lua\n";
+            return nullptr;
+        }
         uint64_t entity_id = static_cast<uint64_t>(luaL_checkinteger(L, 1));
         flecs::entity entity = world->_world->entity(entity_id);
         LuaEntity* entity_data = entity.get_mut<LuaEntity>();
-        if (!entity_data)
-            throw std::runtime_error("Entity does not have LuaEntity component");
+        if (!entity_data) {
+            std::cout << "Entity does not have LuaEntity component\n";
+            return nullptr;
+        }
         return entity_data;
     }
 
     static flecs::entity get_flecs_entity_from_lua(lua_State* L) {
         World* world = get_world_from_lua(L);
-        if (!world)
-            throw std::runtime_error("Failed to get World instance from Lua");
+        if (!world) {
+            std::cout << "Failed to get World instance from Lua\n";
+            return flecs::entity::null();
+        }
         uint64_t entity_id = static_cast<uint64_t>(luaL_checkinteger(L, 1));
         flecs::entity entity = world->_world->entity(entity_id);
         const LuaEntity* entity_data = entity.get<LuaEntity>();
-        if (!entity_data)
-            throw std::runtime_error("Entity does not have LuaEntity component");
+        if (!entity_data) {
+            std::cout << "Entity does not have LuaEntity component\n";
+            return flecs::entity::null();
+        }
         return entity;
     }
 
@@ -484,145 +496,286 @@ public:
             if (!world)
                 return 0;
             glm::vec2 pos = world->_camera->position();
+            lua_newtable(L);
             lua_pushnumber(L, pos.x);
+            lua_setfield(L, -2, "x");
             lua_pushnumber(L, pos.y);
-            return 2;
+            lua_setfield(L, -2, "y");
+            return 1;
         });
 
         lua_register(L, "camera_set_position", [](lua_State *L) -> int {
-            float x = static_cast<int>(luaL_checknumber(L, 1));
-            float y = static_cast<int>(luaL_checknumber(L, 2));
-            // Get World instance from Lua registry
+            float x = 0;
+            float y = 0;
+            if (lua_istable(L, 1)) {
+                lua_getfield(L, 1, "x");
+                lua_getfield(L, 1, "y");
+                x = static_cast<float>(luaL_checknumber(L, -2));
+                y = static_cast<float>(luaL_checknumber(L, -1));
+                lua_pop(L, 2); // Remove x and y from stack
+            } else {
+                x = static_cast<float>(luaL_checknumber(L, 1));
+                y = static_cast<float>(luaL_checknumber(L, 2));
+            }
             World* world = get_world_from_lua(L);
-            if (!world)
-                return 0;
-            world->_camera->set_position(glm::vec2(x, y));
+            if (world)
+                world->_camera->set_position(glm::vec2(x, y));
             return 0;
         });
 
         lua_register(L, "camera_move", [](lua_State *L) -> int {
-            float x = static_cast<int>(luaL_checknumber(L, 1));
-            float y = static_cast<int>(luaL_checknumber(L, 2));
-            // Get World instance from Lua registry
+            float x = 0;
+            float y = 0;
+            if (lua_istable(L, 1)) {
+                lua_getfield(L, 1, "x");
+                lua_getfield(L, 1, "y");
+                x = static_cast<float>(luaL_checknumber(L, -2));
+                y = static_cast<float>(luaL_checknumber(L, -1));
+                lua_pop(L, 2); // Remove x and y from stack
+            } else {
+                x = static_cast<float>(luaL_checknumber(L, 1));
+                y = static_cast<float>(luaL_checknumber(L, 2));
+            }
             World* world = get_world_from_lua(L);
-            if (!world)
-                return 0;
-            world->_camera->move_by(glm::vec2(x, y));
+            if (world)
+                world->_camera->move_by(glm::vec2(x, y));
             return 0;
         });
 
         lua_register(L, "camera_zoom", [](lua_State *L) -> int {
             World* world = get_world_from_lua(L);
-            if (!world)
-                return 0;
-            lua_pushnumber(L, world->_camera->zoom());
+            lua_pushnumber(L, world ? world->_camera->zoom() : 0.f);
             return 1;
         });
 
         lua_register(L, "camera_set_zoom", [](lua_State *L) -> int {
             float z = static_cast<float>(luaL_checknumber(L, 1));
             World *world = get_world_from_lua(L);
-            if (!world)
-                return 0;
-            world->_camera->set_zoom(z);
+            if (world)
+                world->_camera->set_zoom(z);
             return 0;
         });
 
         lua_register(L, "camera_zoom_by", [](lua_State *L) -> int {
             float delta = static_cast<float>(luaL_checknumber(L, 1));
             World *world = get_world_from_lua(L);
-            if (!world)
-                return 0;
-            world->_camera->zoom_by(delta);
+            if (world)
+                world->_camera->zoom_by(delta);
             return 0;
         });
 
         lua_register(L, "camera_bounds", [](lua_State *L) -> int {
             World* world = get_world_from_lua(L);
-            if (!world)
-                return 0;
-            Rect bounds = world->_camera->bounds();
-            lua_pushnumber(L, bounds.x);
-            lua_pushnumber(L, bounds.y);
-            lua_pushnumber(L, bounds.w);
-            lua_pushnumber(L, bounds.h);
-            return 4;
+            if (!world) {
+                lua_pushnil(L);
+                return 1;
+            } else {
+                Rect bounds = world->_camera->bounds();
+                lua_newtable(L);
+                lua_pushnumber(L, bounds.x);
+                lua_setfield(L, -2, "x");
+                lua_pushnumber(L, bounds.y);
+                lua_setfield(L, -2, "y");
+                lua_pushnumber(L, bounds.w);
+                lua_setfield(L, -2, "w");
+                lua_pushnumber(L, bounds.h);
+                lua_setfield(L, -2, "h");
+                return 1;
+            }
         });
 
         lua_register(L, "world_to_screen", [](lua_State *L) -> int {
-            float world_x = static_cast<float>(luaL_checknumber(L, 1));
-            float world_y = static_cast<float>(luaL_checknumber(L, 2));
             World* world = get_world_from_lua(L);
-            if (!world)
-                return 0;
-            glm::vec2 screen_pos = world->_camera->world_to_screen(glm::vec2(world_x, world_y));
-            lua_pushnumber(L, screen_pos.x);
-            lua_pushnumber(L, screen_pos.y);
-            return 2;
+            if (!world) {
+                lua_pushnil(L);
+                return 1;
+            } else {
+                float world_x = 0;
+                float world_y = 0;
+                if (lua_istable(L, 1)) {
+                    lua_getfield(L, 1, "x");
+                    lua_getfield(L, 1, "y");
+                    world_x = static_cast<float>(luaL_checknumber(L, -2));
+                    world_y = static_cast<float>(luaL_checknumber(L, -1));
+                    lua_pop(L, 2); // Remove x and y from stack
+                } else {
+                    world_x = static_cast<float>(luaL_checknumber(L, 1));
+                    world_y = static_cast<float>(luaL_checknumber(L, 2));
+                }
+                glm::vec2 screen_pos = world->_camera->world_to_screen(glm::vec2(world_x, world_y));
+                lua_newtable(L);
+                lua_pushnumber(L, screen_pos.x);
+                lua_setfield(L, -2, "x");
+                lua_pushnumber(L, screen_pos.y);
+                lua_setfield(L, -2, "y");
+                return 1;
+            }
         });
 
         lua_register(L, "screen_to_world", [](lua_State *L) -> int {
-            float screen_x = static_cast<float>(luaL_checknumber(L, 1));
-            float screen_y = static_cast<float>(luaL_checknumber(L, 2));
             World* world = get_world_from_lua(L);
-            if (!world)
+            if (!world) {
+                lua_pushnil(L);
                 return 0;
-            glm::vec2 world_pos = world->_camera->screen_to_world(glm::vec2(screen_x, screen_y));
-            lua_pushnumber(L, world_pos.x);
-            lua_pushnumber(L, world_pos.y);
-            return 2;
+            } else {
+                float screen_x = 0;
+                float screen_y = 0;
+                if (lua_istable(L, 1)) {
+                    lua_getfield(L, 1, "x");
+                    lua_getfield(L, 1, "y");
+                    screen_x = static_cast<float>(luaL_checknumber(L, -2));
+                    screen_y = static_cast<float>(luaL_checknumber(L, -1));
+                    lua_pop(L, 2); // Remove x and y from stack
+                } else {
+                    screen_x = static_cast<float>(luaL_checknumber(L, 1));
+                    screen_y = static_cast<float>(luaL_checknumber(L, 2));
+                }
+                glm::vec2 world_pos = world->_camera->screen_to_world(glm::vec2(screen_x, screen_y));
+                lua_newtable(L);
+                lua_pushnumber(L, world_pos.x);
+                lua_setfield(L, -2, "x");
+                lua_pushnumber(L, world_pos.y);
+                lua_setfield(L, -2, "y");
+                return 1;
+            }
         });
 
         lua_register(L, "world_to_tile", [](lua_State *L) -> int {
-            float world_x = static_cast<float>(luaL_checknumber(L, 1));
-            float world_y = static_cast<float>(luaL_checknumber(L, 2));
+            float world_x = 0;
+            float world_y = 0;
+            if (lua_istable(L, 1)) {
+                lua_getfield(L, 1, "x");
+                lua_getfield(L, 1, "y");
+                world_x = static_cast<float>(luaL_checknumber(L, -2));
+                world_y = static_cast<float>(luaL_checknumber(L, -1));
+                lua_pop(L, 2); // Remove x and y from stack
+            } else {
+                world_x = static_cast<float>(luaL_checknumber(L, 1));
+                world_y = static_cast<float>(luaL_checknumber(L, 2));
+            }
             glm::vec2 tile = Camera::world_to_tile(glm::vec2(world_x, world_y));
+            lua_newtable(L);
             lua_pushnumber(L, tile.x);
+            lua_setfield(L, -2, "x");
             lua_pushnumber(L, tile.y);
-            return 2;
+            lua_setfield(L, -2, "y");
+            return 1;
         });
 
         lua_register(L, "world_to_chunk", [](lua_State *L) -> int {
-            float world_x = static_cast<float>(luaL_checknumber(L, 1));
-            float world_y = static_cast<float>(luaL_checknumber(L, 2));
+            float world_x = 0;
+            float world_y = 0;
+            if (lua_istable(L, 1)) {
+                lua_getfield(L, 1, "x");
+                lua_getfield(L, 1, "y");
+                world_x = static_cast<float>(luaL_checknumber(L, -2));
+                world_y = static_cast<float>(luaL_checknumber(L, -1));
+                lua_pop(L, 2); // Remove x and y from stack
+            } else {
+                world_x = static_cast<float>(luaL_checknumber(L, 1));
+                world_y = static_cast<float>(luaL_checknumber(L, 2));
+            }
             glm::vec2 chunk = Camera::world_to_chunk(glm::vec2(world_x, world_y));
+            lua_newtable(L);
             lua_pushnumber(L, chunk.x);
+            lua_setfield(L, -2, "x");
             lua_pushnumber(L, chunk.y);
-            return 2;
+            lua_setfield(L, -2, "y");
+            return 1;
         });
 
         lua_register(L, "chunk_to_world", [](lua_State *L) -> int {
-            int chunk_x = static_cast<int>(luaL_checkinteger(L, 1));
-            int chunk_y = static_cast<int>(luaL_checkinteger(L, 2));
-            glm::vec2 world_pos = Camera::chunk_to_world(chunk_x, chunk_y);
+            int cx = 0;
+            int cy = 0;
+            if (lua_istable(L, 1)) {
+                lua_getfield(L, 1, "x");
+                lua_getfield(L, 1, "y");
+                cx = static_cast<int>(luaL_checkinteger(L, -2));
+                cy = static_cast<int>(luaL_checkinteger(L, -1));
+                lua_pop(L, 2); // Remove x and y from stack
+            } else {
+                cx = static_cast<int>(luaL_checkinteger(L, 1));
+                cy = static_cast<int>(luaL_checkinteger(L, 2));
+            }
+            glm::vec2 world_pos = Camera::chunk_to_world(cx, cy);
+            lua_newtable(L);
             lua_pushnumber(L, world_pos.x);
+            lua_setfield(L, -2, "x");
             lua_pushnumber(L, world_pos.y);
-            return 2;
+            lua_setfield(L, -2, "y");
+            return 1;
         });
 
         lua_register(L, "tile_to_world", [](lua_State *L) -> int {
             glm::vec2 world_pos;
-            flecs::entity e = get_flecs_entity_from_lua(L);
-            // entity, tile_x, tile_y
-            const LuaChunk *chunk = e.get<LuaChunk>();
-            int tile_x = static_cast<int>(luaL_checkinteger(L, 2));
-            int tile_y = static_cast<int>(luaL_checkinteger(L, 3));
-            world_pos = Camera::tile_to_world(chunk->x, chunk->y, tile_x, tile_y);
+            int cx = 0;
+            int cy = 0;
+            int tx = 0;
+            int ty = 0;
+            if (lua_istable(L, 1)) {
+                if (lua_gettop(L) == 1) {
+                    lua_getfield(L, 1, "chunk_x");
+                    lua_getfield(L, 1, "chunk_y");
+                    lua_getfield(L, 1, "tile_x");
+                    lua_getfield(L, 1, "tile_y");
+                    cx = static_cast<int>(luaL_checkinteger(L, -4));
+                    cy = static_cast<int>(luaL_checkinteger(L, -3));
+                    tx = static_cast<int>(luaL_checkinteger(L, -2));
+                    ty = static_cast<int>(luaL_checkinteger(L, -1));
+                } else {
+                    lua_getfield(L, 1, "x");
+                    lua_getfield(L, 1, "y");
+                    lua_getfield(L, 2, "x");
+                    lua_getfield(L, 2, "y");
+                    cx = static_cast<int>(luaL_checkinteger(L, -4));
+                    cy = static_cast<int>(luaL_checkinteger(L, -3));
+                    tx = static_cast<int>(luaL_checkinteger(L, -2));
+                    ty = static_cast<int>(luaL_checkinteger(L, -1));
+                }
+                lua_pop(L, 4); // Remove chunk_x, chunk_y, tile_x, tile_y from stack
+            } else {
+                cx = static_cast<int>(luaL_checkinteger(L, 1));
+                cy = static_cast<int>(luaL_checkinteger(L, 2));
+                tx = static_cast<int>(luaL_checkinteger(L, 3));
+                ty = static_cast<int>(luaL_checkinteger(L, 4));
+            }
+            world_pos = Camera::tile_to_world(cx, cy, tx, ty);
+            lua_newtable(L);
             lua_pushnumber(L, world_pos.x);
+            lua_setfield(L, -2, "x");
             lua_pushnumber(L, world_pos.y);
-            return 2;
+            lua_setfield(L, -2, "y");
+            return 1;
         });
+
+
 
         lua_register(L, "set_entity_world_position", [](lua_State *L) -> int {
             flecs::entity e = get_flecs_entity_from_lua(L);
+            if (!e.is_valid()) {
+                std::cout << "ERROR! Invalid entity in set_entity_world_position\n";
+                return 0;
+            }
             LuaEntity* entity_data = e.get_mut<LuaEntity>();
-            if (!entity_data)
-                throw std::runtime_error("Entity is missing LuaEntity component");
+            if (!entity_data) {
+                std::cout << fmt::format("ERROR! Entity {} is missing LuaEntity component\n", e.id());
+                return 0;
+            }
             LuaChunk *chunk = e.get_mut<LuaChunk>();
-            if (!chunk)
-                throw std::runtime_error("Entity is missing LuaChunk component");
-            entity_data->x = static_cast<float>(luaL_checknumber(L, 2));
-            entity_data->y = static_cast<float>(luaL_checknumber(L, 3));
+            if (!chunk) {
+                std::cout << fmt::format("ERROR! Entity {} is missing LuaChunk component\n", e.id());
+                return 0;
+            }
+            if (lua_istable(L, 2)) {
+                lua_getfield(L, 2, "x");
+                lua_getfield(L, 2, "y");
+                entity_data->x = static_cast<float>(luaL_checknumber(L, -2));
+                entity_data->y = static_cast<float>(luaL_checknumber(L, -1));
+                lua_pop(L, 2); // Remove x and y from stack
+            } else {
+                entity_data->x = static_cast<float>(luaL_checknumber(L, 2));
+                entity_data->y = static_cast<float>(luaL_checknumber(L, 3));
+            }
             glm::vec2 _chunk = Camera::world_to_chunk({entity_data->x, entity_data->y});
             chunk->x = static_cast<int>(_chunk.x);
             chunk->y = static_cast<int>(_chunk.y);
@@ -631,137 +784,285 @@ public:
 
         lua_register(L, "get_entity_world_position", [](lua_State *L) -> int {
             const LuaEntity* entity_data = get_entity_from_lua(L);
+            if (!entity_data) {
+                std::cout << "ERROR! Invalid entity in get_entity_world_position\n";
+                lua_pushnil(L);
+                return 1;
+            }
+            lua_newtable(L);
             lua_pushnumber(L, entity_data->x);
+            lua_setfield(L, -2, "x");
             lua_pushnumber(L, entity_data->y);
-            return 2;
+            lua_setfield(L, -2, "y");
+            return 1;
         });
 
         lua_register(L, "set_entity_position", [](lua_State *L) -> int {
             flecs::entity e = get_flecs_entity_from_lua(L);
+            if (!e.is_valid()) {
+                std::cout << "ERROR! Invalid entity in set_entity_position\n";
+                return 0;
+            }
             LuaEntity* entity_data = e.get_mut<LuaEntity>();
-            if (!entity_data)
-                throw std::runtime_error("Entity is missing LuaEntity component");
+            if (!entity_data) {
+                std::cout << fmt::format("ERROR! Entity {} is missing LuaEntity component\n", e.id());
+                return 0;
+            }
             LuaChunk *chunk = e.get_mut<LuaChunk>();
-            if (!chunk)
-                throw std::runtime_error("Entity is missing LuaChunk component");
-            int chunk_x = static_cast<int>(luaL_checkinteger(L, 2));
-            int chunk_y = static_cast<int>(luaL_checkinteger(L, 3));
-            int tile_x = static_cast<int>(luaL_checkinteger(L, 4));
-            int tile_y = static_cast<int>(luaL_checkinteger(L, 5));
-            glm::vec2 world_pos = Camera::tile_to_world(chunk_x, chunk_y, tile_x, tile_y);
+            if (!chunk) {
+                std::cout << fmt::format("ERROR! Entity {} is missing LuaChunk component\n", e.id());
+                return 0;
+            }
+            int cx = 0;
+            int cy = 0;
+            int tx = 0;
+            int ty = 0;
+            if (lua_istable(L, 2)) {
+                if (lua_gettop(L) == 2) {
+                    lua_getfield(L, 2, "chunk_x");
+                    lua_getfield(L, 2, "chunk_y");
+                    lua_getfield(L, 2, "tile_x");
+                    lua_getfield(L, 2, "tile_y");
+                    cx = static_cast<int>(luaL_checkinteger(L, -4));
+                    cy = static_cast<int>(luaL_checkinteger(L, -3));
+                    tx = static_cast<int>(luaL_checkinteger(L, -2));
+                    ty = static_cast<int>(luaL_checkinteger(L, -1));
+                } else if (lua_gettop(L) == 3) {
+                    lua_getfield(L, 2, "x");
+                    lua_getfield(L, 2, "y");
+                    lua_getfield(L, 3, "x");
+                    lua_getfield(L, 3, "y");
+                    cx = static_cast<int>(luaL_checkinteger(L, -4));
+                    cy = static_cast<int>(luaL_checkinteger(L, -3));
+                    tx = static_cast<int>(luaL_checkinteger(L, -2));
+                    ty = static_cast<int>(luaL_checkinteger(L, -1));
+                }
+                lua_pop(L, 4); // Remove values from stack
+            } else {
+                cx = static_cast<int>(luaL_checkinteger(L, 2));
+                cy = static_cast<int>(luaL_checkinteger(L, 3));
+                tx = static_cast<int>(luaL_checkinteger(L, 4));
+                ty = static_cast<int>(luaL_checkinteger(L, 5));
+            }
+            glm::vec2 world_pos = Camera::tile_to_world(cx, cy, tx, ty);
             entity_data->x = world_pos.x;
             entity_data->y = world_pos.y;
-            chunk->x = chunk_x;
-            chunk->y = chunk_y;
+            chunk->x = cx;
+            chunk->y = cy;
             return 0;
         });
 
         lua_register(L, "get_entity_position", [](lua_State *L) -> int {
             const LuaEntity* entity_data = get_entity_from_lua(L);
+            if (!entity_data) {
+                std::cout << "ERROR! Invalid entity in get_entity_position\n";
+                lua_pushnil(L);
+                return 1;
+            }
             glm::vec2 chunk = Camera::world_to_chunk({entity_data->x, entity_data->y});
             glm::vec2 tile = Camera::world_to_tile({entity_data->x, entity_data->y});
+            lua_newtable(L);
             lua_pushinteger(L, static_cast<int>(chunk.x));
+            lua_setfield(L, -2, "chunk_x");
             lua_pushinteger(L, static_cast<int>(chunk.y));
+            lua_setfield(L, -2, "chunk_y");
             lua_pushinteger(L, static_cast<int>(tile.x));
+            lua_setfield(L, -2, "tile_x");
             lua_pushinteger(L, static_cast<int>(tile.y));
-            return 4;
+            lua_setfield(L, -2, "tile_y");
+            return 1;
         });
 
         lua_register(L, "set_entity_size", [](lua_State *L) -> int {
             LuaEntity* entity_data = get_mutable_entity_from_lua(L);
             switch (lua_gettop(L)) {
                 case 2:
-                    entity_data->width = entity_data->height = static_cast<float>(luaL_checknumber(L, 2));
+                    if (lua_istable(L, 2)) {
+                        lua_getfield(L, 2, "width");
+                        lua_getfield(L, 2, "height");
+                        entity_data->width = static_cast<float>(luaL_checknumber(L, -2));
+                        entity_data->height = static_cast<float>(luaL_checknumber(L, -1));
+                        lua_pop(L, 2); // Remove width and height from stack
+                    } else
+                        entity_data->width = entity_data->height = static_cast<float>(luaL_checknumber(L, 2));
                     break;
                 case 3:
                     entity_data->width = static_cast<float>(luaL_checknumber(L, 2));
                     entity_data->height = static_cast<float>(luaL_checknumber(L, 3));
                     break;
                 default:
-                    luaL_error(L, "set_entity_size expects either (entity, size) or (entity, width, height)");
+                    std::cout << "ERROR! set_entity_size expects either (entity, size) or (entity, width, height)\n";
             }
             return 0;
         });
 
         lua_register(L, "get_entity_size", [](lua_State *L) -> int {
             const LuaEntity* entity_data = get_entity_from_lua(L);
+            if (!entity_data) {
+                std::cout << "ERROR! Invalid entity in get_entity_size\n";
+                lua_pushnil(L);
+                return 1;
+            }
+            lua_newtable(L);
             lua_pushnumber(L, entity_data->width);
+            lua_setfield(L, -2, "width");
             lua_pushnumber(L, entity_data->height);
-            return 2;
+            lua_setfield(L, -2, "height");
+            return 1;
         });
 
         lua_register(L, "set_entity_z", [](lua_State *L) -> int {
             LuaEntity* entity_data = get_mutable_entity_from_lua(L);
-            entity_data->z_index = static_cast<float>(luaL_checknumber(L, 2));
+            if (!entity_data)
+                std::cout << "ERROR! Invalid entity in set_entity_z\n";
+            else
+                entity_data->z_index = static_cast<float>(luaL_checknumber(L, 2));
             return 0;
         });
 
         lua_register(L, "get_entity_z", [](lua_State *L) -> int {
             const LuaEntity* entity_data = get_entity_from_lua(L);
-            lua_pushnumber(L, entity_data->z_index);
+            if (!entity_data) {
+                std::cout << "ERROR! Invalid entity in get_entity_z\n";
+                lua_pushnil(L);
+            } else
+                lua_pushnumber(L, entity_data->z_index);
             return 1;
         });
 
         lua_register(L, "set_entity_rotation", [](lua_State *L) -> int {
             LuaEntity* entity_data = get_mutable_entity_from_lua(L);
-            entity_data->rotation = static_cast<float>(luaL_checknumber(L, 2));
+            if (!entity_data)
+                std::cout << "ERROR! Invalid entity in set_entity_rotation\n";
+            else
+                entity_data->rotation = static_cast<float>(luaL_checknumber(L, 2));
             return 0;
         });
 
         lua_register(L, "get_entity_rotation", [](lua_State *L) -> int {
             const LuaEntity* entity_data = get_entity_from_lua(L);
-            lua_pushnumber(L, entity_data->rotation);
+            if (!entity_data) {
+                std::cout << "ERROR! Invalid entity in get_entity_rotation\n";
+                lua_pushnil(L);
+            } else
+                lua_pushnumber(L, entity_data->rotation);
             return 1;
         });
 
         lua_register(L, "set_entity_scale", [](lua_State *L) -> int {
             LuaEntity* entity_data = get_mutable_entity_from_lua(L);
+            if (!entity_data) {
+                std::cout << "ERROR! Invalid entity in set_entity_scale\n";
+                return 0;
+            }
             switch (lua_gettop(L)) {
                 case 2:
-                    entity_data->scale_x = entity_data->scale_y = static_cast<float>(luaL_checknumber(L, 2));
+                    if (lua_istable(L, 2)) {
+                        lua_getfield(L, 2, "x");
+                        lua_getfield(L, 2, "y");
+                        entity_data->scale_x = static_cast<float>(luaL_checknumber(L, -2));
+                        entity_data->scale_y = static_cast<float>(luaL_checknumber(L, -1));
+                        lua_pop(L, 2); // Remove x and y from stack
+                    } else
+                        entity_data->scale_x = entity_data->scale_y = static_cast<float>(luaL_checknumber(L, 2));
                     break;
                 case 3:
                     entity_data->scale_x = static_cast<float>(luaL_checknumber(L, 2));
                     entity_data->scale_y = static_cast<float>(luaL_checknumber(L, 3));
                     break;
                 default:
-                    luaL_error(L, "set_entity_scale expects either (entity, scale) or (entity, scale_x, scale_y)");
+                    std::cout << "ERROR! set_entity_scale expects either (entity, scale) or (entity, scale_x, scale_y)\n";
             }
             return 0;
         });
 
         lua_register(L, "get_entity_scale", [](lua_State *L) -> int {
             const LuaEntity* entity_data = get_entity_from_lua(L);
-            lua_pushnumber(L, entity_data->scale_x);
-            lua_pushnumber(L, entity_data->scale_y);
-            return 2;
+            if (!entity_data) {
+                std::cout << "ERROR! Invalid entity in get_entity_scale\n";
+                lua_pushnil(L);
+            } else {
+                lua_newtable(L);
+                lua_pushnumber(L, entity_data->scale_x);
+                lua_setfield(L, -2, "x");
+                lua_pushnumber(L, entity_data->scale_y);
+                lua_setfield(L, -2, "y");
+            }
+            return 1;
         });
 
         lua_register(L, "set_entity_clip", [](lua_State *L) -> int {
             LuaEntity* entity_data = get_mutable_entity_from_lua(L);
-            if (lua_gettop(L) == 1) {
-                entity_data->clip_x = 0;
-                entity_data->clip_y = 0;
-                entity_data->clip_width = 0;
-                entity_data->clip_height = 0;
-            } else {
-                entity_data->clip_x = static_cast<int>(luaL_checkinteger(L, 2));
-                entity_data->clip_y = static_cast<int>(luaL_checkinteger(L, 3));
-                entity_data->clip_width = static_cast<int>(luaL_checkinteger(L, 4));
-                entity_data->clip_height = static_cast<int>(luaL_checkinteger(L, 5));
+            if (!entity_data) {
+                std::cout << "ERROR! Invalid entity in set_entity_clip\n";
+                return 0;
+            }
+            switch (lua_gettop(L)) {
+                case 1:
+                    entity_data->clip_x = 0;
+                    entity_data->clip_y = 0;
+                    entity_data->clip_width = 0;
+                    entity_data->clip_height = 0;
+                    break;
+                case 2:
+                    lua_getfield(L, 2, "x");
+                    lua_getfield(L, 2, "y");
+                    lua_getfield(L, 2, "width");
+                    lua_getfield(L, 2, "height");
+                    entity_data->clip_x = static_cast<int>(luaL_checkinteger(L, -4));
+                    entity_data->clip_y = static_cast<int>(luaL_checkinteger(L, -3));
+                    entity_data->clip_width = static_cast<int>(luaL_checkinteger(L, -2));
+                    entity_data->clip_height = static_cast<int>(luaL_checkinteger(L, -1));
+                    lua_pop(L, 4); // Remove x, y, width, height from stack
+                    break;
+                case 3:
+                    lua_getfield(L, 2, "x");
+                    lua_getfield(L, 2, "y");
+                    lua_getfield(L, 3, "width");
+                    lua_getfield(L, 3, "height");
+                    entity_data->clip_x = static_cast<int>(luaL_checkinteger(L, -4));
+                    entity_data->clip_y = static_cast<int>(luaL_checkinteger(L, -3));
+                    entity_data->clip_width = static_cast<int>(luaL_checkinteger(L, -2));
+                    entity_data->clip_height = static_cast<int>(luaL_checkinteger(L, -1));
+                    lua_pop(L, 4); // Remove x, y, width, height from stack
+                    break;
+                case 5:
+                    entity_data->clip_width = static_cast<int>(luaL_checkinteger(L, 2));
+                    entity_data->clip_height = static_cast<int>(luaL_checkinteger(L, 3));
+                    entity_data->clip_x = static_cast<int>(luaL_checkinteger(L, 4));
+                    entity_data->clip_y = static_cast<int>(luaL_checkinteger(L, 5));
+                    break;
+                default:
+                    std::cout << "ERROR! set_entity_clip expects either (entity) to clear clipping, (entity, {x=.., y=.., width=.., height=..}) or (entity, width, height, x, y)\n";
             }
             return 0;
         });
 
         lua_register(L, "set_entity_clip_size", [](lua_State *L) -> int {
             LuaEntity* entity_data = get_mutable_entity_from_lua(L);
-            entity_data->clip_width = static_cast<int>(luaL_checkinteger(L, 2));
-            entity_data->clip_height = static_cast<int>(luaL_checkinteger(L, 3));
+            if (!entity_data) {
+                std::cout << "ERROR! Invalid entity in set_entity_clip_size\n";
+                return 0;
+            }
+            if (lua_istable(L, 2)) {
+                lua_getfield(L, 2, "width");
+                lua_getfield(L, 2, "height");
+                entity_data->clip_width = static_cast<int>(luaL_checkinteger(L, -2));
+                entity_data->clip_height = static_cast<int>(luaL_checkinteger(L, -1));
+                lua_pop(L, 2); // Remove width and height from stack
+            } else {
+                entity_data->clip_width = static_cast<int>(luaL_checkinteger(L, 2));
+                entity_data->clip_height = static_cast<int>(luaL_checkinteger(L, 3));
+            }
             return 0;
         });
 
         lua_register(L, "set_entity_clip_offset", [](lua_State *L) -> int {
             LuaEntity* entity_data = get_mutable_entity_from_lua(L);
+            if (!entity_data) {
+                std::cout << "ERROR! Invalid entity in set_entity_clip_offset\n";
+                return 0;
+            }
             entity_data->clip_x = static_cast<int>(luaL_checkinteger(L, 2));
             entity_data->clip_y = static_cast<int>(luaL_checkinteger(L, 3));
             return 0;
@@ -769,6 +1070,11 @@ public:
 
         lua_register(L, "get_entity_clip", [](lua_State *L) -> int {
             const LuaEntity* entity_data = get_entity_from_lua(L);
+            if (!entity_data) {
+                std::cout << "ERROR! Invalid entity in get_entity_clip\n";
+                lua_pushnil(L);
+                return 1;
+            }
             lua_newtable(L);
             lua_pushinteger(L, entity_data->clip_x);
             lua_setfield(L, -2, "x");
@@ -783,12 +1089,21 @@ public:
 
         lua_register(L, "set_entity_speed", [](lua_State *L) -> int {
             LuaEntity* entity_data = get_mutable_entity_from_lua(L);
+            if (!entity_data) {
+                std::cout << "ERROR! Invalid entity in set_entity_speed\n";
+                return 0;
+            }
             entity_data->speed = static_cast<float>(luaL_checknumber(L, 2));
             return 0;
         });
 
         lua_register(L, "get_entity_speed", [](lua_State *L) -> int {
             const LuaEntity* entity_data = get_entity_from_lua(L);
+            if (!entity_data) {
+                std::cout << "ERROR! Invalid entity in get_entity_speed\n";
+                lua_pushnil(L);
+                return 1;
+            }
             lua_pushnumber(L, entity_data->speed);
             return 1;
         });
@@ -831,12 +1146,22 @@ public:
 
         lua_register(L, "entity_has_target", [](lua_State *L) -> int {
             flecs::entity entity = get_flecs_entity_from_lua(L);
+            if (!entity.is_valid()) {
+                std::cout << "ERROR! Invalid entity in entity_has_target\n";
+                lua_pushboolean(L, false);
+                return 1;
+            }
             lua_pushboolean(L, entity.has<LuaTarget>());
             return 1;
         });
 
         lua_register(L, "get_entity_bounds", [](lua_State *L) -> int {
             const LuaEntity* entity_data = get_entity_from_lua(L);
+            if (!entity_data) {
+                std::cout << "ERROR! Invalid entity in get_entity_bounds\n";
+                lua_pushnil(L);
+                return 1;
+            }
             Rect bounds = EntityManager::entity_bounds(*entity_data);
             lua_newtable(L);
             lua_pushinteger(L, bounds.x);
@@ -852,9 +1177,17 @@ public:
 
         lua_register(L, "is_entity_visible", [](lua_State *L) -> int {
             const LuaEntity* entity_data = get_entity_from_lua(L);
+            if (!entity_data) {
+                std::cout << "ERROR! Invalid entity in is_entity_visible\n";
+                lua_pushboolean(L, false);
+                return 1;
+            }
             World* world = get_world_from_lua(L);
-            if (!world)
-                throw std::runtime_error("Internal Error: World instance not found in Lua registry");
+            if (!world) {
+                std::cout << "ERROR! World instance not found in Lua registry in is_entity_visible\n";
+                lua_pushboolean(L, false);
+                return 1;
+            }
             Rect entity_bounds = EntityManager::entity_bounds(*entity_data);
             Rect camera_bounds = world->_camera->bounds();
             lua_pushboolean(L, camera_bounds.intersects(entity_bounds));

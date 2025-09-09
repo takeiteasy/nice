@@ -283,9 +283,8 @@ public:
         }
         
         // If this is the last waypoint but pathfinding is still in progress, keep searching
-        if (it->second.second.empty() && status == PathRequestResult::StillSearching) {
+        if (it->second.second.empty() && status == PathRequestResult::StillSearching)
             return {{PathRequestResult::StillSearching, next}};
-        }
         
         // Clean up if target is unreachable
         if (it->second.second.empty() && status == PathRequestResult::TargetUnreachable) {

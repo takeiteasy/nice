@@ -4,8 +4,6 @@
 
 ## TODO
 
-- [ ] Clean up coordinate system for entity set position
-    - [ ] Add set_entity_position_(screen|world|grid) etc
 - [ ] Find random empty tile function for lua
 - [ ] Cross-chunk pathfinding
 - [ ] Chunk modification/queries from lua
@@ -25,6 +23,7 @@
 - [ ] Emscripten build
 - [ ] Windows build
 - [ ] Linux build
+- [X] ~~Clean up coordinate system for entity set position~~
 - [X] ~~Thread pooled A*~~
 - [X] ~~Rewrite chunk serialization, must include tile.visited~~
 - [x] ~~Rework camera, integrate with ECS~~
