@@ -6,7 +6,7 @@
 # -----------------------------------------------------------------------------
 NAME := nice
 BUILD_DIR := build
-TOOLS_DIR := assets
+ASSETS_DIR := assets
 
 # Platform Detection
 # -----------------------------------------------------------------------------
@@ -74,7 +74,8 @@ SHADER_OUTS := $(patsubst $(SHADERS_SRC)/%,$(SHADER_DST)/%.h,$(SHADERS))
 
 # Data Generation
 # -----------------------------------------------------------------------------
-DAT_SRC := $(TOOLS_DIR)/setup.lua
+DAT_SRC := $(ASSETS_DIR)/setup.lua \
+		   $(ASSETS_DIR)/default_tilemap.qoi
 
 # =============================================================================
 # Build Rules
@@ -113,7 +114,7 @@ lua: $(LUA)
 # Data Embedding
 # -----------------------------------------------------------------------------
 $(DAT_H): $(DAT_SRC)
-	./$(LUA) $(TOOLS_DIR)/embed.lua $(DAT_SRC) > $(DAT_H)
+	./$(LUA) $(ASSETS_DIR)/embed.lua $(DAT_SRC) > $(DAT_H)
 
 dat: $(DAT_H)
 
@@ -127,7 +128,7 @@ flecs: $(FLECS_LIB)
 # NicePkg Library
 # -----------------------------------------------------------------------------
 $(NICEPKG): builddir
-	$(CC) -shared -fpic -Wno-tautological-compare -o $(NICEPKG) $(TOOLS_DIR)/nicepkg.c deps/minilua.c -Ideps
+	$(CC) -shared -fpic -Wno-tautological-compare -o $(NICEPKG) $(ASSETS_DIR)/nicepkg.c deps/minilua.c -Ideps
 
 nicepkg: $(NICEPKG)
 
@@ -140,8 +141,15 @@ nice: $(EXE)
 
 # Test Asset Generation
 # -----------------------------------------------------------------------------
-$(ASSETS): builddir 
-	./$(LUA) $(TOOLS_DIR)/nicepkg.lua test/hand.png -x test/tilemap.png test/test.lua -o test/assets.nice
+$(ASSETS): builddir
+	./$(LUA) $(ASSETS_DIR)/nicepkg.lua \
+		-x test/tilemap.png \
+		test/hand.png \
+		test/robot.png \
+		test/ores.png \
+		test/boom.wav \
+		test/test.lua \
+		-o test/assets.nice
 
 testpkg: $(ASSETS)
 

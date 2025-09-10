@@ -1,3 +1,4 @@
 local ecs = require("ecs")
 
-NiceEntity = ecs.lookup("LuaEntity")
+ChunkEntity = ecs.lookup("LuaChunkEntity")
+Entity = ecs.lookup("LuaEntity")

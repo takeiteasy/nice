@@ -6,7 +6,7 @@
 //
 
 #define MODULES \
-    X(Entity)
+    X(ChunkEntity)
 
 #define FIRST_SCENE game
 
@@ -26,6 +26,8 @@
 #define TILE_ORIGINAL_WIDTH 8
 #define TILE_ORIGINAL_HEIGHT 8
 #define TILE_PADDING 4
+
+#define TILEMAP_PATH "test/tilemap.exploded"
 
 #define MAX_ZOOM 2.f
 #define MIN_ZOOM .2f

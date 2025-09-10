@@ -6,7 +6,7 @@
 
 - [ ] Cross-chunk pathfinding
 - [ ] Chunk modification/queries from lua
-- [ ] Cursor + tile selection
+- [ ] Tile selection
 - [ ] Arguments, settings, configs
     - [ ] Check for configs (.ini) in zip or disk
     - [ ] Expose settings to lua

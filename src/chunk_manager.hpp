@@ -25,7 +25,11 @@
 #define $Chunks ChunkManager::instance()
 
 struct ChunkEvent {
-    enum Type { Created, Deleted, VisibilityChanged } type;
+    enum Type {
+        Created,
+        Deleted,
+        VisibilityChanged
+    } type;
     int x, y;
     ChunkVisibility old_vis = ChunkVisibility::OutOfSign;
     ChunkVisibility new_vis = ChunkVisibility::OutOfSign;
@@ -97,7 +101,7 @@ public:
 
     bool is_empty() const {
         return _build_chunk_queue->empty() && _create_chunk_queue->empty() &&
-                _chunks_being_built.empty() && _chunks_being_created.empty();
+               _chunks_being_built.empty() && _chunks_being_created.empty();
     }
 
     void initialize(Camera *camera, Texture *tilemap, uuid::v4::UUID world_id) {
@@ -457,6 +461,15 @@ public:
         if (chunk && chunk->is_filled())
             return chunk->random_walkable_tile();
         return std::nullopt;
+    }
+
+    bool is_chunk_loaded(int cx, int cy) {
+        uint64_t idx = index(cx, cy);
+        std::shared_lock<std::shared_mutex> lock(_chunks_lock);
+        auto it = _chunks.find(idx);
+        if (it == _chunks.end())
+            return false;
+        return it->second != nullptr && it->second->is_filled();
     }
     
     void clear() {

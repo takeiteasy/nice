@@ -259,6 +259,7 @@ local colorspace = 0
 local explode_list = {}
 local input_files = {}
 local out_files = {}
+local exploded_pngs = {}  -- Track exploded PNG files to delete
 local zip_out = "assets.nice"
 local keep_generated = false
 local amalg_opts = {}
@@ -344,7 +345,7 @@ for _, f in ipairs(explode_list) do
     print("Exploding file: " .. f)
     local new_name = explode_image(f, tile_width, tile_height, padding)
     table.insert(input_files, new_name)
-    table.insert(out_files, new_name)
+    table.insert(exploded_pngs, new_name)  -- Track this as an exploded PNG to delete later
 end
 
 if #input_files == 0 then
@@ -372,6 +373,14 @@ for _, f in ipairs(input_files) do
         table.insert(lua_files, f)
     else
         table.insert(out_files, f)
+    end
+end
+
+-- Delete exploded PNG files now that they've been converted to QOI
+for _, png_file in ipairs(exploded_pngs) do
+    if file_exists(png_file) then
+        print("Deleting exploded PNG file: " .. png_file)
+        os.remove(png_file)
     end
 end
 

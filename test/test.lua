@@ -1,9 +1,11 @@
 local ecs = require "ecs"
 
-local test_texture = get_texture_id("test/hand")
+local hand_texture = get_texture("test/hand")
+local robot_texture = get_texture("test/robot")
 
 -- Camera state variables
 local camera_dragging = false
+hide_cursor()
 
 -- Mouse event handlers for camera control
 local function handle_mouse_down(event)
@@ -73,9 +75,9 @@ end
 local function on_chunk_created(x, y)
     print("(LUA) Chunk created at (" .. x .. ", " .. y .. ")")
     if x == 0 and y == 0 then
-        local test = ecs.new("Test", NiceEntity)
-        ecs.set(test, NiceEntity, {
-            texture_id = test_texture,
+        local test = ecs.new("Test", ChunkEntity)
+        ecs.set(test, ChunkEntity, {
+            texture_id = hand_texture,
             x = 5,
             y = 5,
             clip_width = 16,

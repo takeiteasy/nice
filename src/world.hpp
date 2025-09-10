@@ -22,7 +22,7 @@
 #include "flecs.h"
 #include "flecs_lua.h"
 #include "entity_manager.hpp"
-#include "entity.hpp"
+#include "chunk_entity.hpp"
 #include "imgui.h"
 #include "sol/sol_imgui.h"
 #include "nice.dat.h"
@@ -164,7 +164,6 @@ class World {
     }
 
     static void _log(int32_t level, const char *file, int32_t line, const char *msg) {
-#if 0
         FILE *stream;
         if (level >= 0)
             stream = stdout;
@@ -224,7 +223,6 @@ class World {
 
         fputs(msg, stream);
         fputs("\n", stream);
-#endif
     }
 
     static World* get_world_from_lua(lua_State* L) {
@@ -238,7 +236,7 @@ class World {
         return world;
     }
 
-    static const LuaEntity* get_entity_from_lua(lua_State* L) {
+    static const LuaChunkEntity* get_entity_from_lua(lua_State* L) {
         World* world = get_world_from_lua(L);
         if (!world) {
             std::cout << "Failed to get World instance from Lua\n";
@@ -246,15 +244,15 @@ class World {
         }
         uint64_t entity_id = static_cast<uint64_t>(luaL_checkinteger(L, 1));
         flecs::entity entity = world->_world->entity(entity_id);
-        const LuaEntity* entity_data = entity.get<LuaEntity>();
+        const LuaChunkEntity* entity_data = entity.get<LuaChunkEntity>();
         if (!entity_data) {
-            std::cout << "Entity does not have LuaEntity component\n";
+            std::cout << "ChunkEntity does not have LuaChunkEntity component\n";
             return nullptr;
         }
         return entity_data;
     }
 
-    static LuaEntity* get_mutable_entity_from_lua(lua_State* L) {
+    static LuaChunkEntity* get_mutable_entity_from_lua(lua_State* L) {
         World* world = get_world_from_lua(L);
         if (!world) {
             std::cout << "Failed to get World instance from Lua\n";
@@ -262,9 +260,9 @@ class World {
         }
         uint64_t entity_id = static_cast<uint64_t>(luaL_checkinteger(L, 1));
         flecs::entity entity = world->_world->entity(entity_id);
-        LuaEntity* entity_data = entity.get_mut<LuaEntity>();
+        LuaChunkEntity* entity_data = entity.get_mut<LuaChunkEntity>();
         if (!entity_data) {
-            std::cout << "Entity does not have LuaEntity component\n";
+            std::cout << "ChunkEntity does not have LuaChunkEntity component\n";
             return nullptr;
         }
         return entity_data;
@@ -278,9 +276,9 @@ class World {
         }
         uint64_t entity_id = static_cast<uint64_t>(luaL_checkinteger(L, 1));
         flecs::entity entity = world->_world->entity(entity_id);
-        const LuaEntity* entity_data = entity.get<LuaEntity>();
+        const LuaChunkEntity* entity_data = entity.get<LuaChunkEntity>();
         if (!entity_data) {
-            std::cout << "Entity does not have LuaEntity component\n";
+            std::cout << "ChunkEntity does not have LuaChunkEntity component\n";
             return flecs::entity::null();
         }
         return entity;
@@ -319,7 +317,7 @@ public:
             }
         };
         _renderables_pipeline = sg_make_pipeline(&desc);
-        _tilemap = $Assets.get<Texture>("test/tilemap.exploded");
+        _tilemap = $Assets.get<Texture>(TILEMAP_PATH);
 
         // Initialize chunk manager
         $Chunks.initialize(&_camera, _tilemap, _id);
@@ -344,7 +342,9 @@ public:
         _world = new flecs::world();
         $Entities.set_world(_world);
         // FlecsLua still uses C API for import
-        ECS_IMPORT(_world->c_ptr(), FlecsLua);
+        ecs_world_t *w = _world->c_ptr();
+        ECS_IMPORT(w, FlecsLua);
+        ECS_IMPORT(w, FlecsMeta);
         // Import C++ modules
 #define X(MODULE) _world->import<MODULE>();
         MODULES
@@ -368,8 +368,18 @@ public:
         sol::state_view lua(L);
         lua["imgui"] = imgui::load(static_cast<sol::state&>(lua));
 
+        lua_register(L, "hide_cursor", [](lua_State* L) -> int {
+            sapp_show_mouse(false);
+            return 0;
+        });
+
+        lua_register(L, "show_cursor", [](lua_State* L) -> int {
+            sapp_show_mouse(true);
+            return 0;
+        });
+
         // Register texture function for Lua
-        lua_register(L, "get_texture_id", [](lua_State* L) -> int {
+        lua_register(L, "get_texture", [](lua_State* L) -> int {
             const char* path = luaL_checkstring(L, 1);
             uint32_t texture_id = $Entities.register_texture(path);
             lua_pushinteger(L, texture_id);
@@ -493,8 +503,11 @@ public:
 
         lua_register(L, "camera_position", [](lua_State *L) -> int {
             World* world = get_world_from_lua(L);
-            if (!world)
-                return 0;
+            if (!world) {
+                std::cout << "World instance not found in Lua registry in camera_position\n";
+                lua_pushnil(L);
+                return 1;
+            }
             glm::vec2 pos = world->camera()->position();
             lua_newtable(L);
             lua_pushnumber(L, pos.x);
@@ -756,14 +769,14 @@ public:
                 std::cout << "ERROR! Invalid entity in set_entity_world_position\n";
                 return 0;
             }
-            LuaEntity* entity_data = e.get_mut<LuaEntity>();
+            LuaChunkEntity* entity_data = e.get_mut<LuaChunkEntity>();
             if (!entity_data) {
-                std::cout << fmt::format("ERROR! Entity {} is missing LuaEntity component\n", e.id());
+                std::cout << fmt::format("ERROR! ChunkEntity {} is missing LuaChunkEntity component\n", e.id());
                 return 0;
             }
             LuaChunk *chunk = e.get_mut<LuaChunk>();
             if (!chunk) {
-                std::cout << fmt::format("ERROR! Entity {} is missing LuaChunk component\n", e.id());
+                std::cout << fmt::format("ERROR! ChunkEntity {} is missing LuaChunk component\n", e.id());
                 return 0;
             }
             if (lua_istable(L, 2)) {
@@ -783,7 +796,7 @@ public:
         });
 
         lua_register(L, "get_entity_world_position", [](lua_State *L) -> int {
-            const LuaEntity* entity_data = get_entity_from_lua(L);
+            const LuaChunkEntity* entity_data = get_entity_from_lua(L);
             if (!entity_data) {
                 std::cout << "ERROR! Invalid entity in get_entity_world_position\n";
                 lua_pushnil(L);
@@ -803,14 +816,14 @@ public:
                 std::cout << "ERROR! Invalid entity in set_entity_position\n";
                 return 0;
             }
-            LuaEntity* entity_data = e.get_mut<LuaEntity>();
+            LuaChunkEntity* entity_data = e.get_mut<LuaChunkEntity>();
             if (!entity_data) {
-                std::cout << fmt::format("ERROR! Entity {} is missing LuaEntity component\n", e.id());
+                std::cout << fmt::format("ERROR! ChunkEntity {} is missing LuaChunkEntity component\n", e.id());
                 return 0;
             }
             LuaChunk *chunk = e.get_mut<LuaChunk>();
             if (!chunk) {
-                std::cout << fmt::format("ERROR! Entity {} is missing LuaChunk component\n", e.id());
+                std::cout << fmt::format("ERROR! ChunkEntity {} is missing LuaChunk component\n", e.id());
                 return 0;
             }
             int cx = 0;
@@ -853,7 +866,7 @@ public:
         });
 
         lua_register(L, "get_entity_position", [](lua_State *L) -> int {
-            const LuaEntity* entity_data = get_entity_from_lua(L);
+            const LuaChunkEntity* entity_data = get_entity_from_lua(L);
             if (!entity_data) {
                 std::cout << "ERROR! Invalid entity in get_entity_position\n";
                 lua_pushnil(L);
@@ -874,7 +887,7 @@ public:
         });
 
         lua_register(L, "set_entity_size", [](lua_State *L) -> int {
-            LuaEntity* entity_data = get_mutable_entity_from_lua(L);
+            LuaChunkEntity* entity_data = get_mutable_entity_from_lua(L);
             switch (lua_gettop(L)) {
                 case 2:
                     if (lua_istable(L, 2)) {
@@ -897,7 +910,7 @@ public:
         });
 
         lua_register(L, "get_entity_size", [](lua_State *L) -> int {
-            const LuaEntity* entity_data = get_entity_from_lua(L);
+            const LuaChunkEntity* entity_data = get_entity_from_lua(L);
             if (!entity_data) {
                 std::cout << "ERROR! Invalid entity in get_entity_size\n";
                 lua_pushnil(L);
@@ -912,7 +925,7 @@ public:
         });
 
         lua_register(L, "set_entity_z", [](lua_State *L) -> int {
-            LuaEntity* entity_data = get_mutable_entity_from_lua(L);
+            LuaChunkEntity* entity_data = get_mutable_entity_from_lua(L);
             if (!entity_data)
                 std::cout << "ERROR! Invalid entity in set_entity_z\n";
             else
@@ -921,7 +934,7 @@ public:
         });
 
         lua_register(L, "get_entity_z", [](lua_State *L) -> int {
-            const LuaEntity* entity_data = get_entity_from_lua(L);
+            const LuaChunkEntity* entity_data = get_entity_from_lua(L);
             if (!entity_data) {
                 std::cout << "ERROR! Invalid entity in get_entity_z\n";
                 lua_pushnil(L);
@@ -931,7 +944,7 @@ public:
         });
 
         lua_register(L, "set_entity_rotation", [](lua_State *L) -> int {
-            LuaEntity* entity_data = get_mutable_entity_from_lua(L);
+            LuaChunkEntity* entity_data = get_mutable_entity_from_lua(L);
             if (!entity_data)
                 std::cout << "ERROR! Invalid entity in set_entity_rotation\n";
             else
@@ -940,7 +953,7 @@ public:
         });
 
         lua_register(L, "get_entity_rotation", [](lua_State *L) -> int {
-            const LuaEntity* entity_data = get_entity_from_lua(L);
+            const LuaChunkEntity* entity_data = get_entity_from_lua(L);
             if (!entity_data) {
                 std::cout << "ERROR! Invalid entity in get_entity_rotation\n";
                 lua_pushnil(L);
@@ -950,7 +963,7 @@ public:
         });
 
         lua_register(L, "set_entity_scale", [](lua_State *L) -> int {
-            LuaEntity* entity_data = get_mutable_entity_from_lua(L);
+            LuaChunkEntity* entity_data = get_mutable_entity_from_lua(L);
             if (!entity_data) {
                 std::cout << "ERROR! Invalid entity in set_entity_scale\n";
                 return 0;
@@ -977,7 +990,7 @@ public:
         });
 
         lua_register(L, "get_entity_scale", [](lua_State *L) -> int {
-            const LuaEntity* entity_data = get_entity_from_lua(L);
+            const LuaChunkEntity* entity_data = get_entity_from_lua(L);
             if (!entity_data) {
                 std::cout << "ERROR! Invalid entity in get_entity_scale\n";
                 lua_pushnil(L);
@@ -992,7 +1005,7 @@ public:
         });
 
         lua_register(L, "set_entity_clip", [](lua_State *L) -> int {
-            LuaEntity* entity_data = get_mutable_entity_from_lua(L);
+            LuaChunkEntity* entity_data = get_mutable_entity_from_lua(L);
             if (!entity_data) {
                 std::cout << "ERROR! Invalid entity in set_entity_clip\n";
                 return 0;
@@ -1039,7 +1052,7 @@ public:
         });
 
         lua_register(L, "set_entity_clip_size", [](lua_State *L) -> int {
-            LuaEntity* entity_data = get_mutable_entity_from_lua(L);
+            LuaChunkEntity* entity_data = get_mutable_entity_from_lua(L);
             if (!entity_data) {
                 std::cout << "ERROR! Invalid entity in set_entity_clip_size\n";
                 return 0;
@@ -1058,7 +1071,7 @@ public:
         });
 
         lua_register(L, "set_entity_clip_offset", [](lua_State *L) -> int {
-            LuaEntity* entity_data = get_mutable_entity_from_lua(L);
+            LuaChunkEntity* entity_data = get_mutable_entity_from_lua(L);
             if (!entity_data) {
                 std::cout << "ERROR! Invalid entity in set_entity_clip_offset\n";
                 return 0;
@@ -1069,7 +1082,7 @@ public:
         });
 
         lua_register(L, "get_entity_clip", [](lua_State *L) -> int {
-            const LuaEntity* entity_data = get_entity_from_lua(L);
+            const LuaChunkEntity* entity_data = get_entity_from_lua(L);
             if (!entity_data) {
                 std::cout << "ERROR! Invalid entity in get_entity_clip\n";
                 lua_pushnil(L);
@@ -1088,7 +1101,7 @@ public:
         });
 
         lua_register(L, "set_entity_speed", [](lua_State *L) -> int {
-            LuaEntity* entity_data = get_mutable_entity_from_lua(L);
+            LuaChunkEntity* entity_data = get_mutable_entity_from_lua(L);
             if (!entity_data) {
                 std::cout << "ERROR! Invalid entity in set_entity_speed\n";
                 return 0;
@@ -1098,7 +1111,7 @@ public:
         });
 
         lua_register(L, "get_entity_speed", [](lua_State *L) -> int {
-            const LuaEntity* entity_data = get_entity_from_lua(L);
+            const LuaChunkEntity* entity_data = get_entity_from_lua(L);
             if (!entity_data) {
                 std::cout << "ERROR! Invalid entity in get_entity_speed\n";
                 lua_pushnil(L);
@@ -1112,14 +1125,28 @@ public:
             flecs::entity entity = get_flecs_entity_from_lua(L);
             int x = static_cast<int>(luaL_checkinteger(L, 2));
             int y = static_cast<int>(luaL_checkinteger(L, 3));
-            if (x < 0 || y < 0 || x >= CHUNK_WIDTH || y >= CHUNK_HEIGHT)
-                throw std::runtime_error("Target coordinates must be within chunk bounds");
+            if (x < 0 || x >= CHUNK_WIDTH)
+                x = std::clamp(x, 0, CHUNK_WIDTH - 1);
+            if (y < 0 || y >= CHUNK_HEIGHT)
+                y = std::clamp(y, 0, CHUNK_HEIGHT - 1);
+            if (!entity.is_valid()) {
+                std::cout << "ERROR! Invalid entity in set_entity_target\n";
+                return 0;
+            }
             LuaChunk *lchunk = entity.get_mut<LuaChunk>();
-            if (!lchunk)
-                throw std::runtime_error("Entity is missing LuaChunk component");
+            if (!lchunk) {
+                std::cout << fmt::format("ERROR! ChunkEntity {} is missing LuaChunk component\n", entity.id());
+                return 0;
+            }
             World* world = get_world_from_lua(L);
-            if (!world)
-                throw std::runtime_error("Internal Error: World instance not found in Lua registry");
+            if (!world) {
+                std::cout << "ERROR! World instance not found in Lua registry in set_entity_target\n";
+                return 0;
+            }
+            if (!$Chunks.is_chunk_loaded(lchunk->x, lchunk->y)) {
+                std::cout << fmt::format("ERROR! Cannot set target for entity {} because its chunk ({},{}) is not loaded\n", entity.id(), lchunk->x, lchunk->y);
+                return 0;
+            }
             entity.set<LuaTarget>({x, y});
             return 0;
         });
@@ -1156,7 +1183,7 @@ public:
         });
 
         lua_register(L, "get_entity_bounds", [](lua_State *L) -> int {
-            const LuaEntity* entity_data = get_entity_from_lua(L);
+            const LuaChunkEntity* entity_data = get_entity_from_lua(L);
             if (!entity_data) {
                 std::cout << "ERROR! Invalid entity in get_entity_bounds\n";
                 lua_pushnil(L);
@@ -1176,7 +1203,7 @@ public:
         });
 
         lua_register(L, "is_entity_visible", [](lua_State *L) -> int {
-            const LuaEntity* entity_data = get_entity_from_lua(L);
+            const LuaChunkEntity* entity_data = get_entity_from_lua(L);
             if (!entity_data) {
                 std::cout << "ERROR! Invalid entity in is_entity_visible\n";
                 lua_pushboolean(L, false);

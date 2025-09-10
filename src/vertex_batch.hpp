@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "asset_manager.hpp"
 #include "sokol/sokol_gfx.h"
 #include <assert.h>
 #include <stdexcept>
