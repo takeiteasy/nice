@@ -21,7 +21,6 @@
 #include "just_zip.h"
 #include "flecs.h"
 #include "flecs_lua.h"
-#include "entity_manager.hpp"
 #include "chunk_entity.hpp"
 #include "imgui.h"
 #include "sol/sol_imgui.h"
@@ -31,6 +30,7 @@
 #include "camera.hpp"
 #include "input_manager.hpp"
 #include "uuid.h"
+#include "registrar.hpp"
 
 class World {
     uuid::v4::UUID _id;
@@ -43,6 +43,9 @@ class World {
 
     flecs::world *_world = nullptr;
     lua_State *L = nullptr;
+
+    ChunkEntityFactory _chunk_entities;
+    Registrar<Texture> _texture_registry;
 
     static void _abort(void) {
         std::cerr << "ECS: ecs_os_abort() was called!\n";
@@ -340,8 +343,6 @@ public:
 
 #pragma region Lua Bindings
         _world = new flecs::world();
-        $Entities.set_world(_world);
-        // FlecsLua still uses C API for import
         ecs_world_t *w = _world->c_ptr();
         ECS_IMPORT(w, FlecsLua);
         ECS_IMPORT(w, FlecsMeta);
@@ -368,6 +369,12 @@ public:
         sol::state_view lua(L);
         lua["imgui"] = imgui::load(static_cast<sol::state&>(lua));
 
+        lua_pushlightuserdata(L, this);
+        lua_setfield(L, LUA_REGISTRYINDEX, "__world__");
+
+        lua_pushlightuserdata(L, &_chunk_entities);
+        lua_setfield(L, LUA_REGISTRYINDEX, "__chunk_entities__");
+
         lua_register(L, "hide_cursor", [](lua_State* L) -> int {
             sapp_show_mouse(false);
             return 0;
@@ -378,12 +385,31 @@ public:
             return 0;
         });
 
-        // Register texture function for Lua
         lua_register(L, "get_texture", [](lua_State* L) -> int {
-            const char* path = luaL_checkstring(L, 1);
-            uint32_t texture_id = $Entities.register_texture(path);
-            lua_pushinteger(L, texture_id);
-            return 1; // Return the texture ID
+            World* world = get_world_from_lua(L);
+            if (!world)
+                lua_pushnil(L);
+            else {
+                const char* path = luaL_checkstring(L, 1);
+                if (world->has_texture_been_registered(path)) {
+                    uint32_t texture_id = world->get_texture_id(path);
+                    lua_pushinteger(L, texture_id);
+                } else {
+                    uint32_t texture_id = world->register_texture(path);
+                    lua_pushinteger(L, texture_id);
+                }
+            }
+            return 1;
+        });
+
+        lua_register(L, "window_width", [](lua_State* L) -> int {
+            lua_pushinteger(L, sapp_width());
+            return 1;
+        });
+
+        lua_register(L, "window_height", [](lua_State* L) -> int {
+            lua_pushinteger(L, sapp_height());
+            return 1;
         });
 
         lua_register(L, "framebuffer_width", [](lua_State* L) -> int {
@@ -423,9 +449,6 @@ public:
             lua_pushinteger(L, coords.second);
             return 2; // Return two values: x, y
         });
-
-        lua_pushlightuserdata(L, this);
-        lua_setfield(L, LUA_REGISTRYINDEX, "__world__");
         
         lua_register(L, "poisson", [](lua_State* L) -> int {
             World* world = get_world_from_lua(L);
@@ -475,10 +498,7 @@ public:
             if (num_args > arg_offset + 5)
                 region.h = static_cast<int>(luaL_checkinteger(L, arg_offset + 5));
 
-            // Find the chunk
-            uint64_t chunk_id = index(static_cast<int>(chunk_x), static_cast<int>(chunk_y));
             std::vector<glm::vec2> points;
-            
             $Chunks.get_chunk(static_cast<int>(chunk_x), static_cast<int>(chunk_y), [&](Chunk* chunk) {
                 if (!chunk || !chunk->is_filled())
                     return; // Will result in empty points vector
@@ -774,7 +794,7 @@ public:
                 std::cout << fmt::format("ERROR! ChunkEntity {} is missing LuaChunkEntity component\n", e.id());
                 return 0;
             }
-            LuaChunk *chunk = e.get_mut<LuaChunk>();
+            LuaChunkXY *chunk = e.get_mut<LuaChunkXY>();
             if (!chunk) {
                 std::cout << fmt::format("ERROR! ChunkEntity {} is missing LuaChunk component\n", e.id());
                 return 0;
@@ -821,7 +841,7 @@ public:
                 std::cout << fmt::format("ERROR! ChunkEntity {} is missing LuaChunkEntity component\n", e.id());
                 return 0;
             }
-            LuaChunk *chunk = e.get_mut<LuaChunk>();
+            LuaChunkXY *chunk = e.get_mut<LuaChunkXY>();
             if (!chunk) {
                 std::cout << fmt::format("ERROR! ChunkEntity {} is missing LuaChunk component\n", e.id());
                 return 0;
@@ -1133,7 +1153,7 @@ public:
                 std::cout << "ERROR! Invalid entity in set_entity_target\n";
                 return 0;
             }
-            LuaChunk *lchunk = entity.get_mut<LuaChunk>();
+            LuaChunkXY *lchunk = entity.get_mut<LuaChunkXY>();
             if (!lchunk) {
                 std::cout << fmt::format("ERROR! ChunkEntity {} is missing LuaChunk component\n", entity.id());
                 return 0;
@@ -1189,7 +1209,7 @@ public:
                 lua_pushnil(L);
                 return 1;
             }
-            Rect bounds = EntityManager::entity_bounds(*entity_data);
+            Rect bounds = EntityFactory<LuaChunkEntity>::entity_bounds(*entity_data);
             lua_newtable(L);
             lua_pushinteger(L, bounds.x);
             lua_setfield(L, -2, "x");
@@ -1215,7 +1235,7 @@ public:
                 lua_pushboolean(L, false);
                 return 1;
             }
-            Rect entity_bounds = EntityManager::entity_bounds(*entity_data);
+            Rect entity_bounds = EntityFactory<LuaChunkEntity>::entity_bounds(*entity_data);
             Rect camera_bounds = world->camera()->bounds();
             lua_pushboolean(L, camera_bounds.intersects(entity_bounds));
             return 1;
@@ -1330,8 +1350,7 @@ public:
     ~World() {
         // Clean up InputManager callbacks before cleaning up chunk callbacks
         $Input.cleanup_lua_callbacks();
-        
-        $Entities.clear();
+        _texture_registry.clear();
         $Chunks.clear();
         if (_world)
             delete _world;
@@ -1352,18 +1371,36 @@ public:
         $Chunks.update_deletion_queue();
         $Chunks.scan_for_chunks(camera_bounds, max_bounds);
         auto events_to_queue = $Chunks.release_chunks();
-        $Chunks.queue_events(events_to_queue);
+        $Chunks.queue_events(std::move(events_to_queue));
         $Chunks.fire_chunk_events();
         
         bool result = _world->progress(dt);
         if (result) {
-            $Entities.finalize(&_camera);
+            _chunk_entities.finalize(&_camera, &_texture_registry);
             $Chunks.draw_chunks(_pipeline, _camera.is_dirty());
             sg_apply_pipeline(_renderables_pipeline);
-            $Entities.flush(&_camera);
+            _chunk_entities.flush(&_camera);
         }
         return result;
     }
 
     Camera* camera() { return &_camera; }
+
+    ChunkEntityFactory& chunk_entities() { return _chunk_entities; }
+
+    uint32_t register_texture(const std::string& key) {
+        return _texture_registry.reigster_asset(key, $Assets.get<Texture>(key));
+    }
+
+    Texture* get_texture_by_id(uint32_t id) {
+        return _texture_registry.get_asset(id);
+    }
+
+    uint32_t get_texture_id(const std::string& key) {
+        return _texture_registry.get_asset_id(key);
+    }
+
+    bool has_texture_been_registered(const std::string& key) {
+        return _texture_registry.has_asset(key);
+    }
 };

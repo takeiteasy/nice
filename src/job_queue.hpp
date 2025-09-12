@@ -21,7 +21,7 @@
 #include <shared_mutex>
 
 template<typename T>
-class ThreadSafeSet {
+class UnorderedSet {
     std::unordered_set<T> _set;
     mutable std::shared_mutex _mutex;
 

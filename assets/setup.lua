@@ -1,4 +1,4 @@
 local ecs = require("ecs")
 
 ChunkEntity = ecs.lookup("LuaChunkEntity")
-Entity = ecs.lookup("LuaEntity")
+ScreenEntity = ecs.lookup("LuaScreenEntity")

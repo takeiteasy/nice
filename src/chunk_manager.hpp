@@ -39,10 +39,10 @@ class ChunkManager: public Global<ChunkManager> {
     std::unordered_map<uint64_t, Chunk*> _chunks;
     mutable std::shared_mutex _chunks_lock;
     JobQueue<std::pair<int, int>>* _create_chunk_queue;
-    ThreadSafeSet<uint64_t> _chunks_being_created;
+    UnorderedSet<uint64_t> _chunks_being_created;
     JobQueue<Chunk*>* _build_chunk_queue;
-    ThreadSafeSet<uint64_t> _chunks_being_built;
-    ThreadSafeSet<uint64_t> _chunks_being_destroyed;
+    UnorderedSet<uint64_t> _chunks_being_built;
+    UnorderedSet<uint64_t> _chunks_being_destroyed;
     std::unordered_map<uint64_t, uint64_t> _deletion_queue;
     mutable std::shared_mutex _deletion_queue_lock;
     
@@ -51,7 +51,7 @@ class ChunkManager: public Global<ChunkManager> {
     uuid::v4::UUID _world_id;
     
     // Lua event handling
-    lua_State *_lua_state = nullptr;
+    lua_State *_L = nullptr;
     std::unordered_map<int, int> _chunk_callbacks;
     std::queue<ChunkEvent> _chunk_event_queue;
     std::mutex _event_queue_mutex;
@@ -72,24 +72,24 @@ class ChunkManager: public Global<ChunkManager> {
     }
     
     void call_lua_chunk_event(ChunkEvent::Type event_type, int x, int y, ChunkVisibility old_vis = ChunkVisibility::OutOfSign, ChunkVisibility new_vis = ChunkVisibility::OutOfSign) {
-        if (!_lua_state) return;
+        if (!_L) return;
         
         auto it = _chunk_callbacks.find(static_cast<int>(event_type));
         if (it == _chunk_callbacks.end())
             return;
-        lua_rawgeti(_lua_state, LUA_REGISTRYINDEX, it->second); // Get the callback function
-        if (lua_isfunction(_lua_state, -1)) {
-            lua_pushinteger(_lua_state, x);
-            lua_pushinteger(_lua_state, y);
+        lua_rawgeti(_L, LUA_REGISTRYINDEX, it->second); // Get the callback function
+        if (lua_isfunction(_L, -1)) {
+            lua_pushinteger(_L, x);
+            lua_pushinteger(_L, y);
             if (event_type == ChunkEvent::VisibilityChanged) {
-                lua_pushinteger(_lua_state, static_cast<int>(old_vis));
-                lua_pushinteger(_lua_state, static_cast<int>(new_vis));
-                lua_pcall(_lua_state, 4, 0, 0);
+                lua_pushinteger(_L, static_cast<int>(old_vis));
+                lua_pushinteger(_L, static_cast<int>(new_vis));
+                lua_pcall(_L, 4, 0, 0);
             } else {
-                lua_pcall(_lua_state, 2, 0, 0);
+                lua_pcall(_L, 2, 0, 0);
             }
         } else
-            lua_pop(_lua_state, 1); // Remove non-function from stack
+            lua_pop(_L, 1); // Remove non-function from stack
     }
     
 public:
@@ -166,7 +166,7 @@ public:
     }
     
     void set_lua_state(lua_State *L) {
-        _lua_state = L;
+        _L = L;
     }
     
     void get_chunk(int x, int y, std::function<void(Chunk*)> callback) {
@@ -184,7 +184,7 @@ public:
     void ensure_chunk(int x, int y, bool priority) {
         uint64_t idx = index(x, y);
 
-        // Check and insert atomically using ThreadSafeSet methods first
+        // Check and insert atomically using UnorderedSet methods first
         if (_chunks_being_created.contains(idx) ||
             _chunks_being_built.contains(idx))
             return;
@@ -426,8 +426,8 @@ public:
     void register_lua_callback(int event_type, int lua_ref) {
         // Clear any existing callback for this event
         auto it = _chunk_callbacks.find(event_type);
-        if (it != _chunk_callbacks.end() && _lua_state)
-            luaL_unref(_lua_state, LUA_REGISTRYINDEX, it->second);
+        if (it != _chunk_callbacks.end() && _L)
+            luaL_unref(_L, LUA_REGISTRYINDEX, it->second);
 
         _chunk_callbacks[event_type] = lua_ref;
     }
@@ -435,16 +435,16 @@ public:
     void unregister_lua_callback(int event_type) {
         auto it = _chunk_callbacks.find(event_type);
         if (it != _chunk_callbacks.end()) {
-            if (_lua_state)
-                luaL_unref(_lua_state, LUA_REGISTRYINDEX, it->second);
+            if (_L)
+                luaL_unref(_L, LUA_REGISTRYINDEX, it->second);
             _chunk_callbacks.erase(it);
         }
     }
     
     void cleanup_lua_callbacks() {
-        if (_lua_state) {
+        if (_L) {
             for (auto& [event_type, ref] : _chunk_callbacks)
-                luaL_unref(_lua_state, LUA_REGISTRYINDEX, ref);
+                luaL_unref(_L, LUA_REGISTRYINDEX, ref);
             _chunk_callbacks.clear();
         }
     }
