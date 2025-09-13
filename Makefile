@@ -59,7 +59,7 @@ SOURCE := $(wildcard src/*.cpp) \
 # -----------------------------------------------------------------------------
 EXE := $(BUILD_DIR)/$(NAME)_$(ARCH)$(PROG_EXT)
 LUA := $(BUILD_DIR)/lua$(PROG_EXT)
-FLECS_LIB := $(BUILD_DIR)/libflecs_$(ARCH).$(LIB_EXT)
+FLECS_LIB := $(BUILD_DIR)/libflecs_$(ARCH).$(STATIC_LIB_EXT)
 NICEPKG := $(BUILD_DIR)/nicepkg.$(LIB_EXT)
 DAT_H := $(BUILD_DIR)/nice.dat.h
 ASSETS := test/assets.nice
@@ -118,10 +118,12 @@ $(DAT_H): $(DAT_SRC)
 
 dat: $(DAT_H)
 
-# Flecs Library
+# Flecs Static Library
 # -----------------------------------------------------------------------------
 $(FLECS_LIB): builddir
-	$(CC) -shared -fpic -Ideps/flecs -Ideps deps/flecs/*.c deps/minilua.c -o $(FLECS_LIB)
+	$(CC) -c -Ideps/flecs -Ideps deps/flecs/*.c deps/minilua.c
+	ar rcs $(FLECS_LIB) *.o
+	rm -f *.o
 
 flecs: $(FLECS_LIB)
 
@@ -134,7 +136,7 @@ nicepkg: $(NICEPKG)
 
 # Main Executable
 # -----------------------------------------------------------------------------
-$(EXE): builddir
+$(EXE): builddir flecs
 	$(CXX) $(INC) $(CFLAGS) $(SOURCE) -I$(SHADER_DST) -L$(BUILD_DIR) -lflecs_$(ARCH) -o $(EXE)
 
 nice: $(EXE)

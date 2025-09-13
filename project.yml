@@ -58,10 +58,12 @@ targets:
                               $(PROJECT_DIR)/deps/imgui]
         OTHER_CFLAGS: [-x objective-c++, -DSOKOL_METAL]
   flecs:
-    type: library.dynamic
+    type: library.static
     platform: macOS
     sources:
         - path: deps/flecs
+          excludes:
+            - "imgui_demo.cpp"
         - path: deps/minilua.c
     settings:
         HEADER_SEARCH_PATHS: [$(PROJECT_DIR)/deps,
