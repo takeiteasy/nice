@@ -16,6 +16,8 @@
 #include "vertex_batch.hpp"
 #include "texture.hpp"
 #include "glm/vec2.hpp"
+#include "registrar.hpp"
+#include "texture.hpp"
 
 struct BasicVertex {
     glm::vec2 position;
@@ -31,7 +33,7 @@ protected:
 
     struct DrawCall {
         VertexBatch<BasicVertex>* batch;
-        std::vector<flecs::entity> entities;
+        std::vector<EntityType> entity_data; // Pre-extracted entity data to avoid accessing entities in worker thread
         Texture* texture; // Pre-resolved texture to avoid lock in worker thread
     };
 
@@ -108,13 +110,12 @@ public:
     : _build_queue([this](DrawCall call) {
         // Ensure we always decrement the pending counter and notify, even if processing throws
         try {
-            for (const auto& entity : call.entities) {
-                if (!entity.is_alive())
-                    continue;
-                EntityType *entity_data = entity.template get_mut<EntityType>();
+            for (const auto& entity_data : call.entity_data) {
                 if (!call.texture) // Safety check
                     continue;
-                BasicVertex *vertices = generate_quad(entity_data, call.texture);
+                // Create a mutable copy since generate_quad expects a non-const pointer
+                EntityType mutable_entity_data = entity_data;
+                BasicVertex *vertices = generate_quad(&mutable_entity_data, call.texture);
                 call.batch->add_vertices(vertices, 6);
                 delete[] vertices;
             }
@@ -153,13 +154,13 @@ public:
     }
 
     static Rect entity_bounds(const EntityType& entity_data) {
-        return Rect(static_cast<int>(entity_data.x - (entity_data.scale_x * 0.5f)),
-                    static_cast<int>(entity_data.y - (entity_data.scale_y * 0.5f)),
+        return Rect(static_cast<int>(entity_data.x - (entity_data.width * entity_data.scale_x * 0.5f)),
+                    static_cast<int>(entity_data.y - (entity_data.height * entity_data.scale_y * 0.5f)),
                     static_cast<int>(entity_data.width * entity_data.scale_x),
                     static_cast<int>(entity_data.height * entity_data.scale_y));
     }
 
-    void flush(Camera *camera) {
+    void flush(Camera *camera=nullptr) {
         // Wait for all build jobs to complete before flushing
         wait_for_jobs_completion();
         {
@@ -168,13 +169,142 @@ public:
                 for (auto &[texture_id, batch] : layer_batches) {
                     if (batch.empty() || !batch.is_ready())
                         continue;
-                    vs_params_t vs_params = { .mvp = camera->matrix() };
+                    vs_params_t vs_params = { .mvp = camera ? camera->matrix() : glm::ortho(0.f, (float)framebuffer_width(), (float)framebuffer_height(), 0.f, -1.f, 1.f) };
                     sg_range params = SG_RANGE(vs_params);
                     sg_apply_uniforms(UB_vs_params, &params);
                     batch.flush();
                 }
         }
         batches.clear();
+    }
+
+    virtual void update_entity(flecs::entity entity, EntityType &entity_data, bool lock=true) {
+        if (!entity.is_alive())
+            return;
+        std::shared_lock<std::shared_mutex> unlock;
+        if (lock)
+            unlock = std::shared_lock<std::shared_mutex>(_entities_lock);
+        auto it = _entity_cache.find(entity);
+        if (it == _entity_cache.end()) {
+            entity.destruct();
+            if (lock)
+                unlock.unlock();
+        }
+
+        auto [old_z_index, old_texture_id] = it->second;
+        if (old_z_index == entity_data.z_index && old_texture_id == entity_data.texture_id) {
+            if (lock)
+                unlock.unlock();
+            return;
+        }
+        // Remove from old location
+        auto &old_layer = _entities[old_z_index];
+        auto &old_vec = old_layer[old_texture_id];
+        old_vec.erase(std::remove(old_vec.begin(), old_vec.end(), entity), old_vec.end());
+        if (old_vec.empty())
+            old_layer.erase(old_texture_id);
+        if (old_layer.empty())
+            _entities.erase(old_z_index);
+        // Add to new location
+        _entities[entity_data.z_index][entity_data.texture_id].push_back(entity);
+        // Update cache
+        it->second = {entity_data.z_index, entity_data.texture_id};
+
+        if (lock)
+            unlock.unlock();
+    }
+
+    void finalize(Registrar<Texture>* texture_registrar, Camera *camera=nullptr) {
+        Rect camera_bounds = camera ? camera->bounds() : Rect{0,0,framebuffer_width(), framebuffer_height()};
+        EntityMap map_copy;
+
+        // Copy entities while holding lock, then release it quickly
+        {
+            std::shared_lock<std::shared_mutex> lock(_entities_lock);
+            map_copy = _entities;
+
+            // Build a filtered snapshot into map_copy while holding the lock
+            // (we'll release the lock and operate on the copy afterwards).
+            for (auto it = _entities.begin(); it != _entities.end(); ++it) {
+                auto &layer = it->second;
+                auto &copy_layer = map_copy[it->first];
+                for (auto layer_it = layer.begin(); layer_it != layer.end(); ++layer_it) {
+                    auto &vec = layer_it->second;
+                    auto &copy_vec = copy_layer[layer_it->first];
+                    // Copy only alive entities that intersect the camera bounds
+                    for (auto &entity : vec) {
+                        if (!entity.is_alive())
+                            continue;
+                        EntityType *entity_data = entity.template get_mut<EntityType>();
+                        Rect bounds = entity_bounds(*entity_data);
+                        if (bounds.intersects(camera_bounds))
+                            copy_vec.push_back(entity);
+                    }
+                }
+                // Sort entities in layer by y-axis
+                for (auto &pair : copy_layer) {
+                    // Pre-extract y-coordinates to avoid accessing entities during sort
+                    std::vector<std::pair<flecs::entity, float>> entities_with_y;
+                    entities_with_y.reserve(pair.second.size());
+                    
+                    for (const auto& entity : pair.second) {
+                        EntityType *entity_data = entity.template get_mut<EntityType>();
+                        entities_with_y.emplace_back(entity, entity_data->y);
+                    }
+                    
+                    // Sort using pre-extracted y values
+                    std::sort(entities_with_y.begin(), entities_with_y.end(), 
+                        [](const auto& a, const auto& b) {
+                            return a.second < b.second;
+                        });
+                    
+                    // Extract sorted entities back to the original vector
+                    pair.second.clear();
+                    pair.second.reserve(entities_with_y.size());
+                    for (const auto& entity_y_pair : entities_with_y)
+                        pair.second.push_back(entity_y_pair.first);
+                }
+            }
+        }
+
+        // Pre-fetch textures to avoid holding texture lock during batch operations
+        std::unordered_map<uint32_t, Texture*> texture_cache;
+        for (auto [layer, v] : map_copy)
+            for (auto [texture_id, vv] : v) {
+                Texture* texture = texture_registrar->get_asset(texture_id);
+                if (texture)
+                    texture_cache[texture_id] = texture;
+            }
+
+        // Now acquire batch lock and set up batches
+        std::lock_guard<std::mutex> batch_lock(_batches_lock);
+        if (!batches.empty())
+            throw std::runtime_error("Batches were not flushed before finalize");
+        batches.reserve(map_copy.size());
+        for (auto [layer, v]: map_copy) {
+            batches[layer].reserve(v.size());
+            for (auto [texture_id, vv]: v) {
+                auto texture_it = texture_cache.find(texture_id);
+                if (texture_it == texture_cache.end())
+                    continue;
+                Texture* texture = texture_it->second;
+                VertexBatch<BasicVertex> *batch = &batches[layer][texture_id];
+                batch->set_texture(texture);
+                
+                // Pre-extract entity data to avoid accessing entities in worker thread
+                std::vector<EntityType> entity_data_list;
+                entity_data_list.reserve(vv.size());
+                for (const auto& entity : vv) {
+                    if (!entity.is_alive())
+                        continue;
+                    EntityType *entity_data = entity.template get_mut<EntityType>();
+                    entity_data_list.push_back(*entity_data);
+                }
+                
+                _pending_jobs.fetch_add(1);
+                _build_queue.enqueue(DrawCall{batch, std::move(entity_data_list), texture});
+            }
+        }
     }
 
     void clear() {
@@ -190,6 +320,10 @@ public:
     }
 
     std::shared_mutex& entities_lock() {
+        return _entities_lock;
+    }
+
+    std::shared_mutex& get_lock() {
         return _entities_lock;
     }
 };

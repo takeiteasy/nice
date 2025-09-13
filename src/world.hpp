@@ -31,6 +31,7 @@
 #include "input_manager.hpp"
 #include "uuid.h"
 #include "registrar.hpp"
+#include "screen_entity.hpp"
 
 class World {
     uuid::v4::UUID _id;
@@ -39,12 +40,13 @@ class World {
     Texture *_tilemap;
     sg_shader _shader;
     sg_pipeline _pipeline;
-    sg_pipeline _renderables_pipeline;
+    sg_pipeline _entity_pipeline;
 
     flecs::world *_world = nullptr;
     lua_State *L = nullptr;
 
     ChunkEntityFactory _chunk_entities;
+    ScreenEntityFactory _screen_entities;
     Registrar<Texture> _texture_registry;
 
     static void _abort(void) {
@@ -319,7 +321,7 @@ public:
                 .dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA
             }
         };
-        _renderables_pipeline = sg_make_pipeline(&desc);
+        _entity_pipeline = sg_make_pipeline(&desc);
         _tilemap = $Assets.get<Texture>(TILEMAP_PATH);
 
         // Initialize chunk manager
@@ -340,6 +342,7 @@ public:
         os_api.log_ = _log;
         ecs_os_set_api(&os_api);
         ecs_log_enable_colors(false);
+
 
 #pragma region Lua Bindings
         _world = new flecs::world();
@@ -374,6 +377,9 @@ public:
 
         lua_pushlightuserdata(L, &_chunk_entities);
         lua_setfield(L, LUA_REGISTRYINDEX, "__chunk_entities__");
+
+        lua_pushlightuserdata(L, &_screen_entities);
+        lua_setfield(L, LUA_REGISTRYINDEX, "__screen_entities__");
 
         lua_register(L, "hide_cursor", [](lua_State* L) -> int {
             sapp_show_mouse(false);
@@ -1358,8 +1364,8 @@ public:
             sg_destroy_shader(_shader);
         if (sg_query_pipeline_state(_pipeline) == SG_RESOURCESTATE_VALID)
             sg_destroy_pipeline(_pipeline);
-        if (sg_query_pipeline_state(_renderables_pipeline) == SG_RESOURCESTATE_VALID)
-            sg_destroy_pipeline(_renderables_pipeline);
+        if (sg_query_pipeline_state(_entity_pipeline) == SG_RESOURCESTATE_VALID)
+            sg_destroy_pipeline(_entity_pipeline);
         _export();
     }
 
@@ -1373,20 +1379,20 @@ public:
         auto events_to_queue = $Chunks.release_chunks();
         $Chunks.queue_events(std::move(events_to_queue));
         $Chunks.fire_chunk_events();
+
+        _chunk_entities.finalize(&_texture_registry, &_camera);
+        _screen_entities.finalize(&_texture_registry);
+        $Chunks.draw_chunks(_pipeline, _camera.is_dirty());
+        sg_apply_pipeline(_entity_pipeline);
+        _chunk_entities.flush(&_camera);
+        _screen_entities.flush();
         
-        bool result = _world->progress(dt);
-        if (result) {
-            _chunk_entities.finalize(&_camera, &_texture_registry);
-            $Chunks.draw_chunks(_pipeline, _camera.is_dirty());
-            sg_apply_pipeline(_renderables_pipeline);
-            _chunk_entities.flush(&_camera);
-        }
-        return result;
+        return _world->progress(dt);
     }
 
     Camera* camera() { return &_camera; }
-
     ChunkEntityFactory& chunk_entities() { return _chunk_entities; }
+    ScreenEntityFactory& screen_entities() { return _screen_entities; }
 
     uint32_t register_texture(const std::string& key) {
         return _texture_registry.reigster_asset(key, $Assets.get<Texture>(key));

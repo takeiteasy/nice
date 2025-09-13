@@ -8,8 +8,6 @@
 #pragma once
 
 #include "entity_factory.hpp"
-#include "registrar.hpp"
-#include "texture.hpp"
 
 ECS_STRUCT(LuaChunkEntity, {
     float x;
@@ -205,124 +203,23 @@ public:
         _entities_requesting_paths.erase(entity);
     }
 
-    void update_entity(flecs::entity entity, LuaChunkEntity &entity_data, LuaChunkXY &chunk, bool lock=true) {
-        if (!entity.is_alive())
-            return;
+    void update_entity(flecs::entity entity, LuaChunkEntity& entity_data, LuaChunkXY& chunk, bool lock=true) {
         std::shared_lock<std::shared_mutex> unlock;
         if (lock)
             unlock = std::shared_lock<std::shared_mutex>(_entities_lock);
-        auto it = _entity_cache.find(entity);
-        if (it == _entity_cache.end()) {
-            entity.destruct();
-            if (lock)
-                unlock.unlock();
-        }
-
+        EntityFactory<LuaChunkEntity>::update_entity(entity, entity_data, false);
         glm::vec2 world = Camera::tile_to_world(chunk.x, chunk.y, entity_data.x, entity_data.y);
         entity_data.x = world.x;
         entity_data.y = world.y;
-
-        auto [old_z_index, old_texture_id] = it->second;
-        if (old_z_index == entity_data.z_index && old_texture_id == entity_data.texture_id) {
-            if (lock)
-                unlock.unlock();
-            return;
-        }
-        // Remove from old location
-        auto &old_layer = _entities[old_z_index];
-        auto &old_vec = old_layer[old_texture_id];
-        old_vec.erase(std::remove(old_vec.begin(), old_vec.end(), entity), old_vec.end());
-        if (old_vec.empty())
-            old_layer.erase(old_texture_id);
-        if (old_layer.empty())
-            _entities.erase(old_z_index);
-        // Add to new location
-        _entities[entity_data.z_index][entity_data.texture_id].push_back(entity);
-        // Update cache
-        it->second = {entity_data.z_index, entity_data.texture_id};
-
         if (lock)
             unlock.unlock();
-    }
-
-    void finalize(Camera *camera, Registrar<Texture>* texture_registrar) {
-        Rect camera_bounds = camera->bounds();
-        EntityMap map_copy;
-
-        // Copy entities while holding lock, then release it quickly
-        {
-            std::shared_lock<std::shared_mutex> lock(_entities_lock);
-            map_copy = _entities;
-
-            // Build a filtered snapshot into map_copy while holding the lock
-            // (we'll release the lock and operate on the copy afterwards).
-            for (auto it = _entities.begin(); it != _entities.end(); ++it) {
-                auto &layer = it->second;
-                auto &copy_layer = map_copy[it->first];
-                for (auto layer_it = layer.begin(); layer_it != layer.end(); ++layer_it) {
-                    auto &vec = layer_it->second;
-                    auto &copy_vec = copy_layer[layer_it->first];
-                    // Copy only alive entities that intersect the camera bounds
-                    for (auto &entity : vec) {
-                        if (!entity.is_alive())
-                            continue;
-                        LuaChunkEntity *entity_data = entity.template get_mut<LuaChunkEntity>();
-                        Rect bounds = entity_bounds(*entity_data);
-                        if (bounds.intersects(camera_bounds))
-                            copy_vec.push_back(entity);
-                    }
-                }
-                // Sort entities in layer by y-axis
-                for (auto &pair : copy_layer)
-                    std::sort(pair.second.begin(), pair.second.end(), [](flecs::entity a, flecs::entity b) {
-                        LuaChunkEntity *ra = a.template get_mut<LuaChunkEntity>();
-                        LuaChunkEntity *rb = b.template get_mut<LuaChunkEntity>();
-                        return ra->y < rb->y;
-                    });
-            }
-        }
-
-        // Pre-fetch textures to avoid holding texture lock during batch operations
-        std::unordered_map<uint32_t, Texture*> texture_cache;
-        for (auto [layer, v] : map_copy)
-            for (auto [texture_id, vv] : v) {
-                Texture* texture = texture_registrar->get_asset(texture_id);
-                if (texture)
-                    texture_cache[texture_id] = texture;
-            }
-
-        // Now acquire batch lock and set up batches
-        std::lock_guard<std::mutex> batch_lock(_batches_lock);
-        if (!batches.empty())
-            throw std::runtime_error("Batches were not flushed before finalize");
-        batches.reserve(map_copy.size());
-        for (auto [layer, v]: map_copy) {
-            batches[layer].reserve(v.size());
-            for (auto [texture_id, vv]: v) {
-                auto texture_it = texture_cache.find(texture_id);
-                if (texture_it == texture_cache.end())
-                    continue;
-                Texture* texture = texture_it->second;
-                VertexBatch<BasicVertex> *batch = &batches[layer][texture_id];
-                batch->set_texture(texture);
-                _pending_jobs.fetch_add(1);
-                _build_queue.enqueue(DrawCall{batch, std::move(vv), texture});
-            }
-        }
-    }
-
-    std::shared_mutex& get_lock() {
-        return _entities_lock;
     }
 };
 
 
 struct ChunkEntity {
-    static lua_State* get_lua_state_from_entity(flecs::entity entity) {
-        return ecs_lua_get_state(entity.world().c_ptr());
-    }
-
-    static ChunkEntityFactory* get_chunk_entity_factory(lua_State* L) {
+    static ChunkEntityFactory* get_chunk_entity_factory_world(ecs_world_t *world) {
+        lua_State *L = ecs_lua_get_state(world);
         lua_getfield(L, LUA_REGISTRYINDEX, "__chunk_entities__");
         ChunkEntityFactory* chunk_entities = static_cast<ChunkEntityFactory*>(lua_touserdata(L, -1));
         lua_pop(L, 1); // Remove the userdata from stack
@@ -331,6 +228,10 @@ struct ChunkEntity {
             return nullptr;
         }
         return chunk_entities;
+    }
+
+    static ChunkEntityFactory* get_chunk_entity_factory(flecs::entity entity) {
+        return get_chunk_entity_factory_world(entity.world().c_ptr());
     }
 
     ChunkEntity(flecs::world &world) {
@@ -357,14 +258,13 @@ struct ChunkEntity {
                     entity_data.speed = 100.0f;
                 glm::vec2 chunk = Camera::world_to_chunk(glm::vec2(entity_data.x, entity_data.y));
                 entity.set<LuaChunkXY>({static_cast<uint32_t>(chunk.x), static_cast<uint32_t>(chunk.y)});
-                lua_State *L = get_lua_state_from_entity(entity);
-                ChunkEntityFactory *chunk_entities = get_chunk_entity_factory(L);
+                ChunkEntityFactory *chunk_entities = get_chunk_entity_factory(entity);
                 chunk_entities->add_entity(entity);
             });
 
         
         auto run_lock = [](flecs::iter_t *it) {
-            ChunkEntityFactory *chunk_entities = get_chunk_entity_factory(ecs_lua_get_state(it->world));
+            ChunkEntityFactory *chunk_entities = get_chunk_entity_factory_world(it->world);
             std::lock_guard<std::shared_mutex> lock(chunk_entities->get_lock());
             while (ecs_iter_next(it))
                 it->callback(it);
@@ -374,7 +274,7 @@ struct ChunkEntity {
             .event(flecs::OnRemove)
             .run(run_lock)
             .each([](flecs::entity entity, LuaChunkEntity& entity_data) {
-                ChunkEntityFactory *chunk_entities = get_chunk_entity_factory(get_lua_state_from_entity(entity));
+                ChunkEntityFactory *chunk_entities = get_chunk_entity_factory(entity);
                 chunk_entities->remove_entity(entity);
             });
 
@@ -382,7 +282,7 @@ struct ChunkEntity {
             .event(flecs::OnSet)
             .run(run_lock)
             .each([](flecs::entity entity, LuaChunkEntity& entity_data, LuaChunkXY& chunk) {
-                ChunkEntityFactory *chunk_entities = get_chunk_entity_factory(get_lua_state_from_entity(entity));
+                ChunkEntityFactory *chunk_entities = get_chunk_entity_factory(entity);
                 chunk_entities->update_entity(entity, entity_data, chunk, false);
             });
 
@@ -391,7 +291,7 @@ struct ChunkEntity {
             .run(run_lock)
             .each([](flecs::entity entity, LuaChunkXY& chunk, LuaTarget& target) {
                 std::cout << fmt::format("ChunkEntity {} set target to ({}, {})\n", entity.id(), target.x, target.y);
-                ChunkEntityFactory *chunk_entities = get_chunk_entity_factory(get_lua_state_from_entity(entity));
+                ChunkEntityFactory *chunk_entities = get_chunk_entity_factory(entity);
                 chunk_entities->clear_target(entity);
                 chunk_entities->add_entity_target(entity, chunk, target);
             });
@@ -401,7 +301,7 @@ struct ChunkEntity {
             .without<LuaWaypoint>()
             .run(run_lock)
             .each([](flecs::entity entity, LuaTarget& target) {
-                ChunkEntityFactory *chunk_entities = get_chunk_entity_factory(get_lua_state_from_entity(entity));
+                ChunkEntityFactory *chunk_entities = get_chunk_entity_factory(entity);
                 auto waypoint_result = chunk_entities->get_next_waypoint(entity);
                 if (waypoint_result.has_value()) {
                     auto [status, waypoint] = waypoint_result.value();
@@ -466,7 +366,7 @@ struct ChunkEntity {
                 if (!entity.has<LuaTarget>())
                     return;
                 
-                ChunkEntityFactory *chunk_entities = get_chunk_entity_factory(get_lua_state_from_entity(entity));
+                ChunkEntityFactory *chunk_entities = get_chunk_entity_factory(entity);
                 auto waypoint_result = chunk_entities->get_next_waypoint(entity);
                 if (waypoint_result.has_value()) {
                     auto [status, next_waypoint] = waypoint_result.value();
@@ -488,7 +388,7 @@ struct ChunkEntity {
             .run(run_lock)
             .each([](flecs::entity entity, LuaTarget& target) {
                 std::cout << fmt::format("ChunkEntity {} target cleared\n", entity.id());
-                ChunkEntityFactory *chunk_entities = get_chunk_entity_factory(get_lua_state_from_entity(entity));
+                ChunkEntityFactory *chunk_entities = get_chunk_entity_factory(entity);
                 chunk_entities->clear_target(entity);
                 if (entity.has<LuaWaypoint>())
                     entity.remove<LuaWaypoint>();

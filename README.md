@@ -5,17 +5,15 @@
 ## TODO
 
 - [ ] Cross-chunk pathfinding
-- [ ] Chunk modification/queries from lua
+- [ ] Chunk management from lua
 - [ ] Tile selection
 - [ ] Arguments, settings, configs
     - [ ] Check for configs (.ini) in zip or disk
     - [ ] Expose settings to lua
-- [ ] Auto-cleanup of entities on destroyed chunks (optional)
 - [ ] Proper save path destination 
 - [ ] Audio manager
-- [ ] Menu scene
-- [ ] Debug tools, chunk monitor, entity monitor, console, modify lua file, lua repl, assets, settings, draw call monitor
-- [ ] Fonts, text rendering
+- [ ] Debug tools, chunk monitor, entity monitor, console, lua repl, assets, settings, draw call monitor, .nice maker
+- [ ] Fonts, text rendering (fontstash?)
 - [ ] Package binary into app, release builds
 - [ ] Emscripten build
 - [ ] Windows build
@@ -33,13 +31,8 @@
 ### Ideas:
 
 - [ ] Support fennel + teal
-- [ ] Optional autotile, different autotile configuration, autotile tool
-- [ ] Isometric rendering
-- [ ] Built in editor, generate lua + run dynamically (play-nice)
-- [ ] Networking built in, sync world+ECS in background automatically
-- [ ] Embed zip inside binary
-- [ ] Cellular automata optional, override in lua or add alternative methods 
-- [ ] Chunk loading rules + manual chunk management from lua
+- [ ] Networking
+- [ ] Embed zip inside binary?
 - [ ] Sandboxing with lua amalgm?
 - [ ] Default texture instead of crashing
 

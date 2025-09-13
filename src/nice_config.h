@@ -6,7 +6,8 @@
 //
 
 #define MODULES \
-    X(ChunkEntity)
+    X(ChunkEntity) \
+    X(ScreenEntity)
 
 #define FIRST_SCENE game
 

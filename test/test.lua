@@ -86,6 +86,17 @@ local function on_chunk_created(x, y)
             height = 16
         })
         set_entity_target(test, 10, 10)
+
+        local test2 = ecs.new("Test2", ScreenEntity)
+        ecs.set(test2, ScreenEntity, {
+            texture_id = hand_texture,
+            x = 5,
+            y = 5,
+            clip_width = 16,
+            clip_height = 16,
+            width = 16,
+            height = 16
+        })
     end
 end
 
