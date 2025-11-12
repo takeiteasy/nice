@@ -275,7 +275,7 @@ struct ChunkEntity {
             .run(run_lock)
             .each([](flecs::entity entity, LuaChunkEntity& entity_data) {
                 ChunkEntityFactory *chunk_entities = get_chunk_entity_factory(entity);
-                chunk_entities->remove_entity(entity);
+                chunk_entities->remove_entity(entity, false); // lock=false since run_lock already holds the lock
             });
 
         world.observer<LuaChunkEntity, LuaChunkXY>()

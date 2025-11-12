@@ -1410,3 +1410,4 @@ public:
         return _texture_registry.has_asset(key);
     }
 };
+

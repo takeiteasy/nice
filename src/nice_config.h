@@ -9,8 +9,6 @@
     X(ChunkEntity) \
     X(ScreenEntity)
 
-#define FIRST_SCENE game
-
 #define CHUNK_WIDTH  256
 #define CHUNK_HEIGHT 256
 #define CHUNK_SIZE ((CHUNK_WIDTH)*(CHUNK_HEIGHT))

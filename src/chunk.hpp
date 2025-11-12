@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "nice_config.h"
 #include "vertex_batch.hpp"
 #include "camera.hpp"
 #include <unordered_map>
@@ -111,7 +112,7 @@ class Chunk {
 
     static void cellular_automata(int width, int height, int fill_chance, int smooth_iterations, int survive, int starve, uint8_t* result) {
         memset(result, 0, width * height * sizeof(uint8_t));
-#if 1
+#if 0 
         for (int x = 0; x < width; x++)
             if (x == 0 || x == width - 1)
                 result[x * height] = 1;

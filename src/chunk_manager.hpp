@@ -18,6 +18,8 @@
 #include <filesystem>
 #include <queue>
 #include <mutex>
+#include <thread>
+#include <atomic>
 #include "uuid.h"
 #include "sokol/sokol_time.h"
 #include "minilua.h"
@@ -55,6 +57,9 @@ class ChunkManager: public Global<ChunkManager> {
     std::unordered_map<int, int> _chunk_callbacks;
     std::queue<ChunkEvent> _chunk_event_queue;
     std::mutex _event_queue_mutex;
+    
+    // Shutdown flag to prevent new operations during cleanup
+    std::atomic<bool> _shutting_down{false};
     
     std::string _get_world_directory() {
         std::filesystem::path temp_dir = std::filesystem::temp_directory_path();
@@ -111,6 +116,10 @@ public:
         
         // Initialize the job queues with their callbacks
         _create_chunk_queue = new JobQueue<std::pair<int, int>>([this](std::pair<int, int> coords) {
+            // Skip processing if we're shutting down to avoid deadlock
+            if (_shutting_down.load())
+                return;
+                
             auto [x, y] = coords;
             uint64_t idx = index(x, y);
             Chunk *chunk = new Chunk(x, y, _camera, _tilemap);
@@ -127,8 +136,19 @@ public:
                     std::cout << fmt::format("Error loading chunk at ({}, {}) from {}: {}\n", x, y, chunk_filepath, e.what());
                 }
             
+            // Check shutdown again before acquiring lock
+            if (_shutting_down.load()) {
+                delete chunk;
+                return;
+            }
+            
             {
                 std::unique_lock<std::shared_mutex> lock(_chunks_lock);
+                // Double-check shutdown after acquiring lock
+                if (_shutting_down.load()) {
+                    delete chunk;
+                    return;
+                }
                 std::cout << fmt::format("New chunk created at ({}, {})\n", x, y);
                 _chunks[idx] = chunk;
                 _chunks_being_created.erase(idx);  // Remove from being created set
@@ -152,10 +172,20 @@ public:
                 }
             }
 
-            _build_chunk_queue->enqueue(chunk);
+            if (!_shutting_down.load() && _build_chunk_queue) {
+                _build_chunk_queue->enqueue(chunk);
+            } else {
+                delete chunk;
+            }
         });
         
         _build_chunk_queue = new JobQueue<Chunk*>([this](Chunk *chunk) {
+            // Skip processing if we're shutting down
+            if (_shutting_down.load()) {
+                delete chunk;
+                return;
+            }
+            
             chunk->build();
             std::cout << fmt::format("Chunk at ({}, {}) finished building\n", chunk->x(), chunk->y());
 
@@ -474,6 +504,20 @@ public:
     
     void clear() {
         cleanup_lua_callbacks();
+        
+        // Set shutdown flag first to prevent job processors from acquiring locks
+        _shutting_down.store(true);
+        
+        // Stop JobQueues - worker threads will check _shutting_down and skip lock acquisition
+        // This prevents deadlock where worker threads wait for _chunks_lock while
+        // main thread waits for worker threads to join
+        if (_create_chunk_queue) {
+            _create_chunk_queue->stop();
+        }
+        if (_build_chunk_queue) {
+            _build_chunk_queue->stop();
+        }
+        
         {
             std::unique_lock<std::shared_mutex> lock(_deletion_queue_lock);
             _deletion_queue.clear();

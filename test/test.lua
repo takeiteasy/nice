@@ -5,7 +5,7 @@ local robot_texture = get_texture("test/robot")
 
 -- Camera state variables
 local camera_dragging = false
-hide_cursor()
+-- hide_cursor()
 
 -- Mouse event handlers for camera control
 local function handle_mouse_down(event)

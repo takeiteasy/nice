@@ -85,7 +85,7 @@ struct ScreenEntity {
             .run(run_lock)
             .each([](flecs::entity entity, LuaScreenEntity& entity_data) {
                 ScreenEntityFactory *screen_entities = get_screen_entity_factory(entity);
-                screen_entities->remove_entity(entity);
+                screen_entities->remove_entity(entity, false); // lock=false since run_lock already holds the lock
             });
     }
 };
