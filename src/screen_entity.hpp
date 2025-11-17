@@ -7,7 +7,11 @@
 
 #pragma once
 
+#include "minilua.h"
+#include "flecs.h"
+#include "flecs_lua.h"
 #include "entity_factory.hpp"
+#include <iostream>
 
 ECS_STRUCT(LuaScreenEntity, {
     float x;

@@ -7,14 +7,15 @@
 
 #pragma once
 
-#include <iostream>
 #include <shared_mutex>
 #include <unordered_map>
-#include <vector>
 #include "vertex_batch.hpp"
 #include "texture.hpp"
 #include "glm/vec2.hpp"
 #include "registrar.hpp"
+#include "camera.hpp"
+#include "flecs.h"
+#include "basic.glsl.h"
 
 struct BasicVertex {
     glm::vec2 position;

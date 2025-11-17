@@ -12,6 +12,7 @@
 #include "sokol/sokol_time.h"
 #include "minilua.h"
 #include "fmt/format.h"
+#include "glm/vec2.hpp"
 #include <iostream>
 
 #define $Input InputManager::instance()

@@ -7,3 +7,5 @@ build/
 *.nicechunk
 *.nice
 game/
+compile_commands.json
+.cache/

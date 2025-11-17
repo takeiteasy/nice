@@ -9,7 +9,6 @@
 
 #include <memory>
 #include <mutex>
-#include <utility>
 
 template<typename T>
 class Global {

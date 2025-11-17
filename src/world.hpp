@@ -9,13 +9,9 @@
 
 #include "chunk.hpp"
 #include "chunk_manager.hpp"
-#include "job_queue.hpp"
 #include "texture.hpp"
 #include "fmt/format.h"
-#include <unordered_map>
-#include <shared_mutex>
 #include <iostream>
-#include <queue>
 #include <string>
 #include <filesystem>
 #include "just_zip.h"

@@ -10,6 +10,7 @@
 #include "sokol/sokol_gfx.h"
 #include "qoi.h"
 #include <string>
+#include "asset_manager.hpp"
 
 class Texture: public Asset<Texture> {
     int _width, _height;

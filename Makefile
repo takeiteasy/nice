@@ -34,8 +34,14 @@ SHDC_PATH := $(ARCH_PATH)/sokol-shdc$(PROG_EXT)
 # Compiler Flags
 # -----------------------------------------------------------------------------
 IGNORE_WARNINGS := -Wno-c99-designator -Wno-reorder-init-list -Wno-arc-bridge-casts-disallowed-in-nonarc
-CXXFLAGS := -std=c++17 -arch arm64 $(IGNORE_WARNINGS)
-LDFLAGS := -arch arm64
+CXXFLAGS := -std=c++17 -stdlib=libc++ -arch arm64 $(IGNORE_WARNINGS)
+# Add Homebrew libc++ path if using Homebrew clang++ (check if /opt/homebrew/opt/llvm exists)
+LLVM_LIB_PATH := $(shell if [ -d /opt/homebrew/opt/llvm/lib/c++ ]; then echo /opt/homebrew/opt/llvm/lib/c++; fi)
+ifeq ($(LLVM_LIB_PATH),)
+	LDFLAGS := -arch arm64 -stdlib=libc++
+else
+	LDFLAGS := -arch arm64 -stdlib=libc++ -L$(LLVM_LIB_PATH) -Wl,-rpath,$(LLVM_LIB_PATH)
+endif
 
 CFLAGS := -x objective-c++ -DSOKOL_METAL -fenable-matrix \
           -framework Metal -framework Cocoa -framework IOKit \

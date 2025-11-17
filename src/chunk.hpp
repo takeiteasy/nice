@@ -10,7 +10,6 @@
 #include "nice_config.h"
 #include "vertex_batch.hpp"
 #include "camera.hpp"
-#include <unordered_map>
 #include <unordered_set>
 #include <shared_mutex>
 #include <random>
@@ -110,50 +109,6 @@ class Chunk {
     Texture *_texture;
     std::atomic<bool> _rebuild_mvp = true;
 
-    static void cellular_automata(int width, int height, int fill_chance, int smooth_iterations, int survive, int starve, uint8_t* result) {
-        memset(result, 0, width * height * sizeof(uint8_t));
-#if 0 
-        for (int x = 0; x < width; x++)
-            if (x == 0 || x == width - 1)
-                result[x * height] = 1;
-        for (int y = 0; y < height; y++)
-            if (y == 0 || y == height - 1)
-                result[height + y] = 1;
-#else
-        // Randomly fill the grid
-        std::random_device seed;
-        std::mt19937 gen{seed()};
-        std::uniform_int_distribution<> ud{1, 100};
-        for (int x = 0; x < width; x++)
-            for (int y = 0; y < height; y++) {
-                int min_dist_from_edge = std::min(std::min(x, width - 1 - x), std::min(y, height - 1 - y));
-                int edge_bonus = std::max(0, 30 - (min_dist_from_edge * 5)); // 30% bonus at edges, decreasing toward center
-                int adjusted_fill_chance = fill_chance + edge_bonus;
-                if (adjusted_fill_chance > 100) adjusted_fill_chance = 100;
-                result[y * width + x] = ud(gen) <= adjusted_fill_chance;
-            }
-        // Run cellular-automata on grid n times
-        for (int i = 0; i < std::max(smooth_iterations, 1); i++)
-            for (int x = 0; x < width; x++)
-                for (int y = 0; y < height; y++) {
-                    // Count the cell's living neighbours
-                    int neighbours = 0;
-                    for (int nx = x - 1; nx <= x + 1; nx++)
-                        for (int ny = y - 1; ny <= y + 1; ny++)
-                            if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-                                if ((nx != x || ny != y) && result[ny * width + nx] > 0)
-                                    neighbours++;
-                            } else
-                                neighbours++;
-                    // Update cell based on neighbour and surive/starve values
-                    if (neighbours > survive)
-                        result[y * width + x] = 1;
-                    else if (neighbours < starve)
-                        result[y * width + x] = 0;
-                }
-#endif
-    }
-
     static uint8_t tile_bitmask(Chunk *chunk, int cx, int cy, int oob) {
         uint8_t neighbours[9] = {0};
         for (int x = -1; x < 2; x++)
@@ -230,12 +185,12 @@ class Chunk {
     };
 
     enum ChunkOptimizationFlags {
-        SOLID_RLE = 1 << 0,     // Solid field uses RLE
-        VISITED_RLE = 1 << 1,   // Visited field uses RLE  
-        EXTRA_RLE = 1 << 2,     // Extra field uses RLE
-        SOLID_SPARSE = 1 << 3,  // Solid field uses sparse
-        VISITED_SPARSE = 1 << 4,// Visited field uses sparse
-        EXTRA_SPARSE = 1 << 5   // Extra field uses sparse
+        SOLID_RLE = 1 << 0,      // Solid field uses RLE
+        VISITED_RLE = 1 << 1,    // Visited field uses RLE  
+        EXTRA_RLE = 1 << 2,      // Extra field uses RLE
+        SOLID_SPARSE = 1 << 3,   // Solid field uses sparse
+        VISITED_SPARSE = 1 << 4, // Visited field uses sparse
+        EXTRA_SPARSE = 1 << 5    // Extra field uses sparse
     };
 
     // Calculate compression efficiency for a field
@@ -408,10 +363,7 @@ public:
         std::unique_lock<std::mutex> write_lock(_write_mutex);
 
         uint8_t _grid[CHUNK_SIZE];
-        cellular_automata(CHUNK_WIDTH, CHUNK_HEIGHT,
-                          CHUNK_FILL_CHANCE, CHUNK_SMOOTH_ITERATIONS,
-                          CHUNK_SURVIVE, CHUNK_STARVE,
-                          _grid);
+        memset(_grid, 0, CHUNK_SIZE * sizeof(uint8_t));
         for (int y = 0; y < CHUNK_HEIGHT; y++)
             for (int x = 0; x < CHUNK_WIDTH; x++)
                 _tiles[x][y].solid = x == 0 || y == 0 || x == CHUNK_WIDTH - 1 || y == CHUNK_HEIGHT - 1 ? 1 : _grid[y * CHUNK_WIDTH + x];
