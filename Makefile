@@ -47,6 +47,11 @@ CFLAGS := -x objective-c++ -DSOKOL_METAL -fenable-matrix \
           -framework Metal -framework Cocoa -framework IOKit \
           -framework MetalKit -framework Quartz -framework AudioToolbox
 
+DEBUG ?= 1
+ifeq ($(DEBUG),1)
+	CFLAGS += -DDEBUG
+endif
+
 # Include Paths
 # -----------------------------------------------------------------------------
 INCLUDE_PATHS := -Iscenes -Isrc -Ideps -Ideps/flecs -Ideps/imgui
@@ -160,6 +165,22 @@ $(ASSETS): builddir
 		-o test/assets.nice
 
 testpkg: $(ASSETS)
+
+# Temporary build target for new nicepkg tool
+# -----------------------------------------------------------------------------
+
+TMP := $(BUILD_DIR)/nicepkg
+TMP_SRCS := $(wildcard nicepkg/*.cpp) \
+          deps/fmt/format.cc \
+          deps/fmt/os.cc \
+          deps/imgui/backends/imgui_impl_metal.mm \
+		  deps/ini.c \
+		  deps/INIReader.cpp \
+		  deps/osdialog/osdialog.c \
+		  deps/osdialog/osdialog_mac.m
+
+temp: builddir
+	$(CXX) $(INC) $(CFLAGS) -DNICEPKG $(TMP_SRCS) -Ideps/osdialog -I$(SHADER_DST) -o $(TMP)
 
 # Run Application
 # -----------------------------------------------------------------------------

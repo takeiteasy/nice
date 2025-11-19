@@ -150,11 +150,14 @@ class InputManager: public Global<InputManager> {
     bool _window_is_suspended = false;
     glm::vec2 _window_size = glm::vec2(sapp_widthf(), sapp_heightf());
     InputState _input_state, _input_state_prev;
+#ifndef NICEPKG
     // Register of event callbacks stored as Lua registry references, keyed by event type enum
     std::unordered_map<int, int> _lua_callbacks;
     lua_State *L = nullptr;
+#endif
 
 public:
+#ifndef NICEPKG
     void load_into_lua(lua_State *_L) {
         L = _L;
         
@@ -342,6 +345,7 @@ public:
             return 0;
         });
     }
+#endif
 
     void handle(const sapp_event* event) {
         switch (event->type) {
@@ -376,6 +380,7 @@ public:
                 return;
         }
 
+#ifndef NICEPKG
         lua_newtable(L);
         switch (event->type) {
             case SAPP_EVENTTYPE_KEY_DOWN:
@@ -554,8 +559,10 @@ public:
             }
         }
         lua_pop(L, 1); // Remove event table
+#endif // NICEPKG
     }
 
+#ifndef NICEPKG
     void cleanup_lua_callbacks() {
         // Explicit cleanup function to call before Lua state is destroyed
         if (L != nullptr) {
@@ -566,12 +573,15 @@ public:
             L = nullptr;  // Clear the pointer to prevent destructor issues
         }
     }
+#endif // NICEPKG
 
     ~InputManager() {
         // Safe destructor - callbacks should be cleaned up explicitly via cleanup_lua_callbacks()
         // If we still have callbacks, try safe cleanup
+#ifndef NICEPKG
         if (!_lua_callbacks.empty())
             _lua_callbacks.clear();  // Just clear the map, don't touch Lua
+#endif // NICEPKG
     }
 
     void update() {

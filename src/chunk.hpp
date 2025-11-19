@@ -23,56 +23,6 @@
 extern uint64_t index(int x, int y);
 extern std::pair<int, int> unindex(uint64_t i);
 
-static const glm::vec2 Autotile3x3Simplified[256] = {
-    [0] = {0, 3},
-    [2] = {0, 2},
-    [8] = {3, 3},
-    [10] = {3, 2},
-    [11] = {11, 3},
-    [16] = {1, 3},
-    [18] = {1, 2},
-    [22] = {8, 3},
-    [24] = {2, 3},
-    [26] = {2, 2},
-    [27] = {6, 3},
-    [30] = {5, 3},
-    [31] = {9, 3},
-    [64] = {0, 0},
-    [66] = {0, 1},
-    [72] = {3, 0},
-    [74] = {3, 1},
-    [75] = {7, 2},
-    [80] = {1, 0},
-    [82] = {1, 1},
-    [86] = {4, 2},
-    [88] = {2, 0},
-    [90] = {2, 1},
-    [91] = {4, 0},
-    [94] = {7, 0},
-    [95] = {10, 3},
-    [104] = {11, 0},
-    [106] = {7, 1},
-    [107] = {11, 2},
-    [120] = {6, 0},
-    [122] = {4, 3},
-    [123] = {11, 1},
-    [126] = {9, 1},
-    [127] = {6, 2},
-    [208] = {8, 0},
-    [210] = {4, 1},
-    [214] = {8, 1},
-    [216] = {5, 0},
-    [218] = {7, 3},
-    [219] = {10, 2},
-    [222] = {8, 2},
-    [223] = {5, 2},
-    [248] = {10, 0},
-    [250] = {9, 0},
-    [251] = {6, 1},
-    [254] = {5, 1},
-    [255] = {9, 2},
-};
-
 union Tile {
     struct {
         uint8_t bitmask;
@@ -392,7 +342,7 @@ public:
                 Tile *tile = &_tiles[x][y];
                 if (!tile->solid)
                     continue;
-                glm::vec2 clip = Autotile3x3Simplified[tile->bitmask];
+                glm::vec2 clip = {0, 0};
                 int clip_x = static_cast<int>((clip.x * TILE_ORIGINAL_WIDTH) + ((clip.x + 1) * TILE_PADDING));
                 int clip_y = static_cast<int>((clip.y * TILE_ORIGINAL_HEIGHT) + ((clip.y + 1) * TILE_PADDING));
                 ChunkVertex *veritces = generate_quad({x * TILE_WIDTH, y * TILE_HEIGHT},

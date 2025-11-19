@@ -192,7 +192,9 @@ static void init(void) {
 static void frame(void) {
     int width = sapp_width();
     int height = sapp_height();
+    
     simgui_new_frame({ width, height, sapp_frame_duration(), sapp_dpi_scale() });
+    
     sdtx_canvas(width, height);
     sdtx_home();
     sdtx_printf("fps:    %.2f\n", 1.f / sapp_frame_duration());

@@ -18,7 +18,6 @@
 #include <filesystem>
 #include <queue>
 #include <mutex>
-#include <thread>
 #include <atomic>
 #include "uuid.h"
 #include "sokol/sokol_time.h"
