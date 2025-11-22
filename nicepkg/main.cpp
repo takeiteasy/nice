@@ -104,11 +104,6 @@ static struct {
     Texture *red_tex = nullptr;
     int tile_cols;
     int tile_rows;
-    std::vector<Neighbours> tileset_masks;
-    int selected_tile_x = -1;
-    int selected_tile_y = -1;
-    int hovered_tile_x = -1;
-    int hovered_tile_y = -1;
 
     bool project_loaded = false;
     bool new_project_dialog = true;
@@ -119,13 +114,19 @@ static struct {
     bool show_tileset_dialog = false;
     Tileset tileset;
 
-    bool is_autotile_loaded = false;
     bool show_autotile_dialog = false;
     DummyMap dummy_map;
     float tileset_scale = 4.0f;
 
     bool show_export_dialog = true;
     bool show_save_project_dialog = false;
+    std::vector<Neighbours> tileset_masks;
+    int selected_tile_x = -1;
+    int selected_tile_y = -1;
+    int hovered_tile_x = -1;
+    int hovered_tile_y = -1;
+    bool autotile_has_duplicates = false;
+    bool autotile_not_empty = false;
 } state;
 
 int framebuffer_width(void) {
@@ -278,18 +279,38 @@ static void SlimButton(const char *label, std::function<void()> callback = nullp
     style.FramePadding = originalFramePadding;
 }
 
+uint8_t _bitmask(Neighbours *mask, int simplified) {
+    if (simplified) {
+#define CHECK_CORNER(N, A, B) \
+mask->grid[(N)] = !mask->grid[(A)] || !mask->grid[(B)] ? 0 : mask->grid[(N)];
+        CHECK_CORNER(0, 1, 3);
+        CHECK_CORNER(2, 1, 5);
+        CHECK_CORNER(6, 7, 3);
+        CHECK_CORNER(8, 7, 5);
+#undef CHECK_CORNER
+    }
+    uint8_t result = 0;
+    for (int y = 0, n = 0; y < 3; y++)
+        for (int x = 0; x < 3; x++)
+            if (!(y == 1 && x == 1))
+                result += (mask->grid[y * 3 + x] << n++);
+    return result;
+}
+
 static void draw_tileset(ImDrawList* dl, ImVec2 min, ImVec2 max) {
     if (state.tileset.texture == nullptr || !state.tileset.texture->is_valid())
         return;
     if (state.tileset.tile_width <= 0 || state.tileset.tile_height <= 0)
         return;
-
     sg_image tileset_img = *state.tileset.texture;
     if (tileset_img.id == SG_INVALID_ID || sg_query_image_state(tileset_img) != SG_RESOURCESTATE_VALID)
         return;
     
     ImTextureID tileset_tex = simgui_imtextureid(tileset_img);
     dl->AddImage(tileset_tex, min, max, ImVec2(0, 0), ImVec2(1, 1), IM_COL32_WHITE);
+    ImTextureID cross_tex = simgui_imtextureid(*state.cross);
+    ImTextureID white_tex = simgui_imtextureid(*state.white_tex);
+    ImTextureID red_tex = simgui_imtextureid(*state.red_tex);
 
     int tex_width = state.tileset.texture->width();
     int tex_height = state.tileset.texture->height();
@@ -298,6 +319,25 @@ static void draw_tileset(ImDrawList* dl, ImVec2 min, ImVec2 max) {
     float scale_x = (max.x - min.x) / tex_width;
     float scale_y = (max.y - min.y) / tex_height;
     ImVec2 mouse_pos = ImGui::GetMousePos();
+
+    for (int ty = 0; ty < state.tile_rows; ty++)
+        for (int tx = 0; tx < state.tile_cols; tx++) {
+            Neighbours *n = &state.tileset_masks[ty * state.tile_cols + tx];
+            float dx = ((tx * tile_w)*scale_x);
+            float dy = ((ty * tile_h)*scale_y);
+            int gw = tile_w*scale_x;
+            int gh = tile_h*scale_y;
+            float ex = gw/3, ey = gh/3;
+            for (int yy = 0; yy < 3; yy++)
+                for (int xx = 0; xx < 3; xx++) {
+                    if (n->grid[yy*3+xx]) {
+                        ImVec2 tmin = {min.x+dx+(xx*ex), min.y+dy+(yy*ey)};
+                        ImVec2 tmax = {tmin.x+ex, tmin.y+ey};
+                        dl->AddImage(cross_tex, tmin, tmax);
+                    }
+                }
+        }
+
     if (ImGui::IsWindowHovered() && mouse_pos.x >= min.x && mouse_pos.x < max.x && mouse_pos.y >= min.y && mouse_pos.y < max.y) {
         int tx = (int)((mouse_pos.x - min.x) / (tile_w * scale_x));
         int ty = (int)((mouse_pos.y - min.y) / (tile_h * scale_y));
@@ -309,8 +349,7 @@ static void draw_tileset(ImDrawList* dl, ImVec2 min, ImVec2 max) {
             if (state.white_tex && state.white_tex->is_valid()) {
                 ImVec2 t_min = ImVec2(min.x + tx * tile_w * scale_x, min.y + ty * tile_h * scale_y);
                 ImVec2 t_max = ImVec2(t_min.x + tile_w * scale_x, t_min.y + tile_h * scale_y);
-                sg_image white_img = *state.white_tex;
-                dl->AddImage(simgui_imtextureid(white_img), t_min, t_max);
+                dl->AddImage(simgui_imtextureid(*state.white_tex), t_min, t_max);
             }
 
             if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
@@ -334,31 +373,10 @@ static void draw_tileset(ImDrawList* dl, ImVec2 min, ImVec2 max) {
         if (tx < state.tile_cols && ty < state.tile_rows) {
             ImVec2 t_min = ImVec2(min.x + tx * tile_w * scale_x, min.y + ty * tile_h * scale_y);
             ImVec2 t_max = ImVec2(t_min.x + tile_w * scale_x, t_min.y + tile_h * scale_y);
-
-            if (state.red_tex && state.red_tex->is_valid()) {
-                sg_image red_img = *state.red_tex;
-                dl->AddImage(simgui_imtextureid(red_img), t_min, t_max);
-            }
+            if (state.red_tex && state.red_tex->is_valid())
+                dl->AddImage(simgui_imtextureid(*state.red_tex), t_min, t_max);
         }
     }
-}
-
-uint8_t _bitmask(Neighbours *mask, int simplified) {
-    if (simplified) {
-#define CHECK_CORNER(N, A, B) \
-mask->grid[(N)] = !mask->grid[(A)] || !mask->grid[(B)] ? 0 : mask->grid[(N)];
-        CHECK_CORNER(0, 1, 3);
-        CHECK_CORNER(2, 1, 5);
-        CHECK_CORNER(6, 7, 3);
-        CHECK_CORNER(8, 7, 5);
-#undef CHECK_CORNER
-    }
-    uint8_t result = 0;
-    for (int y = 0, n = 0; y < 3; y++)
-        for (int x = 0; x < 3; x++)
-            if (!(y == 1 && x == 1))
-                result += (mask->grid[y * 3 + x] << n++);
-    return result;
 }
 
 static void frame(void) {
@@ -687,10 +705,6 @@ static void frame(void) {
             if (ImGui::Button("+")) {
                 state.tileset_scale = std::min(10.0f, state.tileset_scale + 0.1f);
             }
-            ImGui::SameLine();
-            if (ImGui::Button("Reset")) {
-                state.tileset_scale = 4.0f;
-            }
             ImGui::SliderFloat("Zoom", &state.tileset_scale, 1.f, 10.0f, "%.1fx");
             
             ImGui::Separator();
@@ -720,7 +734,7 @@ static void frame(void) {
             if (state.selected_tile_x >= 0 && state.selected_tile_y >= 0) {
                 ImGui::BeginChild("Button Grid", scaled_size, true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
                 ImGui::Text("Mask Editor");
-                Neighbours *n = &state.tileset_masks[state.selected_tile_x * 3 + state.selected_tile_y];
+                Neighbours *n = &state.tileset_masks[state.selected_tile_y * state.tile_cols + state.selected_tile_x];
                 uint8_t bmask = _bitmask(n, 0);
                 char buf[9];
                 for (int i = 0; i < 8; i++)
@@ -739,15 +753,21 @@ static void frame(void) {
                             static const char *labels[9] = {
                                 "TL", "T", "TR", "L", "X", "R", "BL", "B", "BR"
                             };
-                            ImGui::PushStyleColor(ImGuiCol_Button, n->grid[y * 3 + x] || (x == 1 && y == 1) ? (ImVec4){0.f, 1.f, 0.f, 1.f} : (ImVec4){1.f, 0.f, 0.f, 1.f});
+                            ImGui::PushStyleColor(ImGuiCol_Button, n->grid[y * 3 + x] ? (ImVec4){0.f, 1.f, 0.f, 1.f} : (ImVec4){1.f, 0.f, 0.f, 1.f});
                             if (ImGui::Button(labels[y * 3 + x], ImVec2(-FLT_MIN, row_height - 8.0f))) {
-                                if (x == 1 && y == 1) {
-                                    bool b = !n->grid[4];
+                                n->grid[y * 3 + x] = !n->grid[y * 3 + x];
+                                if (!(x == 1 && y == 1)) {
+                                    bool empty = true;
                                     for (int i = 0; i < 9; i++)
-                                        n->grid[i] = b;
-                                } else {
-                                    n->grid[y * 3 + x] = !n->grid[y * 3 + x];
-                                }
+                                        if (i != 4 && n->grid[i]) {
+                                            empty = false;
+                                            break;
+                                        }
+                                    n->grid[4] = !empty;
+                                } else
+                                    if (!n->grid[4])
+                                        for (int i = 0; i < 9; i++)
+                                            n->grid[i] = false;
                             }
                             ImGui::PopStyleColor(1);
                         }
@@ -758,16 +778,70 @@ static void frame(void) {
                 ImGui::EndChild();
             }
 
-            ImGui::Separator();
-            if (ImGui::Button("Cancel"))
+            std::vector<std::pair<int, int>> duplicates[256];
+            bool has_duplicates = false;
+            bool is_empty = true;
+            for (int y = 0; y < state.tile_rows; y++)
+                for (int x = 0; x < state.tile_cols; x++) {
+                    Neighbours *n = &state.tileset_masks[y * state.tile_cols + x];
+                    if (!n->grid[4])
+                        continue;
+                    duplicates[_bitmask(n, 0)].push_back({x, y});
+                    if (is_empty) {
+                        for (int i = 0; i < 9; i++)
+                            if (n->grid[i]) {
+                                is_empty = false;
+                                break;
+                            }
+                    }
+                }
+            state.autotile_not_empty = !is_empty;
+
+            for (int i = 0; i < 256; i++) {
+                if (duplicates[i].size() > 1) {
+                    has_duplicates = true;
+                    break;
+                }
+            }
+            state.autotile_has_duplicates = has_duplicates;
+
+            if (has_duplicates) {
+                ImGui::Separator();
+                ImGui::Text("Duplicate Masks:");
+                for (int i = 0; i < 256; i++)
+                    if (duplicates[i].size() > 1) {
+                        ImGui::Text("Mask %d (0x%x):", i, i);
+                        for (auto &p : duplicates[i]) {
+                            ImGui::SameLine();
+                            ImGui::Text("(%d, %d)", p.first, p.second);
+                        }
+                    }
+            }
+
+            if (!state.autotile_not_empty) {
+                ImGui::Separator();
+                ImGui::Text("Autotile is empty!");
+            }
+
+            if (ImGui::Button("Close"))
                 state.show_autotile_dialog = false;
+            ImGui::SameLine();
+            if (ImGui::Button("Reset")) {
+                state.tileset_masks.clear();
+                state.tileset_masks.resize(state.tile_rows * state.tile_cols);
+                state.selected_tile_x = -1;
+                state.selected_tile_y = -1;
+                state.autotile_has_duplicates = false;
+                state.tileset_scale = 4.0f;
+            }
+            
             ImGui::End();
         }
     }
 
     if (state.show_export_dialog && !state.new_project_dialog && state.project_path != "") {
         int issue_count = 0;
-        if (ImGui::Begin("Export", &state.show_export_dialog, ImGuiWindowFlags_None)) {
+        if (ImGui::Begin("Export", &state.show_export_dialog, ImGuiWindowFlags_AlwaysAutoResize)) {
             // Project generation dialog
             // Main dialog for project settings
             ImGui::Text("Project Status");
@@ -775,7 +849,7 @@ static void frame(void) {
             if (!state.is_tileset_loaded) {
                 ImGui::Text("Tileset: (not loaded)");
             } else {
-                ImGui::Text("Tileset: %s", state.tileset.path.c_str());
+                ImGui::Text("Tileset: OK (%s)", state.tileset.path.c_str());
             }
             ImGui::SameLine();
             SlimButton("Load Tileset", [=]() {
@@ -784,11 +858,7 @@ static void frame(void) {
             if (!state.is_tileset_loaded) {
                 ImGui::Text("Autotile: (load tileset first)");
             } else {
-                if (!state.is_autotile_loaded) {
-                    ImGui::Text("Autotile: (not setup)");
-                } else {
-                    ImGui::Text("Autotile: Done");
-                }
+                ImGui::Text("Autotile: %s", state.autotile_not_empty ? state.autotile_has_duplicates ? "(duplicates found)" : "OK" : "(empty)");
                 ImGui::SameLine();
                 SlimButton("Setup Autotile", [=]() {
                     state.show_autotile_dialog = true;
@@ -801,7 +871,8 @@ static void frame(void) {
                 issue_count++; \
             }
             CHECK_ISSUE(state.is_tileset_loaded, "Tileset not loaded");
-            CHECK_ISSUE(state.is_autotile_loaded, "Autotile not loaded");
+            CHECK_ISSUE(!state.autotile_has_duplicates, "Autotile has duplicates");
+            CHECK_ISSUE(state.autotile_not_empty, "Autotile is empty");
 #undef CHECK_ISSUE
             if (issue_count > 0)
                 ImGui::Text("Issues found: %d", issue_count);
