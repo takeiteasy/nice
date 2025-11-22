@@ -119,7 +119,7 @@ static struct {
     float tileset_scale = 4.0f;
 
     bool show_export_dialog = true;
-    bool show_save_project_dialog = false;
+    bool show_confirm_save_dialog = false;
     std::vector<Neighbours> tileset_masks;
     int selected_tile_x = -1;
     int selected_tile_y = -1;
@@ -127,6 +127,12 @@ static struct {
     int hovered_tile_y = -1;
     bool autotile_has_duplicates = false;
     bool autotile_not_empty = false;
+
+    std::string lua_script_path = "";
+    bool is_lua_script_loaded = false;
+    bool show_lua_script_dialog = false;
+
+    std::vector<std::string> extra_files;
 } state;
 
 int framebuffer_width(void) {
@@ -407,11 +413,14 @@ static void frame(void) {
     if (state.new_project_dialog)
         ImGui::OpenPopup("New Project");
 
-    if (state.show_save_project_dialog)
+    if (state.show_confirm_save_dialog)
         ImGui::OpenPopup("Save Project");
 
     if (state.show_tileset_dialog)
         ImGui::OpenPopup("Load Tileset");
+
+    if (state.show_lua_script_dialog)
+        ImGui::OpenPopup("Load Lua Script");
 
 #define CENTRE_MODAL \
         ImGui::SetWindowPos((ImVec2){(width - half_width) / 2.0f, (height - half_height) / 2.0f}, ImGuiCond_Always); \
@@ -475,21 +484,21 @@ static void frame(void) {
         ImGui::Separator();
         if (ImGui::Button("Save")) {
             // TODO: Actually save the project
-            state.show_save_project_dialog = false;
+            state.show_confirm_save_dialog = false;
             ImGui::CloseCurrentPopup();
             // After saving, open the new project dialog
             state.new_project_dialog = true;
         }
         ImGui::SameLine();
         if (ImGui::Button("Don't Save")) {
-            state.show_save_project_dialog = false;
+            state.show_confirm_save_dialog = false;
             ImGui::CloseCurrentPopup();
             // Open the new project dialog
             state.new_project_dialog = true;
         }
         ImGui::SameLine();
         if (ImGui::Button("Cancel")) {
-            state.show_save_project_dialog = false;
+            state.show_confirm_save_dialog = false;
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
@@ -675,10 +684,12 @@ static void frame(void) {
     if (ImGui::BeginMenuBar()) {
         if (ImGui::BeginMenu("File", true)) {
             if (ImGui::MenuItem("New", "Ctrl+N", false, true)) {
-                state.show_save_project_dialog = true;
+                state.show_confirm_save_dialog = true;
                 ImGui::OpenPopup("Save Project");
             }
-            if (ImGui::MenuItem("Open", "Ctrl+O", false, false)) { /* TODO! */ }
+            if (ImGui::MenuItem("Open", "Ctrl+O", false, false)) {
+                // TODO: Open project dialog
+            }
             if (ImGui::MenuItem("Save", "Ctrl+S", false, true)) {
                 state.show_export_dialog = true;
             }
@@ -687,6 +698,48 @@ static void frame(void) {
         ImGui::EndMenuBar();
     }
     ImGui::End();
+
+    if (ImGui::BeginPopupModal("Load Lua Script", NULL, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) {
+        CENTRE_MODAL;
+        ImGui::Text("Load Lua Script");
+        ImGui::Separator();
+        static bool valid_path = true;
+        static char lua_script_path[PATH_LIMIT] = "";
+        ImGui::InputText("Path", lua_script_path, PATH_LIMIT, ImGuiInputTextFlags_CallbackEdit | ImGuiInputTextFlags_EnterReturnsTrue, [](ImGuiInputTextCallbackData* data) {
+            return (valid_path = std::filesystem::is_regular_file(data->Buf)) ? 0 : 1;
+        });
+        ImGui::SameLine();
+        if (ImGui::Button("Browse")) {
+            osdialog_filters *filters = osdialog_filters_parse("Lua Script:lua");
+            char *path = osdialog_file(OSDIALOG_OPEN, ".", NULL, filters);
+            osdialog_filters_free(filters);
+            if (path) {
+                size_t len = strlen(path);
+                len = len < PATH_LIMIT ? len : PATH_LIMIT;
+                memcpy(lua_script_path, path, len);
+                lua_script_path[len] = '\0';
+                free(path);
+                if (!(valid_path = std::filesystem::is_regular_file(lua_script_path)))
+                    lua_script_path[0] = '\0';
+            }
+        }
+        if (!valid_path && lua_script_path[0] != '\0')
+            ImGui::Text("Error: Invalid path");
+        if (ImGui::Button("Load")) {
+            if (valid_path && lua_script_path[0] != '\0') {
+                state.lua_script_path = lua_script_path;
+                state.is_lua_script_loaded = true;
+                state.show_lua_script_dialog = false;
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) {
+            state.show_lua_script_dialog = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
 
     if (state.show_autotile_dialog) {
         if (ImGui::Begin("Setup Autotile", &state.show_autotile_dialog, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -834,9 +887,8 @@ static void frame(void) {
                 state.autotile_has_duplicates = false;
                 state.tileset_scale = 4.0f;
             }
-            
-            ImGui::End();
         }
+        ImGui::End();
     }
 
     if (state.show_export_dialog && !state.new_project_dialog && state.project_path != "") {
@@ -844,7 +896,6 @@ static void frame(void) {
         if (ImGui::Begin("Export", &state.show_export_dialog, ImGuiWindowFlags_AlwaysAutoResize)) {
             // Project generation dialog
             // Main dialog for project settings
-            ImGui::Text("Project Status");
             ImGui::Text("Project Path: %s/nicepkg.json %s", state.project_path.c_str(), state.has_been_saved ? "" : "(not yet saved)");
             if (!state.is_tileset_loaded) {
                 ImGui::Text("Tileset: (not loaded)");
@@ -864,31 +915,65 @@ static void frame(void) {
                     state.show_autotile_dialog = true;
                 });
             }
+            if (!state.is_lua_script_loaded) {
+                ImGui::Text("Lua Entry: (not loaded)");
+            } else {
+                ImGui::Text("Lua Entry: OK (%s)", state.lua_script_path.c_str());
+            }
+            ImGui::SameLine();
+            SlimButton("Browse", [&]() {
+                state.show_lua_script_dialog = true;
+            });
+            if (state.extra_files.empty()) {
+                ImGui::Text("Extra Files: (none)");
+            } else {
+                ImGui::Text("Extra Files: %zu", state.extra_files.size());
+            }
+            ImGui::SameLine();
+            SlimButton("Add", [&]() {
+                char *path = osdialog_file(OSDIALOG_OPEN, ".", NULL, NULL);
+                if (path) {
+                    state.extra_files.push_back(path);
+                    free(path);
+                }
+            });
+            if (!state.extra_files.empty()) {
+                ImGui::Separator();
+                ImGui::Text("Extra Files:");
+                for (auto &path : state.extra_files) {
+                    ImGui::Text("%s", path.c_str());
+                }
+            }
             ImGui::Separator();
 #define CHECK_ISSUE(CND, MSG) \
             if (!(CND)) { \
                 ImGui::Text("Error: %s (%s)", MSG, #CND); \
                 issue_count++; \
             }
-            CHECK_ISSUE(state.is_tileset_loaded, "Tileset not loaded");
+            CHECK_ISSUE(state.is_tileset_loaded, "Tileset not set");
             CHECK_ISSUE(!state.autotile_has_duplicates, "Autotile has duplicates");
             CHECK_ISSUE(state.autotile_not_empty, "Autotile is empty");
+            CHECK_ISSUE(state.is_lua_script_loaded, "Lua entry script not set");
 #undef CHECK_ISSUE
             if (issue_count > 0)
                 ImGui::Text("Issues found: %d", issue_count);
             else
                 ImGui::Text("No issues found!");
-        }
-        ImGui::Separator();
-        if (ImGui::Button("Export Project")) {
-            if (issue_count == 0) {
-                // TODO: Export the project
+
+            if (ImGui::Button("Save Project")) {
+                if (issue_count == 0) {
+                    // TODO: Export the project json
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Build Project")) {
+                if (issue_count == 0) {
+                    // TODO: Build the project zip
+                }
             }
         }
         ImGui::End();
     }
-
-
 
     sdtx_canvas(width, height);
     sdtx_pos(0, 3);
