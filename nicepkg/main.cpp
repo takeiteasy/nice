@@ -102,6 +102,9 @@ static struct {
     Texture *cross = nullptr;
     Texture *white_tex = nullptr;
     Texture *red_tex = nullptr;
+    int tile_cols;
+    int tile_rows;
+    std::vector<Neighbours> tileset_masks;
     int selected_tile_x = -1;
     int selected_tile_y = -1;
     int hovered_tile_x = -1;
@@ -292,9 +295,6 @@ static void draw_tileset(ImDrawList* dl, ImVec2 min, ImVec2 max) {
     int tex_height = state.tileset.texture->height();
     int tile_w = state.tileset.tile_width;
     int tile_h = state.tileset.tile_height;
-    int cols = tex_width / tile_w;
-    int rows = tex_height / tile_h;
-
     float scale_x = (max.x - min.x) / tex_width;
     float scale_y = (max.y - min.y) / tex_height;
     ImVec2 mouse_pos = ImGui::GetMousePos();
@@ -302,7 +302,7 @@ static void draw_tileset(ImDrawList* dl, ImVec2 min, ImVec2 max) {
         int tx = (int)((mouse_pos.x - min.x) / (tile_w * scale_x));
         int ty = (int)((mouse_pos.y - min.y) / (tile_h * scale_y));
 
-        if (tx >= 0 && tx < cols && ty >= 0 && ty < rows) {
+        if (tx >= 0 && tx < state.tile_cols && ty >= 0 && ty < state.tile_rows) {
             state.hovered_tile_x = tx;
             state.hovered_tile_y = ty;
 
@@ -314,8 +314,13 @@ static void draw_tileset(ImDrawList* dl, ImVec2 min, ImVec2 max) {
             }
 
             if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-                state.selected_tile_x = tx;
-                state.selected_tile_y = ty;
+                if (state.selected_tile_x == tx && state.selected_tile_y == ty) {
+                    state.selected_tile_x = -1;
+                    state.selected_tile_y = -1;
+                } else {
+                    state.selected_tile_x = tx;
+                    state.selected_tile_y = ty;
+                }
             }
         }
     } else {
@@ -326,7 +331,7 @@ static void draw_tileset(ImDrawList* dl, ImVec2 min, ImVec2 max) {
     if (state.selected_tile_x >= 0 && state.selected_tile_y >= 0) {
         int tx = state.selected_tile_x;
         int ty = state.selected_tile_y;
-        if (tx < cols && ty < rows) {
+        if (tx < state.tile_cols && ty < state.tile_rows) {
             ImVec2 t_min = ImVec2(min.x + tx * tile_w * scale_x, min.y + ty * tile_h * scale_y);
             ImVec2 t_max = ImVec2(t_min.x + tile_w * scale_x, t_min.y + tile_h * scale_y);
 
@@ -336,6 +341,24 @@ static void draw_tileset(ImDrawList* dl, ImVec2 min, ImVec2 max) {
             }
         }
     }
+}
+
+uint8_t _bitmask(Neighbours *mask, int simplified) {
+    if (simplified) {
+#define CHECK_CORNER(N, A, B) \
+mask->grid[(N)] = !mask->grid[(A)] || !mask->grid[(B)] ? 0 : mask->grid[(N)];
+        CHECK_CORNER(0, 1, 3);
+        CHECK_CORNER(2, 1, 5);
+        CHECK_CORNER(6, 7, 3);
+        CHECK_CORNER(8, 7, 5);
+#undef CHECK_CORNER
+    }
+    uint8_t result = 0;
+    for (int y = 0, n = 0; y < 3; y++)
+        for (int x = 0; x < 3; x++)
+            if (!(y == 1 && x == 1))
+                result += (mask->grid[y * 3 + x] << n++);
+    return result;
 }
 
 static void frame(void) {
@@ -611,6 +634,10 @@ static void frame(void) {
                 state.tileset.tile_height = state.tileset.tile_height;
                 state.is_tileset_loaded = true;
                 state.show_tileset_dialog = false;
+                state.tileset_masks.clear();
+                state.tile_cols = state.tileset.texture->width() / state.tileset.tile_width;
+                state.tile_rows = state.tileset.texture->height() / state.tileset.tile_height;
+                state.tileset_masks.resize(state.tile_cols * state.tile_rows);
                 ImGui::CloseCurrentPopup();
                 
                 skip_map_creation:;
@@ -674,7 +701,7 @@ static void frame(void) {
                 (float)state.tileset.texture->width() * state.tileset_scale + 10,
                 (float)state.tileset.texture->height() * state.tileset_scale + 10
             };
-            if (ImGui::BeginChild("Mask Editor", scaled_size, true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+            if (ImGui::BeginChild("MaskEditorChild", scaled_size, true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
                 // Draw the tileset texture using draw_tileset
                 if (state.tileset.texture != nullptr && state.tileset.texture->is_valid()) {
                     ImVec2 tex_size((float)state.tileset.texture->width() * state.tileset_scale, 
@@ -690,31 +717,46 @@ static void frame(void) {
                 ImGui::EndChild();
             }
 
-            ImGui::Text("Mask Editor");
-            ImGui::BeginChild("Button Grid", scaled_size, true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-            float avail_height = ImGui::GetContentRegionAvail().y;
-            ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(4.0f, 4.0f));
-            if (ImGui::BeginTable("button_grid", 3, ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_SizingStretchSame)) {
-                float row_height = avail_height / 3.0f;
-                for (int y = 0; y < 3; y++) {
-                    ImGui::TableNextRow(ImGuiTableRowFlags_None, row_height);
-                    for (int x = 0; x < 3; x++) {
-                        ImGui::TableSetColumnIndex(x);
-                        static const char *labels[9] = {
-                            "TL", "T", "TR", "L", "X", "R", "BL", "B", "BR"
-                        };
-                        static bool b = false;
-                        ImGui::PushStyleColor(ImGuiCol_Button, b ? (ImVec4){0.f, 1.f, 0.f, 1.f} : (ImVec4){1.f, 0.f, 0.f, 1.f});
-                        if (ImGui::Button(labels[y * 3 + x], ImVec2(-FLT_MIN, row_height - 8.0f))) {
-                            b = !b;
+            if (state.selected_tile_x >= 0 && state.selected_tile_y >= 0) {
+                ImGui::BeginChild("Button Grid", scaled_size, true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+                ImGui::Text("Mask Editor");
+                Neighbours *n = &state.tileset_masks[state.selected_tile_x * 3 + state.selected_tile_y];
+                uint8_t bmask = _bitmask(n, 0);
+                char buf[9];
+                for (int i = 0; i < 8; i++)
+                    buf[i] = !!((bmask << i) & 0x80) ? 'F' : '0';
+                buf[8] = '\0';
+                ImGui::Text("tile: %d, %d - mask: %d,0x%x,0b%s", state.selected_tile_x, state.selected_tile_y, bmask, bmask, buf);
+                
+                float avail_height = ImGui::GetContentRegionAvail().y;
+                ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(4.0f, 4.0f));
+                if (ImGui::BeginTable("button_grid", 3, ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_SizingStretchSame)) {
+                    float row_height = avail_height / 3.0f;
+                    for (int y = 0; y < 3; y++) {
+                        ImGui::TableNextRow(ImGuiTableRowFlags_None, row_height);
+                        for (int x = 0; x < 3; x++) {
+                            ImGui::TableSetColumnIndex(x);
+                            static const char *labels[9] = {
+                                "TL", "T", "TR", "L", "X", "R", "BL", "B", "BR"
+                            };
+                            ImGui::PushStyleColor(ImGuiCol_Button, n->grid[y * 3 + x] || (x == 1 && y == 1) ? (ImVec4){0.f, 1.f, 0.f, 1.f} : (ImVec4){1.f, 0.f, 0.f, 1.f});
+                            if (ImGui::Button(labels[y * 3 + x], ImVec2(-FLT_MIN, row_height - 8.0f))) {
+                                if (x == 1 && y == 1) {
+                                    bool b = !n->grid[4];
+                                    for (int i = 0; i < 9; i++)
+                                        n->grid[i] = b;
+                                } else {
+                                    n->grid[y * 3 + x] = !n->grid[y * 3 + x];
+                                }
+                            }
+                            ImGui::PopStyleColor(1);
                         }
-                        ImGui::PopStyleColor(1);
                     }
+                    ImGui::EndTable();
                 }
-                ImGui::EndTable();
+                ImGui::PopStyleVar();
+                ImGui::EndChild();
             }
-            ImGui::PopStyleVar();
-            ImGui::EndChild();
 
             ImGui::Separator();
             if (ImGui::Button("Cancel"))
