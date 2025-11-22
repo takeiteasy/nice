@@ -586,10 +586,8 @@ public:
 
     void update() {
         _input_state_prev = _input_state;
-        // Preserve mouse position between frames, only reset button/key states
-        glm::vec2 preserved_mouse_pos = _input_state._mouse_position;
-        _input_state = InputState();
-        _input_state._mouse_position = preserved_mouse_pos;
+        // Reset transient state (scroll) but preserve persistent state (keys, buttons, position, modifiers)
+        _input_state._mouse_wheel = glm::vec2(0.f);
     }
 
     template<typename T>

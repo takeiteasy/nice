@@ -39,7 +39,9 @@
 #include <vector>
 #include <filesystem>
 #include "stb_image.h"
+#include "stb_image.h"
 #include "qoi.h"
+#include "./dat.h"
 
 #ifdef _WIN32
 #define PATH_LIMIT 256
@@ -75,7 +77,13 @@ struct Tileset {
 
 struct Camera {
     glm::vec2 position = glm::vec2(0.f);
+    glm::vec2 target_position = glm::vec2(0.f);
     float zoom = 128.f;
+};
+
+struct Neighbours {
+    int grid[9];
+    int x, y;
 };
 
 static struct {
@@ -91,6 +99,13 @@ static struct {
     Camera camera;
     int mouseX, mouseY;
     int worldX, worldY;
+    Texture *cross = nullptr;
+    Texture *white_tex = nullptr;
+    Texture *red_tex = nullptr;
+    int selected_tile_x = -1;
+    int selected_tile_y = -1;
+    int hovered_tile_x = -1;
+    int hovered_tile_y = -1;
 
     bool project_loaded = false;
     bool new_project_dialog = true;
@@ -104,6 +119,7 @@ static struct {
     bool is_autotile_loaded = false;
     bool show_autotile_dialog = false;
     DummyMap dummy_map;
+    float tileset_scale = 4.0f;
 
     bool show_export_dialog = true;
     bool show_save_project_dialog = false;
@@ -141,6 +157,18 @@ void framebuffer_resize(int width, int height) {
     };
     state.bind.images[IMG_tex] = state.color;
     state.bind.samplers[SMP_smp] = state.sampler;
+
+    state.cross = new Texture();
+    assert(state.cross->load(x_png, x_png_size));
+
+    if (!state.white_tex) {
+        state.white_tex = new Texture();
+        assert(state.white_tex->load(white_png, white_png_size));
+    }
+    if (!state.red_tex) {
+        state.red_tex = new Texture();
+        assert(state.red_tex->load(red_png, red_png_size));
+    }
 }
 
 struct PassThruVertex {
@@ -234,6 +262,7 @@ static void init(void) {
     state.dummy_map.reset();
     // Center camera on the grid (grid is 64x64 tiles of 8x8 pixels = 512x512, center is 256,256)
     state.camera.position = glm::vec2(0.f, 0.f);
+    state.camera.target_position = glm::vec2(0.f, 0.f);
 }
 
 static void SlimButton(const char *label, std::function<void()> callback = nullptr) {
@@ -246,11 +275,91 @@ static void SlimButton(const char *label, std::function<void()> callback = nullp
     style.FramePadding = originalFramePadding;
 }
 
+static void draw_tileset(ImDrawList* dl, ImVec2 min, ImVec2 max) {
+    if (state.tileset.texture == nullptr || !state.tileset.texture->is_valid())
+        return;
+    if (state.tileset.tile_width <= 0 || state.tileset.tile_height <= 0)
+        return;
+
+    sg_image tileset_img = *state.tileset.texture;
+    if (tileset_img.id == SG_INVALID_ID || sg_query_image_state(tileset_img) != SG_RESOURCESTATE_VALID)
+        return;
+    
+    ImTextureID tileset_tex = simgui_imtextureid(tileset_img);
+    dl->AddImage(tileset_tex, min, max, ImVec2(0, 0), ImVec2(1, 1), IM_COL32_WHITE);
+
+    int tex_width = state.tileset.texture->width();
+    int tex_height = state.tileset.texture->height();
+    int tile_w = state.tileset.tile_width;
+    int tile_h = state.tileset.tile_height;
+    int cols = tex_width / tile_w;
+    int rows = tex_height / tile_h;
+
+    float scale_x = (max.x - min.x) / tex_width;
+    float scale_y = (max.y - min.y) / tex_height;
+    ImVec2 mouse_pos = ImGui::GetMousePos();
+    if (ImGui::IsWindowHovered() && mouse_pos.x >= min.x && mouse_pos.x < max.x && mouse_pos.y >= min.y && mouse_pos.y < max.y) {
+        int tx = (int)((mouse_pos.x - min.x) / (tile_w * scale_x));
+        int ty = (int)((mouse_pos.y - min.y) / (tile_h * scale_y));
+
+        if (tx >= 0 && tx < cols && ty >= 0 && ty < rows) {
+            state.hovered_tile_x = tx;
+            state.hovered_tile_y = ty;
+
+            if (state.white_tex && state.white_tex->is_valid()) {
+                ImVec2 t_min = ImVec2(min.x + tx * tile_w * scale_x, min.y + ty * tile_h * scale_y);
+                ImVec2 t_max = ImVec2(t_min.x + tile_w * scale_x, t_min.y + tile_h * scale_y);
+                sg_image white_img = *state.white_tex;
+                dl->AddImage(simgui_imtextureid(white_img), t_min, t_max);
+            }
+
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                state.selected_tile_x = tx;
+                state.selected_tile_y = ty;
+            }
+        }
+    } else {
+        state.hovered_tile_x = -1;
+        state.hovered_tile_y = -1;
+    }
+
+    if (state.selected_tile_x >= 0 && state.selected_tile_y >= 0) {
+        int tx = state.selected_tile_x;
+        int ty = state.selected_tile_y;
+        if (tx < cols && ty < rows) {
+            ImVec2 t_min = ImVec2(min.x + tx * tile_w * scale_x, min.y + ty * tile_h * scale_y);
+            ImVec2 t_max = ImVec2(t_min.x + tile_w * scale_x, t_min.y + tile_h * scale_y);
+
+            if (state.red_tex && state.red_tex->is_valid()) {
+                sg_image red_img = *state.red_tex;
+                dl->AddImage(simgui_imtextureid(red_img), t_min, t_max);
+            }
+        }
+    }
+}
+
 static void frame(void) {
     int width = sapp_width();
     int height = sapp_height();
     float half_width = static_cast<float>(width) / 2.0f;
     float half_height = static_cast<float>(height) / 2.0f;
+ 
+    float aspectRatio = width/(float)height;
+    float viewVolumeLeft = -state.camera.zoom * aspectRatio;
+    float viewVolumeRight = state.camera.zoom * aspectRatio;
+    float viewVolumeBottom = -state.camera.zoom;
+    float viewVolumeTop = state.camera.zoom;
+    float adjustedLeft = viewVolumeLeft + state.camera.position.x;
+    float adjustedRight = viewVolumeRight + state.camera.position.x;
+    float adjustedBottom = viewVolumeBottom + state.camera.position.y;
+    float adjustedTop = viewVolumeTop + state.camera.position.y;
+    sgp_begin(width, height);
+    sgp_viewport(0, 0, width, height);
+    sgp_project(adjustedLeft, adjustedRight, adjustedBottom, adjustedTop);
+    sgp_set_color(1, 0, 0, 1);
+    sgp_clear();
+    sgp_reset_color();
+    sgp_set_blend_mode(SGP_BLENDMODE_BLEND);
     
     simgui_new_frame({ width, height, sapp_frame_duration(), sapp_dpi_scale() });
 
@@ -262,9 +371,6 @@ static void frame(void) {
 
     if (state.show_tileset_dialog)
         ImGui::OpenPopup("Load Tileset");
-
-    if (state.show_autotile_dialog)
-        ImGui::OpenPopup("Setup Autotile");
 
 #define CENTRE_MODAL \
         ImGui::SetWindowPos((ImVec2){(width - half_width) / 2.0f, (height - half_height) / 2.0f}, ImGuiCond_Always); \
@@ -477,6 +583,13 @@ static void frame(void) {
                     free(qoi_data);
                 }
                 
+                // Clean up existing texture if any
+                if (state.tileset.texture != nullptr) {
+                    state.tileset.texture->unload();
+                    delete state.tileset.texture;
+                    state.tileset.texture = nullptr;
+                }
+                
                 // Create and load texture with QOI data
                 if (!(state.tileset.texture = new Texture()))
                     goto skip_map_creation;
@@ -487,13 +600,9 @@ static void frame(void) {
                 }
                 if (!state.tileset.texture->is_valid()) {
                     delete state.tileset.texture;
+                    state.tileset.texture = nullptr;
                     fprintf(stderr, "Texture is not valid after loading: %s\n", tileset_path);
                     goto skip_map_creation;
-                }
-                
-                if (state.tileset.texture != nullptr) {
-                    state.tileset.texture->unload();
-                    delete state.tileset.texture;
                 }
 
                 // The tileset is all good! Finally!
@@ -534,15 +643,84 @@ static void frame(void) {
     }
     ImGui::End();
 
-    if (ImGui::BeginPopupModal("Setup Autotile", NULL, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) {
-        CENTRE_MODAL;
-        ImGui::Text("Setup Autotile");
-        ImGui::Separator();
-        if (ImGui::Button("Cancel")) {
-            state.show_autotile_dialog = false;
-            ImGui::CloseCurrentPopup();
+    if (state.show_autotile_dialog) {
+        if (ImGui::Begin("Setup Autotile", &state.show_autotile_dialog, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text("Autotile");
+            ImGui::Separator();
+            
+            // Scale controls
+            ImGui::Text("Scale:");
+            ImGui::SameLine();
+            if (ImGui::Button("-")) {
+                state.tileset_scale = std::max(1.0f, state.tileset_scale - 0.1f);
+            }
+            ImGui::SameLine();
+            ImGui::Text("%.1fx", state.tileset_scale);
+            ImGui::SameLine();
+            if (ImGui::Button("+")) {
+                state.tileset_scale = std::min(10.0f, state.tileset_scale + 0.1f);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Reset")) {
+                state.tileset_scale = 4.0f;
+            }
+            ImGui::SliderFloat("Zoom", &state.tileset_scale, 1.f, 10.0f, "%.1fx");
+            
+            ImGui::Separator();
+            ImGui::Text("Mask View:");
+            
+            // Calculate scaled size for the child window
+            ImVec2 scaled_size = (ImVec2) {
+                (float)state.tileset.texture->width() * state.tileset_scale + 10,
+                (float)state.tileset.texture->height() * state.tileset_scale + 10
+            };
+            if (ImGui::BeginChild("Mask Editor", scaled_size, true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+                // Draw the tileset texture using draw_tileset
+                if (state.tileset.texture != nullptr && state.tileset.texture->is_valid()) {
+                    ImVec2 tex_size((float)state.tileset.texture->width() * state.tileset_scale, 
+                                   (float)state.tileset.texture->height() * state.tileset_scale);
+                    
+                    // Use Dummy to reserve space and get position
+                    ImGui::Dummy(tex_size);
+                    ImVec2 min = ImGui::GetItemRectMin();
+                    ImVec2 max = ImGui::GetItemRectMax();
+                    
+                    draw_tileset(ImGui::GetWindowDrawList(), min, max);
+                }
+                ImGui::EndChild();
+            }
+
+            ImGui::Text("Mask Editor");
+            ImGui::BeginChild("Button Grid", scaled_size, true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+            float avail_height = ImGui::GetContentRegionAvail().y;
+            ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(4.0f, 4.0f));
+            if (ImGui::BeginTable("button_grid", 3, ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_SizingStretchSame)) {
+                float row_height = avail_height / 3.0f;
+                for (int y = 0; y < 3; y++) {
+                    ImGui::TableNextRow(ImGuiTableRowFlags_None, row_height);
+                    for (int x = 0; x < 3; x++) {
+                        ImGui::TableSetColumnIndex(x);
+                        static const char *labels[9] = {
+                            "TL", "T", "TR", "L", "X", "R", "BL", "B", "BR"
+                        };
+                        static bool b = false;
+                        ImGui::PushStyleColor(ImGuiCol_Button, b ? (ImVec4){0.f, 1.f, 0.f, 1.f} : (ImVec4){1.f, 0.f, 0.f, 1.f});
+                        if (ImGui::Button(labels[y * 3 + x], ImVec2(-FLT_MIN, row_height - 8.0f))) {
+                            b = !b;
+                        }
+                        ImGui::PopStyleColor(1);
+                    }
+                }
+                ImGui::EndTable();
+            }
+            ImGui::PopStyleVar();
+            ImGui::EndChild();
+
+            ImGui::Separator();
+            if (ImGui::Button("Cancel"))
+                state.show_autotile_dialog = false;
+            ImGui::End();
         }
-        ImGui::EndPopup();
     }
 
     if (state.show_export_dialog && !state.new_project_dialog && state.project_path != "") {
@@ -597,19 +775,14 @@ static void frame(void) {
         ImGui::End();
     }
 
-    sdtx_canvas(width, height);
-    sdtx_home();
-    sdtx_printf("fps:    %.2f\n", 1.f / sapp_frame_duration());
 
-    float aspectRatio = width/(float)height;
-    float viewVolumeLeft = -state.camera.zoom * aspectRatio;
-    float viewVolumeRight = state.camera.zoom * aspectRatio;
-    float viewVolumeBottom = -state.camera.zoom;
-    float viewVolumeTop = state.camera.zoom;
-    float adjustedLeft = viewVolumeLeft + state.camera.position.x;
-    float adjustedRight = viewVolumeRight + state.camera.position.x;
-    float adjustedBottom = viewVolumeBottom + state.camera.position.y;
-    float adjustedTop = viewVolumeTop + state.camera.position.y;
+
+    sdtx_canvas(width, height);
+    sdtx_pos(0, 3);
+    sdtx_printf("fps:    %.2f\n", 1.f / sapp_frame_duration());
+    sdtx_printf("zoom:   %.2f\n", state.camera.zoom);
+    sdtx_printf("pos:    (%.2f, %.2f)\n", state.camera.position.x, state.camera.position.y);
+    sdtx_printf("target: (%.2f, %.2f)\n", state.camera.target_position.x, state.camera.target_position.y);
 
     if (state.is_tileset_loaded) {
         state.mouseX = $Input.mouse_position().x;
@@ -620,13 +793,22 @@ static void frame(void) {
         state.worldY = (int)((state.worldY + state.camera.position.y) / state.tileset.tile_height);
     }
 
-    sgp_begin(width, height);
-    sgp_viewport(0, 0, width, height);
-    sgp_project(adjustedLeft, adjustedRight, adjustedBottom, adjustedTop);
-    sgp_set_color(1, 0, 0, 1);
-    sgp_clear();
-    sgp_reset_color();
-    sgp_set_blend_mode(SGP_BLENDMODE_BLEND);
+    if ($Input.is_down(SAPP_MOUSEBUTTON_LEFT) && $Input.is_shift_down()) {
+        state.camera.target_position -= $Input.mouse_delta() * (1024.f - state.camera.zoom) / 1024.f;
+    }
+
+    // Zoom with scroll
+    if ($Input.mouse_wheel().y != 0.0f) {
+        state.camera.zoom -= $Input.mouse_wheel().y * .5;
+        if (state.camera.zoom < 8.0f)
+            state.camera.zoom = 8.0f;
+        if (state.camera.zoom > 1024.0f)
+            state.camera.zoom = 1024.0f;
+    }
+
+    float dt = (float)sapp_frame_duration();
+    float speed = 10.0f;
+    state.camera.position += (state.camera.target_position - state.camera.position) * (1.0f - exp(-speed * dt));
 
     sg_begin_pass(&state.pass);
     state.dummy_map.draw();
