@@ -506,6 +506,138 @@ void osdialog_file_async(osdialog_file_action action, const char* dir, const cha
 }
 
 
+char** osdialog_multifile(osdialog_file_action action, const char* dir, const char* filename, const osdialog_filters* filters, int* total_files_selected) {
+	SAVE_CALLBACK
+
+	// Only support open dialog for multi-select
+	if (action != OSDIALOG_OPEN) {
+		RESTORE_CALLBACK
+		if (total_files_selected) *total_files_selected = 0;
+		return NULL;
+	}
+
+	OPENFILENAMEW ofn;
+	ZeroMemory(&ofn, sizeof(ofn));
+	ofn.lStructSize = sizeof(ofn);
+	ofn.hwndOwner = GetActiveWindow();
+	ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR | OFN_ALLOWMULTISELECT;
+
+	// Allocate a large buffer for multiple files
+	const int bufSize = 65536;
+	wchar_t* strFile = (wchar_t*)OSDIALOG_MALLOC(bufSize * sizeof(wchar_t));
+	strFile[0] = 0;
+
+	if (filename) {
+		wchar_t* filenameW = utf8_to_wchar(filename);
+		snwprintf(strFile, bufSize, L"%S", filenameW);
+		OSDIALOG_FREE(filenameW);
+	}
+	ofn.lpstrFile = strFile;
+	ofn.nMaxFile = bufSize;
+
+	// dir
+	wchar_t strInitialDir[MAX_PATH] = L"";
+	if (dir) {
+		wchar_t* dirW = utf8_to_wchar(dir);
+		GetFullPathNameW(dirW, MAX_PATH, strInitialDir, NULL);
+		OSDIALOG_FREE(dirW);
+		ofn.lpstrInitialDir = strInitialDir;
+	}
+
+	// filters (same as osdialog_file_impl)
+	wchar_t* strFilter = NULL;
+	if (filters) {
+		char fBuf[4096];
+		int fLen = 0;
+		for (; filters; filters = filters->next) {
+			fLen += snprintf(fBuf + fLen, sizeof(fBuf) - fLen, "%s", filters->name);
+			fBuf[fLen++] = '\0';
+			for (const osdialog_filter_patterns* patterns = filters->patterns; patterns; patterns = patterns->next) {
+				fLen += snprintf(fBuf + fLen, sizeof(fBuf) - fLen, "*.%s", patterns->pattern);
+				if (patterns->next)
+					fLen += snprintf(fBuf + fLen, sizeof(fBuf) - fLen, ";");
+			}
+			fBuf[fLen++] = '\0';
+		}
+		fBuf[fLen++] = '\0';
+		strFilter = (wchar_t*)OSDIALOG_MALLOC(fLen * sizeof(wchar_t));
+		MultiByteToWideChar(CP_UTF8, 0, fBuf, fLen, strFilter, fLen);
+		ofn.lpstrFilter = strFilter;
+		ofn.nFilterIndex = 1;
+	}
+
+	BOOL success = GetOpenFileNameW(&ofn);
+
+	// Clean up filters
+	if (strFilter) {
+		OSDIALOG_FREE(strFilter);
+	}
+
+	RESTORE_CALLBACK
+
+	char** result = NULL;
+	if (success) {
+		int count = 0;
+		wchar_t* p = strFile;
+
+		// First string
+		size_t len = wcslen(p);
+		p += len + 1;
+
+		if (*p == 0) {
+			// Single file
+			count = 1;
+			result = (char**)OSDIALOG_MALLOC(sizeof(char*) * 2);
+			result[0] = wchar_to_utf8(strFile);
+			result[1] = NULL;
+		}
+		else {
+			// Multiple files
+			// First string is directory
+			wchar_t* dirStr = strFile;
+
+			// Count files
+			wchar_t* q = p;
+			while (*q) {
+				count++;
+				q += wcslen(q) + 1;
+			}
+
+			result = (char**)OSDIALOG_MALLOC(sizeof(char*) * (count + 1));
+
+			int i = 0;
+			q = p;
+			while (*q) {
+				size_t fileLen = wcslen(q);
+				size_t dirLen = wcslen(dirStr);
+				size_t fullLen = dirLen + 1 + fileLen + 1;
+				wchar_t* fullPath = (wchar_t*)OSDIALOG_MALLOC(fullLen * sizeof(wchar_t));
+
+				wcscpy(fullPath, dirStr);
+				if (fullPath[dirLen - 1] != L'\\') {
+					wcscat(fullPath, L"\\");
+				}
+				wcscat(fullPath, q);
+
+				result[i++] = wchar_to_utf8(fullPath);
+				OSDIALOG_FREE(fullPath);
+
+				q += fileLen + 1;
+			}
+			result[i] = NULL;
+		}
+
+		if (total_files_selected) *total_files_selected = count;
+	}
+	else {
+		if (total_files_selected) *total_files_selected = 0;
+	}
+
+	OSDIALOG_FREE(strFile);
+	return result;
+}
+
+
 int osdialog_color_picker_impl(osdialog_color* color, int opacity, HWND window) {
 	(void) opacity;
 	SAVE_CALLBACK

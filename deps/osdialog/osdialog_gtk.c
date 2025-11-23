@@ -422,6 +422,55 @@ void osdialog_file_async(osdialog_file_action action, const char* dir, const cha
 }
 
 
+char** osdialog_multifile(osdialog_file_action action, const char* dir, const char* filename, const osdialog_filters* filters, int* total_files_selected) {
+	SAVE_CALLBACK
+
+	GtkWidget* dialog = file_create(action, dir, filename, filters);
+	if (!dialog) {
+		RESTORE_CALLBACK
+		if (total_files_selected) *total_files_selected = 0;
+		return NULL;
+	}
+
+	gtk_file_chooser_set_select_multiple(GTK_FILE_CHOOSER(dialog), TRUE);
+
+#if GTK_MAJOR_VERSION <= 3
+	gint response = gtk_dialog_run(GTK_DIALOG(dialog));
+
+	char** result = NULL;
+	if (response == GTK_RESPONSE_ACCEPT) {
+		GSList* filenames = gtk_file_chooser_get_filenames(GTK_FILE_CHOOSER(dialog));
+		int count = g_slist_length(filenames);
+		if (total_files_selected) *total_files_selected = count;
+
+		result = (char**)OSDIALOG_MALLOC(sizeof(char*) * (count + 1));
+		int i = 0;
+		for (GSList* iter = filenames; iter; iter = iter->next) {
+			result[i++] = osdialog_strdup((char*)iter->data);
+			g_free(iter->data);
+		}
+		result[i] = NULL;
+		g_slist_free(filenames);
+	}
+	else {
+		if (total_files_selected) *total_files_selected = 0;
+	}
+
+	gtk_widget_destroy(dialog);
+
+	while (gtk_events_pending())
+		gtk_main_iteration();
+#else // GTK_MAJOR_VERSION == 4
+	// TODO
+	char** result = NULL;
+	if (total_files_selected) *total_files_selected = 0;
+#endif
+
+	RESTORE_CALLBACK
+	return result;
+}
+
+
 static GtkWidget* color_picker_create(osdialog_color color, int opacity) {
 	if (!GTK_INIT)
 		return NULL;

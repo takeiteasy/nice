@@ -300,6 +300,112 @@ void osdialog_file_async(osdialog_file_action action, const char* path, const ch
 }
 
 
+char** osdialog_multifile(osdialog_file_action action, const char* dir, const char* filename, const osdialog_filters* filters, int* total_files_selected) {
+	char* args[32];
+	int argIndex = 0;
+
+	args[argIndex++] = osdialog_strdup(zenityBin);
+	args[argIndex++] = osdialog_strdup("--title");
+	args[argIndex++] = osdialog_strdup("");
+	args[argIndex++] = osdialog_strdup("--file-selection");
+	args[argIndex++] = osdialog_strdup("--multiple");
+	args[argIndex++] = osdialog_strdup("--separator");
+	args[argIndex++] = osdialog_strdup("|");
+
+	if (action == OSDIALOG_OPEN) {
+		// This is the default
+	}
+	else if (action == OSDIALOG_OPEN_DIR) {
+		args[argIndex++] = osdialog_strdup("--directory");
+	}
+	else {
+		// Save not supported for multifile usually, but if requested...
+		// Zenity might support it but it's weird. I'll assume OPEN/OPEN_DIR.
+		if (total_files_selected) *total_files_selected = 0;
+		return NULL;
+	}
+
+	if (dir || filename) {
+		args[argIndex++] = osdialog_strdup("--filename");
+		char buf[4096];
+		if (dir) {
+			if (filename && filename[0])
+				snprintf(buf, sizeof(buf), "%s/%s", dir, filename);
+			else
+				snprintf(buf, sizeof(buf), "%s/", dir); // Trailing slash for dir
+		}
+		else {
+			snprintf(buf, sizeof(buf), "%s", filename);
+		}
+		args[argIndex++] = osdialog_strdup(buf);
+	}
+
+	// Filters (copy from osdialog_file)
+	for (const osdialog_filters* filter = filters; filter; filter = filter->next) {
+		args[argIndex++] = osdialog_strdup("--file-filter");
+		char patternBuf[1024];
+		char* patternPtr = patternBuf;
+		const char* patternEnd = patternBuf + sizeof(patternBuf);
+		int len = snprintf(patternPtr, patternEnd - patternPtr, "%s |", filter->name);
+		if (len < 0) continue;
+		patternPtr += len;
+		for (const osdialog_filter_patterns* pattern = filter->patterns; pattern; pattern = pattern->next) {
+			if (patternPtr >= patternEnd) break;
+			int len = snprintf(patternPtr, patternEnd - patternPtr, " *.%s", pattern->pattern);
+			if (len < 0) continue;
+			patternPtr += len;
+		}
+		args[argIndex++] = osdialog_strdup(patternBuf);
+	}
+
+	args[argIndex++] = NULL;
+
+	// We need a larger buffer for multiple files
+	char outBuf[65536];
+	int ret = string_list_exec(zenityBin, (const char* const*) args, outBuf, sizeof(outBuf), NULL, 0);
+	string_list_clear(args);
+
+	if (ret != 0) {
+		if (total_files_selected) *total_files_selected = 0;
+		return NULL;
+	}
+
+	// Remove trailing newline
+	size_t outLen = strlen(outBuf);
+	if (outLen > 0 && outBuf[outLen - 1] == '\n')
+		outBuf[outLen - 1] = '\0';
+
+	if (outBuf[0] == '\0') {
+		if (total_files_selected) *total_files_selected = 0;
+		return NULL;
+	}
+
+	// Parse output separated by |
+	int count = 1;
+	for (char* p = outBuf; *p; p++) {
+		if (*p == '|') count++;
+	}
+
+	char** result = (char**)OSDIALOG_MALLOC(sizeof(char*) * (count + 1));
+
+	int i = 0;
+	char* start = outBuf;
+	for (char* p = outBuf; ; p++) {
+		if (*p == '|' || *p == '\0') {
+			char saved = *p;
+			*p = '\0';
+			result[i++] = osdialog_strdup(start);
+			if (saved == '\0') break;
+			start = p + 1;
+		}
+	}
+	result[i] = NULL;
+
+	if (total_files_selected) *total_files_selected = count;
+	return result;
+}
+
+
 int osdialog_color_picker(osdialog_color* color, int opacity) {
 	char* args[32];
 	int argIndex = 0;

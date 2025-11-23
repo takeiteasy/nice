@@ -89,8 +89,6 @@ struct Point {
    int x, y;
 };
 
-
-
 static struct {
     sg_pipeline pipeline;
     sg_pass_action pass_action;
@@ -679,6 +677,7 @@ static void frame(void) {
 
                 // The tileset is all good! Finally!
                 state.tileset.path = tileset_path;
+                state.extra_files.erase(std::find(state.extra_files.begin(), state.extra_files.end(), state.tileset.path));
                 state.tileset.tile_width = state.tileset.tile_width;
                 state.tileset.tile_height = state.tileset.tile_height;
                 state.is_tileset_loaded = true;
@@ -751,6 +750,7 @@ static void frame(void) {
         if (ImGui::Button("Load")) {
             if (valid_path && lua_script_path[0] != '\0') {
                 state.lua_script_path = lua_script_path;
+                state.extra_files.erase(std::find(state.extra_files.begin(), state.extra_files.end(), state.lua_script_path));
                 state.is_lua_script_loaded = true;
                 state.show_lua_script_dialog = false;
                 ImGui::CloseCurrentPopup();
@@ -959,10 +959,18 @@ static void frame(void) {
             }
             ImGui::SameLine();
             SlimButton("Add", [&]() {
-                char *path = osdialog_file(OSDIALOG_OPEN, ".", NULL, NULL);
-                if (path) {
-                    state.extra_files.push_back(path);
-                    free(path);
+                int count = 0;
+                char **files = osdialog_multifile(OSDIALOG_OPEN, "", NULL, NULL, &count);
+                if (files && count > 0) {
+                    for (int i = 0; i < count; i++) {
+                        for (auto &f : state.extra_files)
+                            if (f == files[i] || f == state.lua_script_path || f == state.tileset.path)
+                                goto skip;
+                        state.extra_files.push_back(files[i]);
+                    skip:
+                        free(files[i]);
+                    }
+                    free(files);
                 }
             });
             if (!state.extra_files.empty()) {
@@ -970,6 +978,10 @@ static void frame(void) {
                 ImGui::Text("Extra Files:");
                 for (auto &path : state.extra_files) {
                     ImGui::Text("%s", path.c_str());
+                    ImGui::SameLine();
+                    SlimButton(fmt::format("Remove##{}", path).c_str(), [&]() {
+                        state.extra_files.erase(std::remove(state.extra_files.begin(), state.extra_files.end(), path), state.extra_files.end());
+                    });
                 }
             }
             ImGui::Separator();

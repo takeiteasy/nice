@@ -116,6 +116,18 @@ Calls cb(result, user) when dialog is finished.
 */
 void osdialog_file_async(osdialog_file_action action, const char* dir, const char* filename, const osdialog_filters* filters, osdialog_file_callback* cb, void* user);
 
+/** Launches a file dialog that allows selecting multiple files.
+
+`dir` is the default folder the file dialog will attempt to open in, or NULL for the OS's default.
+`filename` is the default text that will appear in the filename input, or NULL for the OS's default. Relevant to save dialog only.
+`filters` is a list of patterns to filter the file selection, or NULL.
+`total_files_selected` is an output pointer that will be set to the number of files selected.
+
+Returns a NULL-terminated array of selected file paths, or NULL if the dialog was cancelled.
+If the return result is not NULL, caller must free() it.
+*/
+char** osdialog_multifile(osdialog_file_action action, const char* dir, const char* filename, const osdialog_filters* filters, int* total_files_selected);
+
 
 typedef struct {
 	uint8_t r, g, b, a;

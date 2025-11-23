@@ -317,6 +317,43 @@ void osdialog_file_async(osdialog_file_action action, const char* dir, const cha
 }
 
 
+char** osdialog_multifile(osdialog_file_action action, const char* dir, const char* filename, const osdialog_filters* filters, int* total_files_selected) {
+	SAVE_CALLBACK
+
+	NSSavePanel* panel = file_create(action, dir, filename, filters);
+	NSOpenPanel* open_panel = (NSOpenPanel*)panel;
+	if (action == OSDIALOG_OPEN || action == OSDIALOG_OPEN_DIR) {
+		[open_panel setAllowsMultipleSelection:YES];
+	}
+
+	NSWindow* keyWindow = [[NSApplication sharedApplication] keyWindow];
+	NSModalResponse response = [panel runModal];
+
+	[keyWindow makeKeyAndOrderFront:nil];
+
+	RESTORE_CALLBACK
+
+	char** result = NULL;
+	if (response == OK) {
+		NSArray* urls = [open_panel URLs];
+		int count = [urls count];
+		if (total_files_selected) *total_files_selected = count;
+
+		result = (char**)OSDIALOG_MALLOC(sizeof(char*) * (count + 1));
+		for (int i = 0; i < count; i++) {
+			NSURL* url = [urls objectAtIndex:i];
+			NSString* path_str = [url path];
+			result[i] = osdialog_strdup([path_str UTF8String]);
+		}
+		result[count] = NULL;
+	}
+	else {
+		if (total_files_selected) *total_files_selected = 0;
+	}
+	return result;
+}
+
+
 static NSColorPanel* color_picker_create(osdialog_color color, int opacity) {
 	// Set default picker tab
 	// [NSColorPanel setPickerMode:NSColorPanelModeWheel];
