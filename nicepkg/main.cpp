@@ -29,7 +29,6 @@
 #include "input_manager.hpp"
 #include "argparse.hpp"
 #include "sokol_gp.h"
-#include "dummy_map.hpp"
 #include "texture.hpp"
 #include <cstddef>
 #include <cstdio>
@@ -86,6 +85,12 @@ struct Neighbours {
     int x, y;
 };
 
+struct Point {
+   int x, y;
+};
+
+
+
 static struct {
     sg_pipeline pipeline;
     sg_pass_action pass_action;
@@ -115,12 +120,15 @@ static struct {
     Tileset tileset;
 
     bool show_autotile_dialog = false;
-    DummyMap dummy_map;
+    std::vector<bool> grid;
+    int grid_width = 32;
+    int grid_height = 32;
     float tileset_scale = 4.0f;
 
     bool show_export_dialog = true;
     bool show_confirm_save_dialog = false;
     std::vector<Neighbours> tileset_masks;
+    Point autotile_map[256];
     int selected_tile_x = -1;
     int selected_tile_y = -1;
     int hovered_tile_x = -1;
@@ -269,7 +277,8 @@ static void init(void) {
     simgui_setup(&simgui_desc);
 
     // Initialize the dummy map with default grid
-    state.dummy_map.reset();
+    // Initialize the dummy map with default grid
+    state.grid.resize(state.grid_width * state.grid_height, false);
     // Center camera on the grid (grid is 64x64 tiles of 8x8 pixels = 512x512, center is 256,256)
     state.camera.position = glm::vec2(0.f, 0.f);
     state.camera.target_position = glm::vec2(0.f, 0.f);
@@ -383,6 +392,19 @@ static void draw_tileset(ImDrawList* dl, ImVec2 min, ImVec2 max) {
                 dl->AddImage(simgui_imtextureid(*state.red_tex), t_min, t_max);
         }
     }
+}
+
+static void rebuild_autotile_map() {
+    for (int i = 0; i < 256; i++)
+        state.autotile_map[i] = (Point){-1, -1};
+    for (int ty = 0; ty < state.tile_rows; ty++)
+        for (int tx = 0; tx < state.tile_cols; tx++) {
+            Neighbours *n = &state.tileset_masks[ty * state.tile_cols + tx];
+            if (n->grid[4] == 0)
+                continue;
+            int bmask = _bitmask(n, 0);
+            state.autotile_map[bmask] = (Point){tx, ty};
+        }
 }
 
 static void frame(void) {
@@ -662,6 +684,7 @@ static void frame(void) {
                 state.is_tileset_loaded = true;
                 state.show_tileset_dialog = false;
                 state.tileset_masks.clear();
+                memset(state.autotile_map, 0, sizeof(state.autotile_map));
                 state.tile_cols = state.tileset.texture->width() / state.tileset.tile_width;
                 state.tile_rows = state.tileset.texture->height() / state.tileset.tile_height;
                 state.tileset_masks.resize(state.tile_cols * state.tile_rows);
@@ -784,6 +807,7 @@ static void frame(void) {
                 ImGui::EndChild();
             }
 
+            bool masks_modified = false;
             if (state.selected_tile_x >= 0 && state.selected_tile_y >= 0) {
                 ImGui::BeginChild("Button Grid", scaled_size, true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
                 ImGui::Text("Mask Editor");
@@ -821,6 +845,7 @@ static void frame(void) {
                                     if (!n->grid[4])
                                         for (int i = 0; i < 9; i++)
                                             n->grid[i] = false;
+                                masks_modified = true;
                             }
                             ImGui::PopStyleColor(1);
                         }
@@ -857,6 +882,9 @@ static void frame(void) {
                 }
             }
             state.autotile_has_duplicates = has_duplicates;
+
+            if (masks_modified && !state.autotile_has_duplicates)
+                rebuild_autotile_map();
 
             if (has_duplicates) {
                 ImGui::Separator();
@@ -982,17 +1010,33 @@ static void frame(void) {
     sdtx_printf("pos:    (%.2f, %.2f)\n", state.camera.position.x, state.camera.position.y);
     sdtx_printf("target: (%.2f, %.2f)\n", state.camera.target_position.x, state.camera.target_position.y);
 
+    float mx = $Input.mouse_position().x;
+    float my = $Input.mouse_position().y;
+    float wx = mx * (viewVolumeRight - viewVolumeLeft) / width + viewVolumeLeft;
+    float wy = my * (viewVolumeTop - viewVolumeBottom) / height + viewVolumeBottom;
+
     if (state.is_tileset_loaded) {
-        state.mouseX = $Input.mouse_position().x;
-        state.mouseY = $Input.mouse_position().y;
-        state.worldX = state.mouseX * (viewVolumeRight - viewVolumeLeft) / width + viewVolumeLeft;
-        state.worldY = state.mouseY * (viewVolumeTop - viewVolumeBottom) / height + viewVolumeBottom;
-        state.worldX = (int)((state.worldX + state.camera.position.x) / state.tileset.tile_width);
-        state.worldY = (int)((state.worldY + state.camera.position.y) / state.tileset.tile_height);
+        state.mouseX = (int)mx;
+        state.mouseY = (int)my;
+        state.worldX = (int)((wx + state.camera.position.x) / state.tileset.tile_width);
+        state.worldY = (int)((wy + state.camera.position.y) / state.tileset.tile_height);
     }
 
-    if ($Input.is_down(SAPP_MOUSEBUTTON_LEFT) && $Input.is_shift_down()) {
-        state.camera.target_position -= $Input.mouse_delta() * (1024.f - state.camera.zoom) / 1024.f;
+    static bool was_mouse_down_last_frame = false;
+    if ($Input.is_down(SAPP_MOUSEBUTTON_LEFT)) {
+        if ($Input.is_shift_down()) {
+            state.camera.target_position -= $Input.mouse_delta() * (1024.f - state.camera.zoom) / 1024.f;
+        } else {
+            if (!was_mouse_down_last_frame) {
+                int gx = (int)((wx + state.camera.position.x) / state.tileset.tile_width);
+                int gy = (int)((wy + state.camera.position.y) / state.tileset.tile_height);
+                if (gx >= 0 && gx < state.grid_width && gy >= 0 && gy < state.grid_height)
+                    state.grid[gx * state.grid_height + gy] = !state.grid[gx * state.grid_height + gy];
+            }
+        }
+        was_mouse_down_last_frame = true;
+    } else {
+        was_mouse_down_last_frame = false;
     }
 
     // Zoom with scroll
@@ -1009,7 +1053,53 @@ static void frame(void) {
     state.camera.position += (state.camera.target_position - state.camera.position) * (1.0f - exp(-speed * dt));
 
     sg_begin_pass(&state.pass);
-    state.dummy_map.draw();
+    sgp_set_color(1.f, 1.f, 1.f, 1.f);
+
+    // Draw filled rectangles for active tiles (placeholder)
+    // Draw filled rectangles for active tiles (placeholder)
+    float _tile_width = state.tileset.tile_width;
+    float _tile_height = state.tileset.tile_height;
+    int _grid_width = state.grid_width;
+    int _grid_height = state.grid_height;
+    for (int x = 0; x < _grid_width; x++)
+        for (int y = 0; y < _grid_height; y++)
+            if (state.grid[x * _grid_height + y]) {
+                if (!state.is_tileset_loaded || !state.autotile_not_empty) {
+                    sgp_draw_filled_rect(x * _tile_width, y * _tile_height, _tile_width, _tile_height);
+                    continue;
+                }
+                Neighbours n = {0};
+                for (int xx = x - 1; xx <= x + 1; xx++)
+                    for (int yy = y - 1; yy <= y + 1; yy++) {
+                        if (xx < 0 || xx >= _grid_width || yy < 0 || yy >= _grid_height)
+                            continue;
+                        if (state.grid[xx * _grid_height + yy])
+                            n.grid[(xx - (x - 1)) + (yy - (y - 1)) * 3] = 1;
+                    }
+                int bmask = _bitmask(&n, 0);
+                Point p = state.autotile_map[bmask];
+                if (p.x != -1 && p.y != -1) {
+                    sgp_set_image(0, *state.tileset.texture);
+                    sgp_rect src = { (float)(p.x * _tile_width), (float)(p.y * _tile_height), _tile_width, _tile_height };
+                    sgp_rect dst = { (float)(x * _tile_width), (float)(y * _tile_height), _tile_width, _tile_height };
+                    sgp_draw_textured_rect(0, dst, src);
+                    sgp_reset_image(0);
+                } else {
+                    sgp_draw_filled_rect(x * _tile_width, y * _tile_height, _tile_width, _tile_height);
+                }
+            }
+    
+    // Draw grid lines
+    for (int x = 0; x < _grid_width+1; x++) {
+        float xx = x * _tile_width;
+        sgp_draw_line(xx, 0, xx, (_tile_height*_grid_height));
+    }
+    for (int y = 0; y < _grid_height+1; y++) {
+        float yy = y * _tile_height;
+        sgp_draw_line(0, yy, (_tile_width*_grid_width), yy);
+    }
+    sgp_reset_color();
+    
     sgp_flush();
     sgp_end();
     sg_end_pass();
