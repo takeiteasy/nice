@@ -122,6 +122,7 @@ static struct {
     int grid_width = 32;
     int grid_height = 32;
     float tileset_scale = 4.0f;
+    bool autotile_simplified = false;
 
     bool show_export_dialog = true;
     bool show_confirm_save_dialog = false;
@@ -292,16 +293,17 @@ static void SlimButton(const char *label, std::function<void()> callback = nullp
     style.FramePadding = originalFramePadding;
 }
 
-uint8_t _bitmask(Neighbours *mask, int simplified) {
-    if (simplified) {
+uint8_t _bitmask(Neighbours *mask) {
+    if (!state.autotile_simplified) {
 #define CHECK_CORNER(N, A, B) \
-mask->grid[(N)] = !mask->grid[(A)] || !mask->grid[(B)] ? 0 : mask->grid[(N)];
+        mask->grid[(N)] = !mask->grid[(A)] || !mask->grid[(B)] ? 0 : mask->grid[(N)];
         CHECK_CORNER(0, 1, 3);
         CHECK_CORNER(2, 1, 5);
         CHECK_CORNER(6, 7, 3);
         CHECK_CORNER(8, 7, 5);
 #undef CHECK_CORNER
     }
+
     uint8_t result = 0;
     for (int y = 0, n = 0; y < 3; y++)
         for (int x = 0; x < 3; x++)
@@ -400,7 +402,7 @@ static void rebuild_autotile_map() {
             Neighbours *n = &state.tileset_masks[ty * state.tile_cols + tx];
             if (n->grid[4] == 0)
                 continue;
-            int bmask = _bitmask(n, 0);
+            int bmask = _bitmask(n);
             state.autotile_map[bmask] = (Point){tx, ty};
         }
 }
@@ -677,7 +679,8 @@ static void frame(void) {
 
                 // The tileset is all good! Finally!
                 state.tileset.path = tileset_path;
-                state.extra_files.erase(std::find(state.extra_files.begin(), state.extra_files.end(), state.tileset.path));
+                if (state.extra_files.size() > 0)
+                    state.extra_files.erase(std::find(state.extra_files.begin(), state.extra_files.end(), state.tileset.path));
                 state.tileset.tile_width = state.tileset.tile_width;
                 state.tileset.tile_height = state.tileset.tile_height;
                 state.is_tileset_loaded = true;
@@ -750,7 +753,8 @@ static void frame(void) {
         if (ImGui::Button("Load")) {
             if (valid_path && lua_script_path[0] != '\0') {
                 state.lua_script_path = lua_script_path;
-                state.extra_files.erase(std::find(state.extra_files.begin(), state.extra_files.end(), state.lua_script_path));
+                if (state.extra_files.size() > 0)
+                    state.extra_files.erase(std::find(state.extra_files.begin(), state.extra_files.end(), state.lua_script_path));
                 state.is_lua_script_loaded = true;
                 state.show_lua_script_dialog = false;
                 ImGui::CloseCurrentPopup();
@@ -769,7 +773,6 @@ static void frame(void) {
             ImGui::Text("Autotile");
             ImGui::Separator();
             
-            // Scale controls
             ImGui::Text("Scale:");
             ImGui::SameLine();
             if (ImGui::Button("-")) {
@@ -782,6 +785,8 @@ static void frame(void) {
                 state.tileset_scale = std::min(10.0f, state.tileset_scale + 0.1f);
             }
             ImGui::SliderFloat("Zoom", &state.tileset_scale, 1.f, 10.0f, "%.1fx");
+            
+            ImGui::Checkbox("Simplified", &state.autotile_simplified);
             
             ImGui::Separator();
             ImGui::Text("Mask View:");
@@ -811,8 +816,9 @@ static void frame(void) {
             if (state.selected_tile_x >= 0 && state.selected_tile_y >= 0) {
                 ImGui::BeginChild("Button Grid", scaled_size, true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
                 ImGui::Text("Mask Editor");
+
                 Neighbours *n = &state.tileset_masks[state.selected_tile_y * state.tile_cols + state.selected_tile_x];
-                uint8_t bmask = _bitmask(n, 0);
+                uint8_t bmask = _bitmask(n);
                 char buf[9];
                 for (int i = 0; i < 8; i++)
                     buf[i] = !!((bmask << i) & 0x80) ? 'F' : '0';
@@ -864,7 +870,7 @@ static void frame(void) {
                     Neighbours *n = &state.tileset_masks[y * state.tile_cols + x];
                     if (!n->grid[4])
                         continue;
-                    duplicates[_bitmask(n, 0)].push_back({x, y});
+                    duplicates[_bitmask(n)].push_back({x, y});
                     if (is_empty) {
                         for (int i = 0; i < 9; i++)
                             if (n->grid[i]) {
@@ -1088,7 +1094,7 @@ static void frame(void) {
                         if (state.grid[xx * _grid_height + yy])
                             n.grid[(xx - (x - 1)) + (yy - (y - 1)) * 3] = 1;
                     }
-                int bmask = _bitmask(&n, 0);
+                int bmask = _bitmask(&n);
                 Point p = state.autotile_map[bmask];
                 if (p.x != -1 && p.y != -1) {
                     sgp_set_image(0, *state.tileset.texture);
