@@ -105,6 +105,8 @@ static struct {
     Texture *cross = nullptr;
     Texture *white_tex = nullptr;
     Texture *red_tex = nullptr;
+    Texture *green_tex = nullptr;
+    Texture *red_green_tex = nullptr;
     int tile_cols;
     int tile_rows;
 
@@ -134,6 +136,9 @@ static struct {
     int hovered_tile_y = -1;
     bool autotile_has_duplicates = false;
     bool autotile_not_empty = false;
+    int default_tile_x = -1;
+    int default_tile_y = -1;
+    bool selecting_default_tile = false;
 
     std::string lua_script_path = "";
     bool is_lua_script_loaded = false;
@@ -174,18 +179,6 @@ void framebuffer_resize(int width, int height) {
     };
     state.bind.images[IMG_tex] = state.color;
     state.bind.samplers[SMP_smp] = state.sampler;
-
-    state.cross = new Texture();
-    assert(state.cross->load(x_png, x_png_size));
-
-    if (!state.white_tex) {
-        state.white_tex = new Texture();
-        assert(state.white_tex->load(white_png, white_png_size));
-    }
-    if (!state.red_tex) {
-        state.red_tex = new Texture();
-        assert(state.red_tex->load(red_png, red_png_size));
-    }
 }
 
 struct PassThruVertex {
@@ -281,6 +274,17 @@ static void init(void) {
     // Center camera on the grid (grid is 64x64 tiles of 8x8 pixels = 512x512, center is 256,256)
     state.camera.position = glm::vec2(0.f, 0.f);
     state.camera.target_position = glm::vec2(0.f, 0.f);
+    
+    state.cross = new Texture();
+    assert(state.cross->load(x_png, x_png_size));
+    state.white_tex = new Texture();
+    assert(state.white_tex->load(white_png, white_png_size));
+    state.red_tex = new Texture();
+    assert(state.red_tex->load(red_png, red_png_size));
+    state.green_tex = new Texture();
+    assert(state.green_tex->load(green_png, green_png_size));
+    state.red_green_tex = new Texture();
+    assert(state.red_green_tex->load(red_green_png, red_green_png_size));
 }
 
 static void SlimButton(const char *label, std::function<void()> callback = nullptr) {
@@ -320,12 +324,7 @@ static void draw_tileset(ImDrawList* dl, ImVec2 min, ImVec2 max) {
     sg_image tileset_img = *state.tileset.texture;
     if (tileset_img.id == SG_INVALID_ID || sg_query_image_state(tileset_img) != SG_RESOURCESTATE_VALID)
         return;
-    
-    ImTextureID tileset_tex = simgui_imtextureid(tileset_img);
-    dl->AddImage(tileset_tex, min, max, ImVec2(0, 0), ImVec2(1, 1), IM_COL32_WHITE);
-    ImTextureID cross_tex = simgui_imtextureid(*state.cross);
-    ImTextureID white_tex = simgui_imtextureid(*state.white_tex);
-    ImTextureID red_tex = simgui_imtextureid(*state.red_tex);
+    dl->AddImage(simgui_imtextureid(*state.tileset.texture), min, max, ImVec2(0, 0), ImVec2(1, 1), IM_COL32_WHITE);
 
     int tex_width = state.tileset.texture->width();
     int tex_height = state.tileset.texture->height();
@@ -344,13 +343,12 @@ static void draw_tileset(ImDrawList* dl, ImVec2 min, ImVec2 max) {
             int gh = tile_h*scale_y;
             float ex = gw/3, ey = gh/3;
             for (int yy = 0; yy < 3; yy++)
-                for (int xx = 0; xx < 3; xx++) {
+                for (int xx = 0; xx < 3; xx++)
                     if (n->grid[yy*3+xx]) {
                         ImVec2 tmin = {min.x+dx+(xx*ex), min.y+dy+(yy*ey)};
                         ImVec2 tmax = {tmin.x+ex, tmin.y+ey};
-                        dl->AddImage(cross_tex, tmin, tmax);
+                        dl->AddImage(simgui_imtextureid(*state.cross), tmin, tmax);
                     }
-                }
         }
 
     if (ImGui::IsWindowHovered() && mouse_pos.x >= min.x && mouse_pos.x < max.x && mouse_pos.y >= min.y && mouse_pos.y < max.y) {
@@ -360,17 +358,14 @@ static void draw_tileset(ImDrawList* dl, ImVec2 min, ImVec2 max) {
         if (tx >= 0 && tx < state.tile_cols && ty >= 0 && ty < state.tile_rows) {
             state.hovered_tile_x = tx;
             state.hovered_tile_y = ty;
-
-            if (state.white_tex && state.white_tex->is_valid()) {
-                ImVec2 t_min = ImVec2(min.x + tx * tile_w * scale_x, min.y + ty * tile_h * scale_y);
-                ImVec2 t_max = ImVec2(t_min.x + tile_w * scale_x, t_min.y + tile_h * scale_y);
-                dl->AddImage(simgui_imtextureid(*state.white_tex), t_min, t_max);
-            }
-
+            ImVec2 t_min = ImVec2(min.x + tx * tile_w * scale_x, min.y + ty * tile_h * scale_y);
+            ImVec2 t_max = ImVec2(t_min.x + tile_w * scale_x, t_min.y + tile_h * scale_y);
+            dl->AddImage(simgui_imtextureid(state.selecting_default_tile ? *state.green_tex : *state.white_tex), t_min, t_max);
             if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-                if (state.selected_tile_x == tx && state.selected_tile_y == ty) {
-                    state.selected_tile_x = -1;
-                    state.selected_tile_y = -1;
+                if (state.selecting_default_tile) {
+                    state.default_tile_x = tx;
+                    state.default_tile_y = ty;
+                    state.selecting_default_tile = false;
                 } else {
                     state.selected_tile_x = tx;
                     state.selected_tile_y = ty;
@@ -382,14 +377,20 @@ static void draw_tileset(ImDrawList* dl, ImVec2 min, ImVec2 max) {
         state.hovered_tile_y = -1;
     }
 
-    if (state.selected_tile_x >= 0 && state.selected_tile_y >= 0) {
-        int tx = state.selected_tile_x;
-        int ty = state.selected_tile_y;
-        if (tx < state.tile_cols && ty < state.tile_rows) {
-            ImVec2 t_min = ImVec2(min.x + tx * tile_w * scale_x, min.y + ty * tile_h * scale_y);
+    if ((state.selected_tile_x >= 0 && state.selected_tile_y >= 0 && state.default_tile_x >= 0 && state.default_tile_y >= 0) && state.selected_tile_x == state.default_tile_x && state.selected_tile_y == state.default_tile_y) {
+        ImVec2 t_min = ImVec2(min.x + state.default_tile_x * tile_w * scale_x, min.y + state.default_tile_y * tile_h * scale_y);
+        ImVec2 t_max = ImVec2(t_min.x + tile_w * scale_x, t_min.y + tile_h * scale_y);
+        dl->AddImage(simgui_imtextureid(*state.red_green_tex), t_min, t_max);
+    } else {
+        if (!state.selecting_default_tile && state.default_tile_x >= 0 && state.default_tile_y >= 0) {
+            ImVec2 t_min = ImVec2(min.x + state.default_tile_x * tile_w * scale_x, min.y + state.default_tile_y * tile_h * scale_y);
             ImVec2 t_max = ImVec2(t_min.x + tile_w * scale_x, t_min.y + tile_h * scale_y);
-            if (state.red_tex && state.red_tex->is_valid())
-                dl->AddImage(simgui_imtextureid(*state.red_tex), t_min, t_max);
+            dl->AddImage(simgui_imtextureid(*state.green_tex), t_min, t_max);
+        }
+        if (state.selected_tile_x >= 0 && state.selected_tile_y >= 0) {
+            ImVec2 t_min = ImVec2(min.x + state.selected_tile_x * tile_w * scale_x, min.y + state.selected_tile_y * tile_h * scale_y);
+            ImVec2 t_max = ImVec2(t_min.x + tile_w * scale_x, t_min.y + tile_h * scale_y);
+            dl->AddImage(simgui_imtextureid(*state.red_tex), t_min, t_max);
         }
     }
 }
@@ -788,6 +789,15 @@ static void frame(void) {
             
             ImGui::Checkbox("Simplified", &state.autotile_simplified);
             
+            // Button to select default tile
+            if (ImGui::Button(state.selecting_default_tile ? "Cancel Selection" : "Select default tile")) {
+                state.selecting_default_tile = !state.selecting_default_tile;
+            }
+            if (state.default_tile_x >= 0 && state.default_tile_y >= 0) {
+                ImGui::SameLine();
+                ImGui::Text("Default: (%d, %d)", state.default_tile_x, state.default_tile_y);
+            }
+            
             ImGui::Separator();
             ImGui::Text("Mask View:");
             
@@ -998,13 +1008,14 @@ static void frame(void) {
             }
             CHECK_ISSUE(state.is_tileset_loaded, "Tileset not set");
             CHECK_ISSUE(!state.autotile_has_duplicates, "Autotile has duplicates");
-            CHECK_ISSUE(state.autotile_not_empty, "Autotile is empty");
             CHECK_ISSUE(state.is_lua_script_loaded, "Lua entry script not set");
 #undef CHECK_ISSUE
             if (issue_count > 0)
                 ImGui::Text("Issues found: %d", issue_count);
             else
                 ImGui::Text("No issues found!");
+            if (!state.autotile_not_empty)
+                ImGui::Text("Warning: Autotile is empty, autotiling will be disabled");
 
             if (ImGui::Button("Save Project")) {
                 if (issue_count == 0) {
@@ -1073,50 +1084,58 @@ static void frame(void) {
     sg_begin_pass(&state.pass);
     sgp_set_color(1.f, 1.f, 1.f, 1.f);
 
-    // Draw filled rectangles for active tiles (placeholder)
-    // Draw filled rectangles for active tiles (placeholder)
     float _tile_width = state.tileset.tile_width;
     float _tile_height = state.tileset.tile_height;
     int _grid_width = state.grid_width;
     int _grid_height = state.grid_height;
-    for (int x = 0; x < _grid_width; x++)
-        for (int y = 0; y < _grid_height; y++)
-            if (state.grid[x * _grid_height + y]) {
-                if (!state.is_tileset_loaded || !state.autotile_not_empty) {
-                    sgp_draw_filled_rect(x * _tile_width, y * _tile_height, _tile_width, _tile_height);
-                    continue;
-                }
-                Neighbours n = {0};
-                for (int xx = x - 1; xx <= x + 1; xx++)
-                    for (int yy = y - 1; yy <= y + 1; yy++) {
-                        if (xx < 0 || xx >= _grid_width || yy < 0 || yy >= _grid_height)
-                            continue;
-                        if (state.grid[xx * _grid_height + yy])
-                            n.grid[(xx - (x - 1)) + (yy - (y - 1)) * 3] = 1;
+    if (state.is_tileset_loaded) {
+        for (int x = 0; x < _grid_width; x++)
+            for (int y = 0; y < _grid_height; y++)
+                if (state.grid[x * _grid_height + y]) {
+                    Neighbours n = {0};
+                    for (int xx = x - 1; xx <= x + 1; xx++)
+                        for (int yy = y - 1; yy <= y + 1; yy++) {
+                            if (xx < 0 || xx >= _grid_width || yy < 0 || yy >= _grid_height)
+                                continue;
+                            if (state.grid[xx * _grid_height + yy])
+                                n.grid[(xx - (x - 1)) + (yy - (y - 1)) * 3] = 1;
+                        }
+                    int bmask = _bitmask(&n);
+                    Point p = state.autotile_map[bmask];
+                    if (p.x != -1 && p.y != -1 && state.autotile_not_empty) {
+                        sgp_set_image(0, *state.tileset.texture);
+                        sgp_rect src = { (float)(p.x * _tile_width), (float)(p.y * _tile_height), _tile_width, _tile_height };
+                        sgp_rect dst = { (float)(x * _tile_width), (float)(y * _tile_height), _tile_width, _tile_height };
+                        sgp_draw_textured_rect(0, dst, src);
+                        sgp_reset_image(0);
+                    } else {
+                        if (state.default_tile_x >= 0 && state.default_tile_y >= 0) {
+                            if (state.default_tile_x >= state.tile_cols)
+                                state.default_tile_x = state.tile_cols - 1;
+                            if (state.default_tile_y >= state.tile_rows)
+                                state.default_tile_y = state.tile_rows - 1;
+                            sgp_set_image(0, *state.tileset.texture);
+                            sgp_rect src = { (float)(state.default_tile_x * _tile_width), (float)(state.default_tile_y * _tile_height), _tile_width, _tile_height };
+                            sgp_rect dst = { (float)(x * _tile_width), (float)(y * _tile_height), _tile_width, _tile_height };
+                            sgp_draw_textured_rect(0, dst, src);
+                            sgp_reset_image(0);
+                        } else {
+                            sgp_draw_filled_rect(x * _tile_width, y * _tile_height, _tile_width, _tile_height);
+                        }
                     }
-                int bmask = _bitmask(&n);
-                Point p = state.autotile_map[bmask];
-                if (p.x != -1 && p.y != -1) {
-                    sgp_set_image(0, *state.tileset.texture);
-                    sgp_rect src = { (float)(p.x * _tile_width), (float)(p.y * _tile_height), _tile_width, _tile_height };
-                    sgp_rect dst = { (float)(x * _tile_width), (float)(y * _tile_height), _tile_width, _tile_height };
-                    sgp_draw_textured_rect(0, dst, src);
-                    sgp_reset_image(0);
-                } else {
-                    sgp_draw_filled_rect(x * _tile_width, y * _tile_height, _tile_width, _tile_height);
                 }
-            }
-    
-    // Draw grid lines
-    for (int x = 0; x < _grid_width+1; x++) {
-        float xx = x * _tile_width;
-        sgp_draw_line(xx, 0, xx, (_tile_height*_grid_height));
+        
+        // Draw grid lines
+        for (int x = 0; x < _grid_width+1; x++) {
+            float xx = x * _tile_width;
+            sgp_draw_line(xx, 0, xx, (_tile_height*_grid_height));
+        }
+        for (int y = 0; y < _grid_height+1; y++) {
+            float yy = y * _tile_height;
+            sgp_draw_line(0, yy, (_tile_width*_grid_width), yy);
+        }
+        sgp_reset_color();
     }
-    for (int y = 0; y < _grid_height+1; y++) {
-        float yy = y * _tile_height;
-        sgp_draw_line(0, yy, (_tile_width*_grid_width), yy);
-    }
-    sgp_reset_color();
     
     sgp_flush();
     sgp_end();
