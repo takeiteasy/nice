@@ -9,3 +9,4 @@ build/
 game/
 compile_commands.json
 .cache/
+nicepkg.json

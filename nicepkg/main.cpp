@@ -41,6 +41,7 @@
 #include "stb_image.h"
 #include "qoi.h"
 #include "./dat.h"
+#include "json.hpp"
 
 #ifdef _WIN32
 #define PATH_LIMIT 256
@@ -153,6 +154,202 @@ int framebuffer_width(void) {
 
 int framebuffer_height(void) {
     return state.framebuffer_height;
+}
+
+std::string make_relative_path(const std::string& from_dir, const std::string& to_path) {
+    try {
+        std::filesystem::path from(from_dir);
+        std::filesystem::path to(to_path);
+        return std::filesystem::relative(to, from).string();
+    } catch (const std::exception& e) {
+        fprintf(stderr, "Failed to make relative path: %s\n", e.what());
+        return to_path; // Return absolute path on failure
+    }
+}
+
+std::string make_absolute_path(const std::string& base_dir, const std::string& relative_path) {
+    try {
+        std::filesystem::path base(base_dir);
+        std::filesystem::path rel(relative_path);
+        if (rel.is_absolute()) {
+            return relative_path;
+        }
+        return (base / rel).lexically_normal().string();
+    } catch (const std::exception& e) {
+        fprintf(stderr, "Failed to make absolute path: %s\n", e.what());
+        return relative_path; // Return as-is on failure
+    }
+}
+
+bool save_project() {
+    if (state.project_path.empty()) {
+        fprintf(stderr, "Error: No project path set\n");
+        return false;
+    }
+
+    try {
+        nlohmann::json j;
+        
+        // Save tileset information
+        if (state.is_tileset_loaded && !state.tileset.path.empty()) {
+            j["tileset_path"] = make_relative_path(state.project_path, state.tileset.path);
+            j["tile_width"] = state.tileset.tile_width;
+            j["tile_height"] = state.tileset.tile_height;
+        } else {
+            j["tileset_path"] = "";
+            j["tile_width"] = 0;
+            j["tile_height"] = 0;
+        }
+        
+        // Save autotile map (array of 256 points)
+        nlohmann::json autotile_array = nlohmann::json::array();
+        for (int i = 0; i < 256; i++) {
+            autotile_array.push_back({state.autotile_map[i].x, state.autotile_map[i].y});
+        }
+        j["autotile_map"] = autotile_array;
+        
+        // Save autotile settings
+        j["default_tile_x"] = state.default_tile_x;
+        j["default_tile_y"] = state.default_tile_y;
+        j["autotile_simplified"] = state.autotile_simplified;
+        
+        // Save lua entry path
+        if (state.is_lua_script_loaded && !state.lua_script_path.empty()) {
+            j["lua_entry"] = make_relative_path(state.project_path, state.lua_script_path);
+        } else {
+            j["lua_entry"] = "";
+        }
+        
+        // Save extra files
+        nlohmann::json extra_files_array = nlohmann::json::array();
+        for (const auto& file : state.extra_files) {
+            extra_files_array.push_back(make_relative_path(state.project_path, file));
+        }
+        j["extra_files"] = extra_files_array;
+        
+        // Write to file
+        std::string json_path = state.project_path + "/nicepkg.json";
+        std::ofstream file(json_path);
+        if (!file.is_open()) {
+            fprintf(stderr, "Error: Failed to open file for writing: %s\n", json_path.c_str());
+            return false;
+        }
+        
+        file << j.dump(2); // Pretty print with 2 space indent
+        file.close();
+        
+        state.has_been_saved = true;
+        printf("Project saved successfully to: %s\n", json_path.c_str());
+        return true;
+        
+    } catch (const std::exception& e) {
+        fprintf(stderr, "Error saving project: %s\n", e.what());
+        return false;
+    }
+}
+
+// Load project from JSON file
+bool load_project(const std::string& json_path) {
+    try {
+        std::ifstream file(json_path);
+        if (!file.is_open()) {
+            fprintf(stderr, "Error: Failed to open project file: %s\n", json_path.c_str());
+            return false;
+        }
+        
+        nlohmann::json j;
+        file >> j;
+        file.close();
+        
+        // Get the project directory (parent directory of the JSON file)
+        std::filesystem::path json_file_path(json_path);
+        std::string project_dir = json_file_path.parent_path().string();
+        state.project_path = project_dir;
+        
+        // Load tileset
+        if (j.contains("tileset_path") && !j["tileset_path"].get<std::string>().empty()) {
+            std::string tileset_path = make_absolute_path(project_dir, j["tileset_path"]);
+            int tile_width = j.value("tile_width", 8);
+            int tile_height = j.value("tile_height", 8);
+            
+            // Load the tileset texture using the existing Texture::load() method
+            std::ifstream tileset_file(tileset_path, std::ios::binary | std::ios::ate);
+            if (tileset_file.is_open()) {
+                std::streamsize size = tileset_file.tellg();
+                tileset_file.seekg(0, std::ios::beg);
+                
+                std::vector<unsigned char> buffer(size);
+                if (tileset_file.read(reinterpret_cast<char*>(buffer.data()), size)) {
+                    tileset_file.close();
+                    
+                    // Clean up existing texture if any
+                    if (state.tileset.texture != nullptr) {
+                        state.tileset.texture->unload();
+                        delete state.tileset.texture;
+                        state.tileset.texture = nullptr;
+                    }
+                    
+                    // Create and load texture
+                    state.tileset.texture = new Texture();
+                    if (state.tileset.texture->load(buffer.data(), buffer.size())) {
+                        state.tileset.path = tileset_path;
+                        state.tileset.tile_width = tile_width;
+                        state.tileset.tile_height = tile_height;
+                        state.is_tileset_loaded = true;
+                        state.tile_cols = state.tileset.texture->width() / tile_width;
+                        state.tile_rows = state.tileset.texture->height() / tile_height;
+                        state.tileset_masks.clear();
+                        state.tileset_masks.resize(state.tile_cols * state.tile_rows);
+                    } else {
+                        delete state.tileset.texture;
+                        state.tileset.texture = nullptr;
+                        fprintf(stderr, "Failed to load tileset texture: %s\n", tileset_path.c_str());
+                    }
+                }
+            }
+        }
+        
+        // Load autotile map
+        if (j.contains("autotile_map") && j["autotile_map"].is_array()) {
+            auto autotile_array = j["autotile_map"];
+            for (int i = 0; i < 256 && i < (int)autotile_array.size(); i++) {
+                if (autotile_array[i].is_array() && autotile_array[i].size() >= 2) {
+                    state.autotile_map[i].x = autotile_array[i][0];
+                    state.autotile_map[i].y = autotile_array[i][1];
+                }
+            }
+        }
+        
+        // Load autotile settings
+        state.default_tile_x = j.value("default_tile_x", -1);
+        state.default_tile_y = j.value("default_tile_y", -1);
+        state.autotile_simplified = j.value("autotile_simplified", false);
+        
+        // Load lua entry
+        if (j.contains("lua_entry") && !j["lua_entry"].get<std::string>().empty()) {
+            state.lua_script_path = make_absolute_path(project_dir, j["lua_entry"]);
+            state.is_lua_script_loaded = std::filesystem::exists(state.lua_script_path);
+        }
+        
+        // Load extra files
+        if (j.contains("extra_files") && j["extra_files"].is_array()) {
+            state.extra_files.clear();
+            for (const auto& file_path : j["extra_files"]) {
+                std::string abs_path = make_absolute_path(project_dir, file_path);
+                if (std::filesystem::exists(abs_path)) {
+                    state.extra_files.push_back(abs_path);
+                }
+            }
+        }
+        
+        state.has_been_saved = true;
+        printf("Project loaded successfully from: %s\n", json_path.c_str());
+        return true;
+        
+    } catch (const std::exception& e) {
+        fprintf(stderr, "Error loading project: %s\n", e.what());
+        return false;
+    }
 }
 
 void framebuffer_resize(int width, int height) {
@@ -787,7 +984,7 @@ static void frame(void) {
             }
             ImGui::SliderFloat("Zoom", &state.tileset_scale, 1.f, 10.0f, "%.1fx");
             
-            ImGui::Checkbox("Simplified", &state.autotile_simplified);
+            ImGui::Checkbox("Simplified (ignore corner neighbors)", &state.autotile_simplified);
             
             // Button to select default tile
             if (ImGui::Button(state.selecting_default_tile ? "Cancel Selection" : "Select default tile")) {
@@ -1014,12 +1211,14 @@ static void frame(void) {
                 ImGui::Text("Issues found: %d", issue_count);
             else
                 ImGui::Text("No issues found!");
-            if (!state.autotile_not_empty)
+            if (!state.autotile_not_empty && (state.default_tile_x < 0 || state.default_tile_y < 0))
                 ImGui::Text("Warning: Autotile is empty, autotiling will be disabled");
+            if (state.extra_files.empty())
+                ImGui::Text("Warning: No extra files");
 
             if (ImGui::Button("Save Project")) {
                 if (issue_count == 0) {
-                    // TODO: Export the project json
+                    save_project();
                 }
             }
             ImGui::SameLine();
@@ -1183,7 +1382,26 @@ sapp_desc sokol_main(int argc, char* argv[]) {
     }
 
     if (state.project_path != "") {
-        // Actually load the project...
+        // Convert to absolute path if needed
+        std::filesystem::path proj_path(state.project_path);
+        if (!proj_path.is_absolute()) {
+            proj_path = std::filesystem::absolute(proj_path);
+        }
+        
+        // If the path is a directory, append "/nicepkg.json"
+        if (std::filesystem::is_directory(proj_path)) {
+            proj_path = proj_path / "nicepkg.json";
+        }
+        
+        // Try to load the project
+        if (load_project(proj_path.string())) {
+            // Successfully loaded, skip the New Project dialog
+            state.new_project_dialog = false;
+        } else {
+            // Failed to load, show error and still show New Project dialog
+            fprintf(stderr, "Failed to load project from: %s\n", proj_path.string().c_str());
+            fprintf(stderr, "Starting with new project dialog instead.\n");
+        }
     }
 
     return (sapp_desc) {
