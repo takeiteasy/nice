@@ -1,4 +1,6 @@
 #!/usr/bin/env lua
+-- Embed files to C byte arrays, print to stdout
+-- Run with ./embed.lua <file1> [file2] [file3] ...
 
 local function escape_string(str)
     local escaped = str:gsub("\\", "\\\\")

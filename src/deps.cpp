@@ -24,3 +24,5 @@
 #include "sokol/sokol_time.h"
 #include "sokol/util/sokol_debugtext.h"
 #include "sokol/util/sokol_imgui.h"
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"

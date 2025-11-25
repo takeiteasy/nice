@@ -71,7 +71,6 @@ SOURCE := $(wildcard src/*.cpp) \
 EXE := $(BUILD_DIR)/$(NAME)_$(ARCH)$(PROG_EXT)
 LUA := $(BUILD_DIR)/lua$(PROG_EXT)
 FLECS_LIB := $(BUILD_DIR)/libflecs_$(ARCH).$(STATIC_LIB_EXT)
-NICEPKG := $(BUILD_DIR)/nicepkg.$(LIB_EXT)
 DAT_H := $(BUILD_DIR)/nice.dat.h
 ASSETS := test/assets.nice
 
@@ -138,13 +137,6 @@ $(FLECS_LIB): builddir
 
 flecs: $(FLECS_LIB)
 
-# NicePkg Library
-# -----------------------------------------------------------------------------
-$(NICEPKG): builddir
-	$(CC) -shared -fpic -Wno-tautological-compare -o $(NICEPKG) $(ASSETS_DIR)/nicepkg.c deps/minilua.c -Ideps
-
-nicepkg: $(NICEPKG)
-
 # Main Executable
 # -----------------------------------------------------------------------------
 $(EXE): builddir flecs
@@ -154,33 +146,34 @@ nice: $(EXE)
 
 # Test Asset Generation
 # -----------------------------------------------------------------------------
-$(ASSETS): builddir
-	./$(LUA) $(ASSETS_DIR)/nicepkg.lua \
-		-x test/tilemap.png \
-		test/hand.png \
-		test/robot.png \
-		test/ores.png \
-		test/boom.wav \
-		test/test.lua \
-		-o test/assets.nice
 
-testpkg: $(ASSETS)
+TEST_PROJECT := test/nicepkg.json
+TEST_OUTPUT := test/test.nice
 
-# Temporary build target for new nicepkg tool
+$(TEST_PROJECT): nicepkg
+	./$(NICEPKG) -t test/tilemap.png -l test/test.lua -e test/hand.png,test/robot.png,test/boom.wav -o $(TEST_PROJECT)
+
+$(TEST_OUTPUT): builddir $(TEST_PROJECT)
+	./$(NICEPKG) -p $(TEST_PROJECT) -o $(TEST_OUTPUT)
+
+testpkg: $(TEST_PROJECT) $(TEST_OUTPUT)
+
+# NicePkg Tool
 # -----------------------------------------------------------------------------
 
-TMP := $(BUILD_DIR)/nicepkg
-TMP_SRCS := $(wildcard nicepkg/*.cpp) \
+NICEPKG := $(BUILD_DIR)/nicepkg
+NICEPKG_SRCS := $(wildcard nicepkg/*.cpp) \
           deps/fmt/format.cc \
           deps/fmt/os.cc \
           deps/imgui/backends/imgui_impl_metal.mm \
 		  deps/ini.c \
 		  deps/INIReader.cpp \
 		  deps/osdialog/osdialog.c \
-		  deps/osdialog/osdialog_mac.m
+		  deps/osdialog/osdialog_mac.m \
+		  deps/minilua.c
 
-temp: builddir
-	$(CXX) $(INC) $(CFLAGS) -DNICEPKG $(TMP_SRCS) -Ideps/osdialog -I$(SHADER_DST) -o $(TMP)
+nicepkg: builddir
+	$(CXX) $(INC) $(CFLAGS) -DNICEPKG $(NICEPKG_SRCS) -Ideps/osdialog -I$(SHADER_DST) -o $(NICEPKG)
 
 # Run Application
 # -----------------------------------------------------------------------------

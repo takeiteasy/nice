@@ -4,6 +4,7 @@
 
 ## TODO
 
+- Properly load project from .nice file
 - Cross-chunk pathfinding
 - Chunk management from lua
 - Tile selection
@@ -12,12 +13,13 @@
     - Expose settings to lua
 - Proper save path destination 
 - Audio manager
-- Debug tools, chunk monitor, entity monitor, console, lua repl, assets, settings, draw call monitor, .nice maker
-- Fonts, text rendering (fontstash?)
+- Debug tools, chunk monitor, entity monitor, console, lua repl, assets, settings, draw call monitor, ~~.nice maker~~
+- Fonts, text rendering (fontstash or stb_truetype?)
 - Package binary into app, release builds
 - Emscripten build
 - Windows build
 - Linux build
+- Support fennel + teal
 - ~~Find random empty tile function for lua~~
 - ~~Rework scenes, handle in lua instead~~
 - ~~Clean up lua entity functions~~
@@ -30,11 +32,9 @@
 
 ### Ideas:
 
-- Support fennel + teal
-- Networking
+- Networking (handle in engine?)
 - Embed zip inside binary?
 - Sandboxing with lua amalgm?
-- Default texture instead of crashing
 
 ## LICENSE
 ```

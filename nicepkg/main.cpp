@@ -28,6 +28,7 @@
 #include "passthru.glsl.h"
 #include "input_manager.hpp"
 #include "argparse.hpp"
+#include "json.hpp"
 #include "sokol_gp.h"
 #include "texture.hpp"
 #include <cstddef>
@@ -37,11 +38,20 @@
 #include <fstream>
 #include <vector>
 #include <filesystem>
+#include <string>
+#include <algorithm>
 #include "stb_image.h"
-#include "stb_image.h"
+#include "stb_image_write.h"
 #include "qoi.h"
+#include "dr_wav.h"
+#include "dr_mp3.h"
+#include "dr_flac.h"
+#include "stb_vorbis.c"
+#include "qoa.h"
+#include "just_zip.h"
 #include "./dat.h"
-#include "json.hpp"
+#undef L
+#include "minilua.h"
 
 #ifdef _WIN32
 #define PATH_LIMIT 256
@@ -249,7 +259,8 @@ bool save_project() {
 }
 
 // Load project from JSON file
-bool load_project(const std::string& json_path) {
+// Load project from JSON file
+bool load_project(const std::string& json_path, bool headless = false) {
     try {
         std::ifstream file(json_path);
         if (!file.is_open()) {
@@ -272,39 +283,52 @@ bool load_project(const std::string& json_path) {
             int tile_width = j.value("tile_width", 8);
             int tile_height = j.value("tile_height", 8);
             
-            // Load the tileset texture using the existing Texture::load() method
-            std::ifstream tileset_file(tileset_path, std::ios::binary | std::ios::ate);
-            if (tileset_file.is_open()) {
-                std::streamsize size = tileset_file.tellg();
-                tileset_file.seekg(0, std::ios::beg);
-                
-                std::vector<unsigned char> buffer(size);
-                if (tileset_file.read(reinterpret_cast<char*>(buffer.data()), size)) {
-                    tileset_file.close();
+            state.tileset.path = tileset_path;
+            state.tileset.tile_width = tile_width;
+            state.tileset.tile_height = tile_height;
+            state.is_tileset_loaded = true;
+            
+            if (!headless) {
+                // Load the tileset texture using the existing Texture::load() method
+                std::ifstream tileset_file(tileset_path, std::ios::binary | std::ios::ate);
+                if (tileset_file.is_open()) {
+                    std::streamsize size = tileset_file.tellg();
+                    tileset_file.seekg(0, std::ios::beg);
                     
-                    // Clean up existing texture if any
-                    if (state.tileset.texture != nullptr) {
-                        state.tileset.texture->unload();
-                        delete state.tileset.texture;
-                        state.tileset.texture = nullptr;
+                    std::vector<unsigned char> buffer(size);
+                    if (tileset_file.read(reinterpret_cast<char*>(buffer.data()), size)) {
+                        tileset_file.close();
+                        
+                        // Clean up existing texture if any
+                        if (state.tileset.texture != nullptr) {
+                            state.tileset.texture->unload();
+                            delete state.tileset.texture;
+                            state.tileset.texture = nullptr;
+                        }
+                        
+                        // Create and load texture
+                        state.tileset.texture = new Texture();
+                        if (state.tileset.texture->load(buffer.data(), buffer.size())) {
+                            state.tile_cols = state.tileset.texture->width() / tile_width;
+                            state.tile_rows = state.tileset.texture->height() / tile_height;
+                            state.tileset_masks.clear();
+                            state.tileset_masks.resize(state.tile_cols * state.tile_rows);
+                        } else {
+                            delete state.tileset.texture;
+                            state.tileset.texture = nullptr;
+                            fprintf(stderr, "Failed to load tileset texture: %s\n", tileset_path.c_str());
+                        }
                     }
-                    
-                    // Create and load texture
-                    state.tileset.texture = new Texture();
-                    if (state.tileset.texture->load(buffer.data(), buffer.size())) {
-                        state.tileset.path = tileset_path;
-                        state.tileset.tile_width = tile_width;
-                        state.tileset.tile_height = tile_height;
-                        state.is_tileset_loaded = true;
-                        state.tile_cols = state.tileset.texture->width() / tile_width;
-                        state.tile_rows = state.tileset.texture->height() / tile_height;
-                        state.tileset_masks.clear();
-                        state.tileset_masks.resize(state.tile_cols * state.tile_rows);
-                    } else {
-                        delete state.tileset.texture;
-                        state.tileset.texture = nullptr;
-                        fprintf(stderr, "Failed to load tileset texture: %s\n", tileset_path.c_str());
-                    }
+                }
+            } else {
+                // In headless mode, we still need tile_cols and tile_rows for autotile logic if needed
+                // We can get dimensions from stbi_info without creating a texture
+                int width, height, comp;
+                if (stbi_info(tileset_path.c_str(), &width, &height, &comp)) {
+                    state.tile_cols = width / tile_width;
+                    state.tile_rows = height / tile_height;
+                    state.tileset_masks.clear();
+                    state.tileset_masks.resize(state.tile_cols * state.tile_rows);
                 }
             }
         }
@@ -352,7 +376,601 @@ bool load_project(const std::string& json_path) {
     }
 }
 
-void framebuffer_resize(int width, int height) {
+std::vector<unsigned char> explode_image(
+    const unsigned char* data, 
+    int width, int height, int channels,
+    int tile_width, int tile_height, int padding,
+    int* out_width, int* out_height
+) {
+    if (tile_width > width || tile_height > height) {
+        fprintf(stderr, "Tile size larger than image: tile size: %d,%d, image size: %d,%d\n",
+                tile_width, tile_height, width, height);
+        return {};
+    }
+    
+    if (width % tile_width != 0 || height % tile_height != 0) {
+        fprintf(stderr, "Tile size is not multiple of image size: tile size: %d,%d, image size: %d,%d\n",
+                tile_width, tile_height, width, height);
+        return {};
+    }
+    
+    int rows = height / tile_height;
+    int cols = width / tile_width;
+    int new_width = (cols * tile_width) + ((cols + 1) * padding);
+    int new_height = (rows * tile_height) + ((rows + 1) * padding);
+    
+    *out_width = new_width;
+    *out_height = new_height;
+    
+    // Create new image data (4 channels always for output)
+    std::vector<unsigned char> new_data(new_width * new_height * 4, 0);
+    
+    for (int y = 0; y < rows; y++) {
+        for (int x = 0; x < cols; x++) {
+            // Source rectangle
+            int src_x = x * tile_width;
+            int src_y = y * tile_height;
+            
+            // Destination
+            int dx = x * tile_width + ((x + 1) * padding);
+            int dy = y * tile_height + ((y + 1) * padding);
+            
+            for (int tile_y = 0; tile_y < tile_height; tile_y++) {
+                for (int tile_x = 0; tile_x < tile_width; tile_x++) {
+                    int src_pixel_x = src_x + tile_x;
+                    int src_pixel_y = src_y + tile_y;
+                    int src_index = (src_pixel_y * width + src_pixel_x) * channels;
+                    
+                    int dst_pixel_x = dx + tile_x;
+                    int dst_pixel_y = dy + tile_y;
+                    int dst_index = (dst_pixel_y * new_width + dst_pixel_x) * 4;
+                    
+                    // Copy pixels (handle different channel counts)
+                    for (int c = 0; c < std::min(channels, 4); c++) {
+                        new_data[dst_index + c] = data[src_index + c];
+                    }
+                    // Set alpha to 255 if source doesn't have alpha
+                    if (channels == 3) {
+                        new_data[dst_index + 3] = 255;
+                    }
+                }
+            }
+        }
+    }
+    
+    return new_data;
+}
+
+static std::vector<unsigned char> convert_to_qoi(
+    const unsigned char* data,
+    int width, int height, int channels,
+    int colorspace = 0
+) {
+    qoi_desc desc = {
+        .width = (unsigned int)width,
+        .height = (unsigned int)height,
+        .channels = (unsigned char)channels,
+        .colorspace = (unsigned char)colorspace
+    };
+    
+    int out_len;
+    void* qoi_data = qoi_encode(data, &desc, &out_len);
+    if (!qoi_data) {
+        fprintf(stderr, "Failed to encode image to QOI format\n");
+        return {};
+    }
+    
+    std::vector<unsigned char> result((unsigned char*)qoi_data, (unsigned char*)qoi_data + out_len);
+    free(qoi_data);
+    
+    return result;
+}
+
+struct AudioData {
+    std::vector<short> samples;
+    unsigned int channels;
+    unsigned int samplerate;
+    unsigned int total_samples;
+};
+
+static AudioData load_audio_file(const std::string& path) {
+    AudioData result;
+    
+    // Determine file type by extension
+    std::string ext = path.substr(path.find_last_of("."));
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    
+    if (ext == ".wav") {
+        drwav wav;
+        if (!drwav_init_file(&wav, path.c_str(), NULL)) {
+            fprintf(stderr, "Failed to load WAV: %s\n", path.c_str());
+            return result;
+        }
+        
+        result.channels = wav.channels;
+        result.samplerate = wav.sampleRate;
+        result.total_samples = (unsigned int)wav.totalPCMFrameCount;
+        result.samples.resize(result.total_samples * result.channels);
+        
+        drwav_read_pcm_frames_s16(&wav, wav.totalPCMFrameCount, result.samples.data());
+        drwav_uninit(&wav);
+        
+    } else if (ext == ".ogg") {
+        int channels, samplerate;
+        short* data;
+        int samples = stb_vorbis_decode_filename(path.c_str(), &channels, &samplerate, &data);
+        
+        if (samples <= 0) {
+            fprintf(stderr, "Failed to load OGG: %s\n", path.c_str());
+            return result;
+        }
+        
+        result.channels = channels;
+        result.samplerate = samplerate;
+        result.total_samples = samples;
+        result.samples.assign(data, data + samples * channels);
+        free(data);
+        
+    } else if (ext == ".mp3") {
+        drmp3 mp3;
+        if (!drmp3_init_file(&mp3, path.c_str(), NULL)) {
+            fprintf(stderr, "Failed to load MP3: %s\n", path.c_str());
+            return result;
+        }
+        
+        result.channels = mp3.channels;
+        result.samplerate = mp3.sampleRate;
+        drmp3_uint64 total_frames = drmp3_get_pcm_frame_count(&mp3);
+        result.total_samples = (unsigned int)total_frames;
+        
+        // Load as float and convert to short
+        std::vector<float> float_data(result.total_samples * result.channels);
+        drmp3_read_pcm_frames_f32(&mp3, total_frames, float_data.data());
+        drmp3_uninit(&mp3);
+        
+        result.samples.resize(result.total_samples * result.channels);
+        for (size_t i = 0; i < float_data.size(); i++) {
+            float sample = float_data[i];
+            if (sample >= 1.0f) result.samples[i] = 32767;
+            else if (sample <= -1.0f) result.samples[i] = -32768;
+            else result.samples[i] = (short)(sample * 32767.0f);
+        }
+        
+    } else if (ext == ".flac") {
+        unsigned int channels, samplerate;
+        drflac_uint64 total_frames;
+        short* data = drflac_open_file_and_read_pcm_frames_s16(
+            path.c_str(), &channels, &samplerate, &total_frames, NULL
+        );
+        
+        if (!data) {
+            fprintf(stderr, "Failed to load FLAC: %s\n", path.c_str());
+            return result;
+        }
+        
+        result.channels = channels;
+        result.samplerate = samplerate;
+        result.total_samples = (unsigned int)total_frames;
+        result.samples.assign(data, data + result.total_samples * result.channels);
+        free(data);
+        
+    } else {
+        fprintf(stderr, "Unsupported audio format: %s\n", ext.c_str());
+    }
+    
+    return result;
+}
+
+static std::vector<unsigned char> convert_to_qoa(const AudioData& audio) {
+    if (audio.samples.empty()) {
+        return {};
+    }
+    
+    qoa_desc desc = {
+        .channels = audio.channels,
+        .samplerate = audio.samplerate,
+        .samples = audio.total_samples
+    };
+    
+    unsigned int out_len;
+    void* qoa_data = qoa_encode(audio.samples.data(), &desc, &out_len);
+    if (!qoa_data) {
+        fprintf(stderr, "Failed to encode audio to QOA format\n");
+        return {};
+    }
+    
+    std::vector<unsigned char> result((unsigned char*)qoa_data, (unsigned char*)qoa_data + out_len);
+    free(qoa_data);
+    
+    return result;
+}
+
+static bool is_image_file(const std::string& path) {
+    std::string ext = path.substr(path.find_last_of("."));
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || 
+           ext == ".gif" || ext == ".bmp" || ext == ".tga";
+}
+
+static bool is_audio_file(const std::string& path) {
+    std::string ext = path.substr(path.find_last_of("."));
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    return ext == ".wav" || ext == ".mp3" || ext == ".ogg" || ext == ".flac";
+}
+
+// Amalgamate Lua files using lua-amalg
+static std::string amalgamate_lua_script(const std::string& main_lua_path, const std::vector<std::string>& extra_lua_files) {
+    // Create Lua state
+    lua_State* lua = luaL_newstate();
+    if (!lua) {
+        fprintf(stderr, "Failed to create Lua state for amalgamation\n");
+        return "";
+    }
+    
+    luaL_openlibs(lua);
+    
+    // Load the amalg.lua script using dofile to ensure isscript() returns false
+    // and we get the module table back
+    std::string load_script = "return dofile('deps/lua-amalg/amalg.lua')";
+    if (luaL_dostring(lua, load_script.c_str()) != LUA_OK) {
+        fprintf(stderr, "Failed to load amalg.lua: %s\n", lua_tostring(lua, -1));
+        lua_close(lua);
+        return "";
+    }
+    
+    // Get the amalg module (the script should return a table)
+    if (!lua_istable(lua, -1)) {
+        fprintf(stderr, "amalg.lua did not return a table\n");
+        lua_close(lua);
+        return "";
+    }
+    
+    // Get the amalgamate function from the module
+    lua_getfield(lua, -1, "amalgamate");
+    if (!lua_isfunction(lua, -1)) {
+        fprintf(stderr, "amalg.amalgamate is not a function\n");
+        lua_close(lua);
+        return "";
+    }
+    
+    // Create temporary output file
+    std::string temp_lua = std::tmpnam(nullptr);
+    temp_lua += ".lua";
+    
+    // Build arguments for amalgamate function: -o, output_path, -s, script_path, [extra files...]
+    int args_count = 0;
+    
+    lua_pushstring(lua, "-o");
+    lua_pushstring(lua, temp_lua.c_str());
+    args_count += 2;
+    
+    lua_pushstring(lua, "-s");
+    lua_pushstring(lua, main_lua_path.c_str());
+    args_count += 2;
+    
+    // Add extra Lua files as modules
+    // Convert file paths to module names: "src/foo.lua" -> "src.foo"
+    for (const auto& file : extra_lua_files) {
+        std::string module_name = file;
+        
+        // Make relative if absolute (assuming relative to CWD)
+        if (std::filesystem::path(module_name).is_absolute()) {
+            try {
+                module_name = std::filesystem::relative(module_name).string();
+            } catch (...) {
+                // Keep absolute if relative fails
+            }
+        }
+        
+        // Remove extension
+        size_t last_dot = module_name.find_last_of(".");
+        if (last_dot != std::string::npos) {
+            module_name = module_name.substr(0, last_dot);
+        }
+        
+        // Replace separators with dots
+        std::replace(module_name.begin(), module_name.end(), '/', '.');
+        std::replace(module_name.begin(), module_name.end(), '\\', '.');
+        
+        lua_pushstring(lua, module_name.c_str());
+        args_count++;
+    }
+    
+    // Call amalgamate
+    if (lua_pcall(lua, args_count, 0, 0) != LUA_OK) {
+        fprintf(stderr, "Failed to amalgamate Lua script: %s\n", lua_tostring(lua, -1));
+        lua_close(lua);
+        return "";
+    }
+    
+    lua_close(lua);
+    
+    // Verify the output file was created
+    if (!std::filesystem::exists(temp_lua)) {
+        fprintf(stderr, "Amalgamation did not create output file: %s\n", temp_lua.c_str());
+        return "";
+    }
+    
+    printf("Lua amalgamation complete: %s\n", temp_lua.c_str());
+    return temp_lua;
+}
+
+static bool export_package(
+    const std::string& output_path,
+    const std::string& tileset_path,
+    int tile_width, int tile_height,
+    const std::string& autotile_json_path,
+    const std::string& lua_script_path,
+    const std::vector<std::string>& extra_files
+) {
+    printf("Exporting package to: %s\n", output_path.c_str());
+    
+    // Create a zip file
+    zip* z = zip_open(output_path.c_str(), "w");
+    if (!z) {
+        fprintf(stderr, "Failed to create zip file: %s\n", output_path.c_str());
+        return false;
+    }
+    
+    // Process tileset - explode and convert to QOI
+    if (!tileset_path.empty()) {
+        printf("Processing tileset: %s\n", tileset_path.c_str());
+        
+        // Load the tileset image
+        int img_width, img_height, img_channels;
+        unsigned char* img_data = stbi_load(tileset_path.c_str(), &img_width, &img_height, &img_channels, 4);
+        
+        if (!img_data) {
+            fprintf(stderr, "Failed to load tileset: %s\n", tileset_path.c_str());
+            zip_close(z);
+            return false;
+        }
+        
+        // Explode the tileset (add padding between tiles)
+        int exploded_width, exploded_height;
+        auto exploded_data = explode_image(
+            img_data, img_width, img_height, 4,
+            tile_width, tile_height, 4, // 4 pixel padding
+            &exploded_width, &exploded_height
+        );
+        stbi_image_free(img_data);
+        
+        if (exploded_data.empty()) {
+            fprintf(stderr, "Failed to explode tileset\n");
+            zip_close(z);
+            return false;
+        }
+        
+        // Convert to QOI
+        auto qoi_data = convert_to_qoi(
+            exploded_data.data(),
+            exploded_width, exploded_height, 4,
+            0 // sRGB colorspace
+        );
+        
+        if (qoi_data.empty()) {
+            fprintf(stderr, "Failed to convert tileset to QOI\n");
+            zip_close(z);
+            return false;
+        }
+        
+        // Write to a temporary file then add to zip
+        std::string temp_qoi = std::tmpnam(nullptr);
+        temp_qoi += ".qoi";
+        std::ofstream qoi_file(temp_qoi, std::ios::binary);
+        if (!qoi_file.is_open()) {
+            fprintf(stderr, "Failed to create temporary QOI file\n");
+            zip_close(z);
+            return false;
+        }
+        qoi_file.write((char*)qoi_data.data(), qoi_data.size());
+        qoi_file.close();
+        
+        // Add to zip as "tileset.qoi"
+        FILE* f = fopen(temp_qoi.c_str(), "rb");
+        if (!f || !zip_append_file_ex(z, temp_qoi.c_str(), "tileset.qoi", f, 6)) {
+            if (f) fclose(f);
+            fprintf(stderr, "Failed to add tileset to zip\n");
+            std::remove(temp_qoi.c_str());
+            zip_close(z);
+            return false;
+        }
+        fclose(f);
+        std::remove(temp_qoi.c_str());
+        
+        printf("Added tileset.qoi to package\n");
+    }
+    
+    // Add autotile JSON if it exists
+    if (!autotile_json_path.empty() && std::filesystem::exists(autotile_json_path)) {
+        printf("Adding autotile config: %s\n", autotile_json_path.c_str());
+        FILE* f = fopen(autotile_json_path.c_str(), "rb");
+        if (!f || !zip_append_file_ex(z, autotile_json_path.c_str(), "autotile.json", f, 6)) {
+            if (f) fclose(f);
+            fprintf(stderr, "Failed to add autotile config to zip\n");
+            zip_close(z);
+            return false;
+        }
+        fclose(f);
+    }
+
+    // Process extra files
+    std::vector<std::string> extra_lua_files;
+    
+    for (const auto& file_path : extra_files) {
+        if (!std::filesystem::exists(file_path)) {
+            fprintf(stderr, "Warning: Extra file not found: %s\n", file_path.c_str());
+            continue;
+        }
+        
+        std::string filename = std::filesystem::path(file_path).filename().string();
+        
+        // Check if it's a Lua file
+        if (file_path.substr(file_path.find_last_of(".")) == ".lua") {
+            // Don't include the main script if it's in extra_files
+            if (std::filesystem::absolute(file_path) != std::filesystem::absolute(lua_script_path)) {
+                extra_lua_files.push_back(file_path);
+            }
+            continue;
+        }
+        
+        if (is_image_file(file_path)) {
+            // Convert to QOI
+            int width, height, channels;
+            unsigned char* data = stbi_load(file_path.c_str(), &width, &height, &channels, 0);
+            if (!data) {
+                fprintf(stderr, "Failed to load image: %s\n", file_path.c_str());
+                continue;
+            }
+            
+            auto qoi_data = convert_to_qoi(data, width, height, channels, 0); // 0 for sRGB
+            stbi_image_free(data);
+            
+            if (qoi_data.empty()) {
+                fprintf(stderr, "Failed to convert image to QOI: %s\n", file_path.c_str());
+                continue;
+            }
+            
+            // Change extension to .qoi
+            std::string qoi_name = std::filesystem::path(filename).replace_extension(".qoi").string();
+            
+            // Write to temp file
+            std::string temp_qoi = std::tmpnam(nullptr);
+            temp_qoi += ".qoi";
+            std::ofstream qoi_file(temp_qoi, std::ios::binary);
+            qoi_file.write((char*)qoi_data.data(), qoi_data.size());
+            qoi_file.close();
+            
+            // Add to zip
+            FILE* f = fopen(temp_qoi.c_str(), "rb");
+            if (f) {
+                zip_append_file_ex(z, temp_qoi.c_str(), qoi_name.c_str(), f, 6);
+                fclose(f);
+            }
+            std::remove(temp_qoi.c_str());
+            printf("Added %s\n", qoi_name.c_str());
+            
+        } else if (is_audio_file(file_path)) {
+            // Convert to QOA
+            AudioData audio_data = load_audio_file(file_path);
+            
+            if (audio_data.samples.empty()) {
+                fprintf(stderr, "Failed to load audio: %s\n", file_path.c_str());
+                continue;
+            }
+            
+            auto qoa_data = convert_to_qoa(audio_data);
+            
+            if (qoa_data.empty()) {
+                fprintf(stderr, "Failed to convert audio to QOA: %s\n", file_path.c_str());
+                continue;
+            }
+            
+            // Change extension to .qoa
+            std::string qoa_name = std::filesystem::path(filename).replace_extension(".qoa").string();
+            
+            // Write to temp file
+            std::string temp_qoa = std::tmpnam(nullptr);
+            temp_qoa += ".qoa";
+            std::ofstream qoa_file(temp_qoa, std::ios::binary);
+            qoa_file.write((char*)qoa_data.data(), qoa_data.size());
+            qoa_file.close();
+            
+            // Add to zip
+            FILE* f = fopen(temp_qoa.c_str(), "rb");
+            if (f) {
+                zip_append_file_ex(z, temp_qoa.c_str(), qoa_name.c_str(), f, 6);
+                fclose(f);
+            }
+            std::remove(temp_qoa.c_str());
+            printf("Added %s\n", qoa_name.c_str());
+            
+        } else {
+            // Add as is
+            FILE* f = fopen(file_path.c_str(), "rb");
+            if (f) {
+                zip_append_file_ex(z, file_path.c_str(), filename.c_str(), f, 6);
+                fclose(f);
+                printf("Added %s\n", filename.c_str());
+            }
+        }
+    }
+    
+    // Add Lua script - amalgamate it first
+    std::string amalgamated_lua;
+    if (!lua_script_path.empty() && std::filesystem::exists(lua_script_path)) {
+        printf("Amalgamating Lua script: %s\n", lua_script_path.c_str());
+        amalgamated_lua = amalgamate_lua_script(lua_script_path, extra_lua_files);
+        
+        if (amalgamated_lua.empty()) {
+            fprintf(stderr, "Failed to amalgamate Lua script\n");
+            zip_close(z);
+            return false;
+        }
+        
+        printf("Adding Lua script: %s\n", amalgamated_lua.c_str());
+        FILE* f = fopen(amalgamated_lua.c_str(), "rb");
+        if (!f || !zip_append_file_ex(z, amalgamated_lua.c_str(), "main.lua", f, 6)) {
+            if (f) fclose(f);
+            fprintf(stderr, "Failed to add Lua script to zip\n");
+            std::remove(amalgamated_lua.c_str());
+            zip_close(z);
+            return false;
+        }
+        fclose(f);
+    }
+    
+    // Clean up amalgamated Lua file
+    if (!amalgamated_lua.empty()) {
+        std::remove(amalgamated_lua.c_str());
+    }
+    
+    zip_close(z);
+    printf("Package created successfully: %s\n", output_path.c_str());
+    return true;
+}
+
+// Save autotile configuration to a temporary JSON file for export
+std::string save_autotile_json() {
+    try {
+        nlohmann::json j;
+        
+        // Save autotile map (array of 256 points)
+        nlohmann::json autotile_array = nlohmann::json::array();
+        for (int i = 0; i < 256; i++) {
+            autotile_array.push_back({state.autotile_map[i].x, state.autotile_map[i].y});
+        }
+        j["autotile_map"] = autotile_array;
+        
+        // Save autotile settings
+        j["default_tile_x"] = state.default_tile_x;
+        j["default_tile_y"] = state.default_tile_y;
+        j["autotile_simplified"] = state.autotile_simplified;
+        j["tile_width"] = state.tileset.tile_width;
+        j["tile_height"] = state.tileset.tile_height;
+        
+        // Create a temporary file
+        std::string temp_path = std::tmpnam(nullptr);
+        temp_path += ".json";
+        
+        std::ofstream file(temp_path);
+        if (!file.is_open()) {
+            fprintf(stderr, "Error: Failed to create temporary autotile JSON file\n");
+            return "";
+        }
+        
+        file << j.dump(2);
+        file.close();
+        
+        return temp_path;
+        
+    } catch (const std::exception& e) {
+        fprintf(stderr, "Error saving autotile JSON: %s\n", e.what());
+        return "";
+    }
+}
+
+static void framebuffer_resize(int width, int height) {
     if (sg_query_image_state(state.color) == SG_RESOURCESTATE_VALID)
         sg_destroy_image(state.color);
     if (sg_query_image_state(state.depth) == SG_RESOURCESTATE_VALID)
@@ -494,7 +1112,7 @@ static void SlimButton(const char *label, std::function<void()> callback = nullp
     style.FramePadding = originalFramePadding;
 }
 
-uint8_t _bitmask(Neighbours *mask) {
+static uint8_t _bitmask(Neighbours *mask) {
     if (!state.autotile_simplified) {
 #define CHECK_CORNER(N, A, B) \
         mask->grid[(N)] = !mask->grid[(A)] || !mask->grid[(B)] ? 0 : mask->grid[(N)];
@@ -1224,7 +1842,40 @@ static void frame(void) {
             ImGui::SameLine();
             if (ImGui::Button("Build Project")) {
                 if (issue_count == 0) {
-                    // TODO: Build the project zip
+                    // Open save file dialog
+                    osdialog_filters* filters = osdialog_filters_parse("NICE Package:nice");
+                    char* path = osdialog_file(OSDIALOG_SAVE, ".", "game.nice", filters);
+                    osdialog_filters_free(filters);
+                    
+                    if (path) {
+                        std::string output_path = path;
+                        free(path);
+                        
+                        // Generate temporary autotile JSON
+                        std::string autotile_json = save_autotile_json();
+                        
+                        // Export the package
+                        bool success = export_package(
+                            output_path,
+                            state.tileset.path,
+                            state.tileset.tile_width,
+                            state.tileset.tile_height,
+                            autotile_json,
+                            state.lua_script_path,
+                            state.extra_files
+                        );
+                        
+                        // Clean up temporary autotile JSON
+                        if (!autotile_json.empty()) {
+                            std::remove(autotile_json.c_str());
+                        }
+                        
+                        if (success) {
+                            printf("Package exported successfully to: %s\n", output_path.c_str());
+                        } else {
+                            fprintf(stderr, "Failed to export package\n");
+                        }
+                    }
                 }
             }
         }
@@ -1366,12 +2017,41 @@ static void cleanup(void) {
 
 sapp_desc sokol_main(int argc, char* argv[]) {
     argparse::ArgumentParser program("nicepkg");
+    
     program.add_argument("-p", "--project")
         .help("The path to the project file to load")
-        .default_value("")
-        .action([](const std::string& value) {
-            state.project_path = value;
-        });
+        .default_value("");
+    
+    program.add_argument("-t", "--tileset")
+        .help("Path to the tileset image")
+        .default_value("");
+    
+    program.add_argument("-a", "--autotile")
+        .help("Path to the autotile JSON configuration")
+        .default_value("");
+    
+    program.add_argument("-l", "--lua")
+        .help("Path to the Lua entry script")
+        .default_value("");
+    
+    program.add_argument("-e", "--extra")
+        .help("Extra files to include in the package (can be specified multiple times)")
+        .append()
+        .default_value(std::vector<std::string>{});
+    
+    program.add_argument("-o", "--output")
+        .help("Output path for the .nice package file (headless mode)")
+        .default_value("");
+    
+    program.add_argument("--tile-width")
+        .help("Tile width for the tileset (default: 8)")
+        .default_value(8)
+        .scan<'i', int>();
+    
+    program.add_argument("--tile-height")
+        .help("Tile height for the tileset (default: 8)")
+        .default_value(8)
+        .scan<'i', int>();
 
     try {
         program.parse_args(argc, argv);
@@ -1381,9 +2061,118 @@ sapp_desc sokol_main(int argc, char* argv[]) {
         exit(1);
     }
 
-    if (state.project_path != "") {
+    // Check if we're in headless mode (output path is specified)
+    std::string output_path = program.get<std::string>("--output");
+    if (!output_path.empty()) {
+        // Headless mode - create package and exit
+        std::string project_path = program.get<std::string>("--project");
+        
+        // Load project if specified
+        if (!project_path.empty()) {
+            if (!load_project(project_path, true)) {
+                fprintf(stderr, "Error: Failed to load project file: %s\n", project_path.c_str());
+                exit(1);
+            }
+        }
+        
+        std::string tileset_path = program.get<std::string>("--tileset");
+        std::string autotile_path = program.get<std::string>("--autotile");
+        std::string lua_path = program.get<std::string>("--lua");
+        auto extra_files = program.get<std::vector<std::string>>("--extra");
+        int tile_width = program.get<int>("--tile-width");
+        int tile_height = program.get<int>("--tile-height");
+        
+        // Use project settings if CLI args are not provided
+        if (tileset_path.empty() && state.is_tileset_loaded) {
+            tileset_path = state.tileset.path;
+            // Only use project tile size if CLI args are default (8)
+            if (tile_width == 8) tile_width = state.tileset.tile_width;
+            if (tile_height == 8) tile_height = state.tileset.tile_height;
+        }
+        
+        if (lua_path.empty() && state.is_lua_script_loaded) {
+            lua_path = state.lua_script_path;
+        }
+        
+        if (autotile_path.empty()) {
+            // Generate temporary autotile JSON from project state
+            autotile_path = save_autotile_json();
+        }
+        
+        // Merge extra files from project
+        for (const auto& file : state.extra_files) {
+            bool found = false;
+            for (const auto& cli_file : extra_files) {
+                if (std::filesystem::equivalent(file, cli_file)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                extra_files.push_back(file);
+            }
+        }
+        
+        // Check required arguments
+        if (tileset_path.empty()) {
+            fprintf(stderr, "Error: Tileset path is required (-t/--tileset) or in project file\n");
+            exit(1);
+        }
+        if (lua_path.empty()) {
+            fprintf(stderr, "Error: Lua script path is required (-l/--lua) or in project file\n");
+            exit(1);
+        }
+        
+        // Convert relative paths to absolute
+        if (!std::filesystem::path(tileset_path).is_absolute()) {
+            tileset_path = std::filesystem::absolute(tileset_path).string();
+        }
+        if (!autotile_path.empty() && !std::filesystem::path(autotile_path).is_absolute()) {
+            autotile_path = std::filesystem::absolute(autotile_path).string();
+        }
+        if (!std::filesystem::path(lua_path).is_absolute()) {
+            lua_path = std::filesystem::absolute(lua_path).string();
+        }
+        if (!std::filesystem::path(output_path).is_absolute()) {
+            output_path = std::filesystem::absolute(output_path).string();
+        }
+        
+        // Convert extra files to absolute paths
+        std::vector<std::string> absolute_extra_files;
+        for (const auto& file : extra_files) {
+            if (std::filesystem::path(file).is_absolute()) {
+                absolute_extra_files.push_back(file);
+            } else {
+                absolute_extra_files.push_back(std::filesystem::absolute(file).string());
+            }
+        }
+        
+        // Create the package
+        printf("Creating package in headless mode...\n");
+        bool success = export_package(
+            output_path,
+            tileset_path,
+            tile_width,
+            tile_height,
+            autotile_path,
+            lua_path,
+            absolute_extra_files
+        );
+        
+        if (success) {
+            printf("Package created successfully: %s\n", output_path.c_str());
+            exit(0);
+        } else {
+            fprintf(stderr, "Failed to create package\n");
+            exit(1);
+        }
+    }
+
+    // GUI mode
+    std::string project_path = program.get<std::string>("--project");
+    if (!project_path.empty()) {
         // Convert to absolute path if needed
-        std::filesystem::path proj_path(state.project_path);
+        std::filesystem::path proj_path(project_path);
         if (!proj_path.is_absolute()) {
             proj_path = std::filesystem::absolute(proj_path);
         }
