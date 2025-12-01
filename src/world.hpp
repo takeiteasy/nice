@@ -75,7 +75,7 @@ class World {
                 return;
             }
             std::string world_dir = _get_world_directory();
-            
+
             // Iterate through all .nicechunk files in the world directory
             for (const auto& entry : std::filesystem::directory_iterator(world_dir))
                 if (entry.is_regular_file() && entry.path().extension() == ".nicechunk") {
@@ -93,10 +93,10 @@ class World {
                     else
                         std::cout << fmt::format("Failed to add {} to archive\n", filename);
                 }
-            
+
             zip_close(archive);
             std::cout << fmt::format("World archive created successfully: {}\n", archive_name);
-            
+
             // Clean up the temporary directory after successful archiving
             std::filesystem::remove_all(world_dir);
             std::cout << fmt::format("Cleaned up temporary directory: {}\n", world_dir);
@@ -116,7 +116,7 @@ class World {
             std::string world_dir = _get_world_directory();
             unsigned count = zip_count(archive);
             std::cout << fmt::format("Archive contains {} files\n", count);
-            
+
             for (unsigned i = 0; i < count; i++) {
                 char* filename = zip_name(archive, i);
                 if (filename && strstr(filename, ".nicechunk")) {
@@ -134,7 +134,7 @@ class World {
                         std::cout << fmt::format("Failed to extract {} from archive\n", filename);
                 }
             }
-            
+
             zip_close(archive);
             std::cout << fmt::format("World loaded successfully from archive\n");
         } catch (const std::exception& e) {
@@ -318,7 +318,7 @@ public:
             }
         };
         _entity_pipeline = sg_make_pipeline(&desc);
-        _tilemap = $Assets.get<Texture>(TILEMAP_PATH);
+        _tilemap = $Assets.get<Texture>("tilemap.qoi");
 
         // Initialize chunk manager
         $Chunks.initialize(&_camera, _tilemap, _id);
@@ -351,7 +351,7 @@ public:
 #undef X
         L = ecs_lua_get_state(_world->c_ptr());
         ecs_assert(L != NULL, ECS_INTERNAL_ERROR, NULL);
-        
+
         // Set Lua state in ChunkManager
         $Chunks.set_lua_state(L);
 
@@ -451,7 +451,7 @@ public:
             lua_pushinteger(L, coords.second);
             return 2; // Return two values: x, y
         });
-        
+
         lua_register(L, "poisson", [](lua_State* L) -> int {
             World* world = get_world_from_lua(L);
             if (!world)
@@ -506,7 +506,7 @@ public:
                     return; // Will result in empty points vector
                 points = chunk->poisson(radius, static_cast<int>(k), invert, true, CHUNK_SIZE / 4, region);
             });
-            
+
             if (points.empty()) {
                 lua_pushnil(L);
                 return 1; // Return nil if chunk not found or not filled
@@ -1269,13 +1269,13 @@ public:
                 luaL_error(L, "register_chunk_callback expects (integer, function)");
                 return 0;
             }
-            
+
             int event_type = static_cast<int>(luaL_checkinteger(L, 1));
 
             // Store the function in the registry and get a reference
             lua_pushvalue(L, 2); // Duplicate the function
             int ref = luaL_ref(L, LUA_REGISTRYINDEX);
-            
+
             $Chunks.register_lua_callback(event_type, ref);
             return 0;
         });
@@ -1285,7 +1285,7 @@ public:
                 luaL_error(L, "unregister_chunk_callback expects (integer)");
                 return 0;
             }
-            
+
             int event_type = static_cast<int>(luaL_checkinteger(L, 1));
             $Chunks.unregister_lua_callback(event_type);
             return 0;
@@ -1368,7 +1368,7 @@ public:
     bool update(float dt) {
         Rect camera_bounds = _camera.bounds();
         Rect max_bounds = _camera.max_bounds();
-        
+
         $Chunks.update_chunks(camera_bounds, max_bounds);
         $Chunks.update_deletion_queue();
         $Chunks.scan_for_chunks(camera_bounds, max_bounds);
@@ -1382,7 +1382,7 @@ public:
         sg_apply_pipeline(_entity_pipeline);
         _chunk_entities.flush(&_camera);
         _screen_entities.flush();
-        
+
         return _world->progress(dt);
     }
 
@@ -1406,4 +1406,3 @@ public:
         return _texture_registry.has_asset(key);
     }
 };
-

@@ -1,4 +1,4 @@
-/* https://github.com/takeiteasy/nice 
+/* https://github.com/takeiteasy/nice
 
  This program is free software: you can redistribute it and/or modify
  it under the terms of the GNU General Public License as published by
@@ -26,8 +26,6 @@
 #include "glm/vec2.hpp"
 #include "passthru.glsl.h"
 #include "input_manager.hpp"
-#include "argparse.hpp"
-#include "INIReader.h"
 #include "world.hpp"
 
 static struct {
@@ -192,9 +190,9 @@ static void init(void) {
 static void frame(void) {
     int width = sapp_width();
     int height = sapp_height();
-    
+
     simgui_new_frame({ width, height, sapp_frame_duration(), sapp_dpi_scale() });
-    
+
     sdtx_canvas(width, height);
     sdtx_home();
     sdtx_printf("fps:    %.2f\n", 1.f / sapp_frame_duration());
@@ -244,16 +242,6 @@ static void cleanup(void) {
 }
 
 sapp_desc sokol_main(int argc, char* argv[]) {
-    argparse::ArgumentParser program("nice");
-
-    try {
-        program.parse_args(argc, argv);
-    } catch (const std::exception& e) {
-        std::cerr << e.what() << std::endl;
-        std::cerr << program;
-        exit(1);
-    }
-
     return (sapp_desc) {
         .width = DEFAULT_WINDOW_WIDTH,
         .height = DEFAULT_WINDOW_HEIGHT,

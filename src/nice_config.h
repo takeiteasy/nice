@@ -20,13 +20,7 @@
 
 #define CHUNK_DELETION_TIMEOUT 5
 
-#define TILE_WIDTH 32
-#define TILE_HEIGHT 32
-#define TILE_ORIGINAL_WIDTH 8
-#define TILE_ORIGINAL_HEIGHT 8
 #define TILE_PADDING 4
-
-#define TILEMAP_PATH "test/tilemap.exploded"
 
 #define MAX_ZOOM 2.f
 #define MIN_ZOOM .2f

@@ -62,9 +62,7 @@ INC := $(CXXFLAGS) $(INCLUDE_PATHS) $(LDFLAGS)
 SOURCE := $(wildcard src/*.cpp) \
           deps/fmt/format.cc \
           deps/fmt/os.cc \
-          deps/imgui/backends/imgui_impl_metal.mm \
-		  deps/ini.c \
-		  deps/INIReader.cpp
+          deps/imgui/backends/imgui_impl_metal.mm
 
 # Build Targets
 # -----------------------------------------------------------------------------
@@ -166,8 +164,6 @@ NICEPKG_SRCS := $(wildcard nicepkg/*.cpp) \
           deps/fmt/format.cc \
           deps/fmt/os.cc \
           deps/imgui/backends/imgui_impl_metal.mm \
-		  deps/ini.c \
-		  deps/INIReader.cpp \
 		  deps/osdialog/osdialog.c \
 		  deps/osdialog/osdialog_mac.m \
 		  deps/minilua.c
